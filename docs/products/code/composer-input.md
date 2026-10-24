@@ -99,28 +99,45 @@ only the disclosure label toggles expansion. Clipboard HTML supplies bounded,
 validated presentation ranges for card previews. Source colors adapt to the
 appearance. Source HTML and executable content are never mounted.
 
-Every Composer uses native plain-text editing. Short pastes insert the clipboard's
-plain text at the current selection, retaining indentation and line breaks through
-native undo/redo. Clipboard HTML never adds Markdown delimiters, code fences or
-link destinations to the draft. Explicitly typed or copied Markdown source remains
-literal text. Long pasted cards retain that same source text; “Show in text field”
-restores it atomically and removes the card exactly once. Existing persisted cards
-with an editable Markdown representation retain that representation for recovery
-and submission compatibility. Shift+Cmd/Ctrl+V bypasses folding for that paste.
+## Structured Chat Editing
 
-Sent Chat input follows the same literal-text contract: initial requests, accepted
-Steer messages and incoming Agent requests preserve their source, indentation and
-line breaks, including after reload. Markdown delimiters, Shell comments and HTML
-remain visible text; the renderer must not interpret them or add code fences.
-Structured attachments keep their own presentation. Assistant output retains its
-rich-content rendering.
+Main and side Chat use Tiptap with one versioned document and its exact derived
+text in the existing Agent composer owner. The editor owns local transactions,
+selection, IME and undo; expanding keeps the same editor mounted. Terminal keeps
+its native plain-text textarea and submission contract.
 
-The Agent draft string is the sole editing and submission owner. The same native
-textarea owns visible text, caret, selection, IME, scrolling and undo; no transparent
-text or syntax overlay may replace its rendering. Markdown-like content must not
-change its font, line height or color. Main Chat, side Chat, Terminal and expanded
-editing share this rule in every appearance. HTML-derived presentation is limited
-to non-editable context-card previews, never the input.
+Paste interpretation is automatic and based on source evidence. Editor clipboard
+language metadata preserves code; HTML preserves supported paragraphs, headings,
+lists, links, emphasis and code blocks. Code retains indentation, blank lines and
+literal `#` comments. Without structural evidence, text stays literal, including
+Markdown-looking markers. Typing does not activate Markdown input rules. There
+is no format selector. Unsupported HTML wrappers contribute their text; scripts,
+executable attributes and unsafe links are removed before schema parsing. Source
+HTML is never mounted. Paste is a single undoable transaction, bounded to 250,000
+text code units, 30,000 nodes and nesting depth 32; rejection leaves the draft
+unchanged and shows an error.
+
+Formatted Chat pastes stay in the editor so their structure is visible before
+send. Plain-text long pastes retain the captured-reference behavior above.
+Terminal pastes use plain text regardless of source formatting. “Show in text
+field” restores captured text atomically; legacy cards retain their stored
+editable representation for compatibility.
+
+Explicit submission snapshots the document, media and references into the existing
+outbox. The provider receives a derived text representation with code fences and
+link destinations; that representation is never reparsed for display. The backend
+validates the document and its text projection before admission. Initial input
+and accepted Steer render from the same document and shared content styles as the
+editor. Old messages and Agent requests without a document retain literal text;
+assistant output keeps its existing rich rendering.
+
+History, queue editing, failure restoration and browser checkpoints carry the
+complete document. Later edits and acknowledgements cannot change a submitted
+snapshot or another Agent's draft. Native provider history may omit formatting;
+Farming retains bounded presentation evidence and reattaches it only along a
+verified ordered input prefix, including accepted Steer. Divergent replay cannot
+borrow formatting from another branch. Formatting never establishes provenance
+or changes admission outcomes.
 
 Typing, selection, undo, history, queue editing, reload and Agent switches keep the
 existing draft transitions. IME owns Enter/Escape while composing; editing and
@@ -271,7 +288,7 @@ new trigger is entered. Ordinary rerenders must not reopen a dismissed menu.
 
 Selecting `@src/auth.ts` replaces the query with the
 readable relative path `src/auth.ts` and adds a removable reference chip to the
-existing attachment area. This deliberately preserves the native textarea and
+existing attachment area. This preserves the owning editor and
 its undo, selection, IME and expansion behavior. The inserted path is ordinary
 prose; the chip is the authoritative attachment. Editing or deleting that prose
 does not change the attachment, and removing the chip does not rewrite prose.
@@ -357,7 +374,7 @@ skills share the compact attachment strip; keep one visible row with a counted
 disclosure for overflow, not an expanding stack of cards. Paper uses the shared
 surface fills, and Light/Dark use their existing surface/border rules. The input
 boundary remains recognizable in every appearance. Compact and expanded editors
-retain the same textarea and keep send reachable above the software keyboard.
+retain the same editor and keep send reachable above the software keyboard.
 
 ### Ownership And State Transitions
 

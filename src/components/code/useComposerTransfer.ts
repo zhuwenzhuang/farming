@@ -1,13 +1,14 @@
+import { type ComposerInputElement } from './composer-input-element'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import type { ComposerContextReference } from './composer-message'
 
 export const WORKSPACE_REFERENCE_MIME = 'application/x-farming-workspace-reference'
-let focusedComposer: HTMLTextAreaElement | null = null
+let focusedComposer: ComposerInputElement | null = null
 /** Global routing only accepts files and yields to every other editor/modal. */
 export function useComposerTransfer({ active, agentId, workspace, textareaRef, composerRef, onAddReference }: {
   active: boolean; agentId: string; workspace: string
-  textareaRef: RefObject<HTMLTextAreaElement | null>; composerRef: RefObject<HTMLElement | null>
+  textareaRef: RefObject<ComposerInputElement | null>; composerRef: RefObject<HTMLElement | null>
   onAddReference?: (reference: Omit<ComposerContextReference, 'id'>) => void
 }) {
   const [error, setError] = useState('')
@@ -27,7 +28,8 @@ export function useComposerTransfer({ active, agentId, workspace, textareaRef, c
       if (document.querySelector('[aria-modal="true"]')) return
       event.preventDefault(); textarea.focus(); transfer(event.clipboardData)
     }
-    const paste = (event: ClipboardEvent) => {
+    const paste = (event: Event) => {
+      if (!(event instanceof ClipboardEvent)) return
       const sequence = ++nativeSequence
       const data = event.clipboardData
       if (data?.files.length || data?.getData('text/plain') || data?.getData('text/uri-list') || !window.farmingDesktop?.readClipboardImage || !event.isTrusted) return
@@ -39,7 +41,8 @@ export function useComposerTransfer({ active, agentId, workspace, textareaRef, c
         transfer(transferData)
       }).catch(caught => { if (alive) setError(caught instanceof Error ? caught.message : 'Clipboard image unavailable.') })
     }
-    const keydown = (event: KeyboardEvent) => {
+    const keydown = (event: Event) => {
+      if (!(event instanceof KeyboardEvent)) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') textarea.dataset.plainPaste = String(event.shiftKey)
     }
     const keyup = () => { delete textarea.dataset.plainPaste }

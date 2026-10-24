@@ -1,3 +1,4 @@
+import { normalizeComposerDocument, composerDocumentPrompt } from '../shared/composer-document.js';
 import type { ComposerSubmissionStatus } from '../shared/composer-submission.js';
 import type { ComposerStatusRequestMessage } from '../shared/browser-protocol.js';
 import { CHAT_PROMPT_MAX_ENCODED_BYTES, CHAT_ATTACHMENT_MAX_COUNT } from '../shared/chat-capacity.js';
@@ -119,7 +120,14 @@ function createWebSocketAcpHandlers<Client extends WebSocketAcpClient>(ports: We
       }
 
       const content: unknown[] = [];
-      if (composerMessage.trim()) content.push({ type: 'text', text: composerMessage });
+      const document = normalizeComposerDocument(message.document);
+      if (message.document !== undefined && (!document || composerDocumentPrompt(document) !== composerMessage)) {
+        respond(false, 'Chat document is invalid or does not match its message.');
+        return;
+      }
+      if (composerMessage.trim()) content.push({ type: 'text', text: composerMessage,
+        ...(document ? { _meta: { farmingInputDocument: document } } : {}),
+      });
       const attachments = Array.isArray(message.attachments) ? message.attachments : [];
       if (attachments.length > CHAT_ATTACHMENT_MAX_COUNT) throw new Error('Too many Chat attachments');
       let encodedBytes = Buffer.byteLength(JSON.stringify(content));

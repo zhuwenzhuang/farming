@@ -1,7 +1,9 @@
+import type { ComposerDocument } from '../../../shared/composer-document.js'
 import type { ComposerAttachment, ComposerContextReference } from './composer-message'
 export type ComposerHistoryDirection = 'previous' | 'next'
 
 export interface ComposerHistorySnapshot {
+  draftDocument?: ComposerDocument
   attachments: ComposerAttachment[]
   contextReferences: ComposerContextReference[]
 }
@@ -35,9 +37,10 @@ export function addComposerHistoryEntry(
   limit = DEFAULT_COMPOSER_HISTORY_LIMIT,
   snapshot?: ComposerHistorySnapshot
 ): ComposerHistoryState {
-  const entry = value.trimEnd()
+  const entry = snapshot?.draftDocument ? value : value.trimEnd()
   if (!entry && !snapshot?.attachments.length && !snapshot?.contextReferences.length) return { ...history, cursor: null }
   const saved = snapshot ? {
+    draftDocument: snapshot.draftDocument,
     attachments: snapshot.attachments.filter(item => item.status === 'ready').map(({ previewUrl: _preview, ...item }) => item),
     contextReferences: snapshot.contextReferences.map(item => ({ ...item })),
   } : null
@@ -121,5 +124,5 @@ export function navigateComposerHistory(history: ComposerHistoryState, direction
   if (!result.changed || !current) return result as typeof result & { snapshot?: ComposerHistorySnapshot }
   const returnSnapshot = history.cursor === null ? current : history.returnSnapshot
   const snapshot = result.history.cursor === null ? returnSnapshot : history.snapshots?.[result.history.cursor]
-  return { ...result, history: { ...result.history, returnSnapshot }, snapshot: snapshot || { attachments: [], contextReferences: [] } }
+  return { ...result, history: { ...result.history, returnSnapshot }, snapshot: { draftDocument: undefined, ...(snapshot || { attachments: [], contextReferences: [] }) } }
 }

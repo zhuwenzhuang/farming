@@ -1,3 +1,4 @@
+import { type ComposerInputElement } from './composer-input-element'
 import { useComposerSubmission } from './composer-submission-state'
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
@@ -7,7 +8,7 @@ export function useComposerExpandedEditor({ agentId, enabled, textareaRef, compo
   agentId: string
   stageLocally?: boolean
   enabled: boolean
-  textareaRef: RefObject<HTMLTextAreaElement | null>
+  textareaRef: RefObject<ComposerInputElement | null>
   composerRef: RefObject<HTMLElement | null>
 }) {
   const submission = useComposerSubmission(agentId)

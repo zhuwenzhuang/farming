@@ -1,3 +1,6 @@
+import { ComposerRichInput } from '../ComposerRichInput'
+import type { ComposerDocument } from '../../../../shared/composer-document.js'
+import { type ComposerInputElement } from '../composer-input-element'
 import { MAX_COMPOSER_SUBMISSIONS, type AgentComposerSubmission } from '../composer-state'
 import { useComposerTransfer } from '../useComposerTransfer'
 import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
@@ -87,6 +90,7 @@ export interface AcpComposerProps {
   sessionUpdatedAt?: string
   runtimeError: string
   draft: string
+  draftDocument?: ComposerDocument
   attachments: ComposerAttachmentView[]
   contextReferences?: ComposerContextReference[]
   workspace?: string
@@ -96,7 +100,7 @@ export interface AcpComposerProps {
   submissions: AgentComposerSubmission[]
   canSteerPendingFollowUp: boolean
   submitAction: 'send' | 'interrupt' | 'disabled'
-  textareaRef: RefObject<HTMLTextAreaElement | null>
+  textareaRef: RefObject<ComposerInputElement | null>
   attachmentInputRef: RefObject<HTMLInputElement | null>
   permissions: AcpPendingPermission[]
   elicitations: AcpPendingElicitation[]
@@ -106,7 +110,7 @@ export interface AcpComposerProps {
   slashCatalogStatus?: 'disabled' | 'loading' | 'ready' | 'error'
   speechSupported: boolean
   speechListening: boolean
-  onDraftChange: (value: string) => void
+  onDraftChange: (value: string, document?: ComposerDocument) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
   onAddContextReference?: (reference: Omit<ComposerContextReference, 'id'>) => void
@@ -123,7 +127,7 @@ export interface AcpComposerProps {
   onDiscardSubmission: (messageId: string) => void
   onToggleSpeechInput: () => void
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
-  onPasteShortcutFallback: (textarea: HTMLTextAreaElement) => void
+  onPasteShortcutFallback: (textarea: ComposerInputElement) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
@@ -141,6 +145,7 @@ export function AcpComposer({
   sessionUpdatedAt,
   runtimeError,
   draft,
+  draftDocument,
   attachments,
   contextReferences = [],
   workspace = '',
@@ -329,7 +334,7 @@ export function AcpComposer({
     })
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<ComposerInputElement>) => {
     if (isComposerImeCompositionEvent(event, compositionActiveRef.current)) return
     if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'v') {
       onPasteShortcutFallback(event.currentTarget)
@@ -679,14 +684,13 @@ export function AcpComposer({
         </div>
       ) : null}
       {hasQuotes ? composerAttachments : null}
-      <textarea
+      <ComposerRichInput
+          key={agentId}
+          document={draftDocument}
           data-testid="code-acp-composer-input"
-          ref={textareaRef}
-          rows={1}
+          inputRef={textareaRef}
           enterKeyHint={touchPrimaryInput ? 'enter' : 'send'}
-          name="farming-acp-chat-message"
           inputMode="text"
-          autoComplete="off"
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
@@ -711,14 +715,13 @@ export function AcpComposer({
           onClick={event => setSelectionStart(event.currentTarget.selectionStart)}
           onKeyUp={event => setSelectionStart(event.currentTarget.selectionStart)}
           onSelect={event => setSelectionStart(event.currentTarget.selectionStart)}
-          onChange={event => {
-            const nextDraft = event.currentTarget.value
+          onValueChange={(nextDraft, document) => {
             latestDraftRef.current = nextDraft
-            setSelectionStart(event.currentTarget.selectionStart)
+            setSelectionStart(textareaRef.current?.selectionStart || 0)
             if (nextDraft && visiblePromptSuggestion) {
               setDismissedPromptSuggestionId(visiblePromptSuggestion.promptId)
             }
-            onDraftChange(nextDraft)
+            onDraftChange(nextDraft, document)
           }}
           onPaste={onPasteAttachment}
           onCompositionStart={() => { compositionActiveRef.current = true }}
@@ -726,7 +729,6 @@ export function AcpComposer({
             compositionActiveRef.current = false
             lastCompositionEndAtRef.current = Date.now()
             latestDraftRef.current = event.currentTarget.value
-            onDraftChange(event.currentTarget.value)
           }}
           onKeyDown={handleKeyDown}
           data-lpignore="true"

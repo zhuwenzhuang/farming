@@ -1,3 +1,5 @@
+import type { ComposerDocument } from '../../shared/composer-document.js'
+import { type ComposerInputElement, isComposerInputElement } from './code/composer-input-element'
 import type { ComposerDeliveryOptions } from './code/composer-state'
 import { ResumeStoppedAgentDialog, isStoppedAgentResumeCandidate } from './code/ResumeStoppedAgentDialog'
 import { intakeComposerFile, cancelComposerIntake } from './code/composer-intake'
@@ -958,7 +960,7 @@ export function CodeWorkspace({
     : ''
   const [now, setNow] = useState(Date.now())
   const workspaceRef = useRef<HTMLDivElement>(null)
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const composerTextareaRef = useRef<ComposerInputElement>(null)
   const composerAttachmentsRef = useRef<ComposerAttachment[]>([])
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const plusMenuRef = useRef<HTMLDivElement>(null)
@@ -2140,7 +2142,7 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [focusComposerTextarea, updateActiveComposerState])
 
-  const pasteTextAsReference = useCallback((text: string, textarea: HTMLTextAreaElement, html?: string) => {
+  const pasteTextAsReference = useCallback((text: string, textarea: ComposerInputElement, html?: string) => {
     if (!activeComposerKey || textarea.dataset.plainPaste === 'true') return false
     let prepared
     try {
@@ -2168,7 +2170,7 @@ export function CodeWorkspace({
   }, [appendAttachmentFiles])
 
   const pasteEventSequenceRef = useRef(0)
-  const insertRecentClipboardWrite = useCallback((textarea: HTMLTextAreaElement) => {
+  const insertRecentClipboardWrite = useCallback((textarea: ComposerInputElement) => {
     const fallbackText = readRecentClipboardWrite()
     if (!activeComposerKey || !fallbackText) return
     if (pasteTextAsReference(fallbackText, textarea)) return
@@ -2189,10 +2191,14 @@ export function CodeWorkspace({
     if (event.defaultPrevented) return
     const files = clipboardAttachmentFiles(event.clipboardData)
     const text = event.clipboardData.getData('text/plain') || event.clipboardData.getData('text/uri-list').split('\n').filter(line => !line.startsWith('#')).join('\n')
+    if (event.currentTarget.dataset.composerRichInput === 'true') {
+      if (files.length) { void appendAttachmentFiles(files); if (!text && !event.clipboardData.getData('text/html')) event.preventDefault(); return }
+      if (event.clipboardData.getData('text/html') || event.clipboardData.getData('vscode-editor-data')) return
+    }
     if (files.length > 0) {
       event.preventDefault()
       void appendAttachmentFiles(files)
-      if (text && event.currentTarget instanceof HTMLTextAreaElement) {
+      if (text && isComposerInputElement(event.currentTarget)) {
         const textarea = event.currentTarget
         if (!pasteTextAsReference(text, textarea, event.clipboardData.getData('text/html'))) {
           const start = textarea.selectionStart; const end = textarea.selectionEnd
@@ -2202,17 +2208,17 @@ export function CodeWorkspace({
       return
     }
     if (text) {
-      if (event.currentTarget instanceof HTMLTextAreaElement && pasteTextAsReference(text, event.currentTarget, event.clipboardData.getData('text/html'))) event.preventDefault()
+      if (isComposerInputElement(event.currentTarget) && pasteTextAsReference(text, event.currentTarget, event.clipboardData.getData('text/html'))) event.preventDefault()
       return
     }
     const textarea = event.currentTarget
-    if (!(textarea instanceof HTMLTextAreaElement) || !readRecentClipboardWrite()) return
+    if (!(isComposerInputElement(textarea)) || !readRecentClipboardWrite()) return
 
     event.preventDefault()
     insertRecentClipboardWrite(textarea)
   }, [appendAttachmentFiles, insertRecentClipboardWrite, pasteTextAsReference, updateActiveComposerState])
 
-  const handlePasteShortcutFallback = useCallback((textarea: HTMLTextAreaElement) => {
+  const handlePasteShortcutFallback = useCallback((textarea: ComposerInputElement) => {
     const pasteEventSequence = pasteEventSequenceRef.current
     window.setTimeout(() => {
       if (pasteEventSequenceRef.current !== pasteEventSequence) return
@@ -2284,10 +2290,11 @@ export function CodeWorkspace({
     markAgentReadIfNeeded(agentId, false, readCut)
   }, [markAgentReadIfNeeded])
 
-  const handleDraftChange = useCallback((value: string) => {
+  const handleDraftChange = useCallback((value: string, document?: ComposerDocument) => {
     updateActiveComposerState(state => ({
       ...state,
       draft: value,
+      ...(document ? { draftDocument: document } : {}),
       history: { ...state.history, cursor: null },
     }))
   }, [updateActiveComposerState])
@@ -2299,7 +2306,7 @@ export function CodeWorkspace({
     if (!activeAgent || !activeComposerKey) return null
     if (!canUseComposerHistoryNavigation(input)) return null
 
-    const result = navigateComposerHistory(activeComposerState.history, direction, input.value, { attachments: activeComposerState.attachments, contextReferences: activeComposerState.contextReferences || [] })
+    const result = navigateComposerHistory(activeComposerState.history, direction, input.value, { draftDocument: activeComposerState.draftDocument, attachments: activeComposerState.attachments, contextReferences: activeComposerState.contextReferences || [] })
     if (!result.changed) return null
 
     updateComposerStateForKey(activeComposerKey, state => ({
@@ -2477,7 +2484,7 @@ export function CodeWorkspace({
       history: { ...state.history, cursor: null },
     }))
     window.requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>('[data-testid="code-subagent-panel"] [data-testid="code-acp-composer-input"]')
+      document.querySelector<ComposerInputElement>('[data-testid="code-subagent-panel"] [data-testid="code-acp-composer-input"]')
         ?.focus({ preventScroll: true })
     })
   }, [copy.quoteContextLabel, openSubagent, updateComposerStateForKey])
@@ -2665,6 +2672,7 @@ export function CodeWorkspace({
       agent: activeAgent,
       composerKey: activeComposerKey,
       draft: latestDraft,
+      draftDocument: activeComposerState.draftDocument,
       attachments: composerAttachments,
       contextReferences: composerContextReferences,
       contextValid: composerContextSendable,
@@ -2682,7 +2690,7 @@ export function CodeWorkspace({
       focusComposerTextarea()
     }
     return submitted
-  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activePromptStartFenced, composerAttachments, composerContextReferences, composerContextSendable, composerMode, draft, focusComposerTextarea, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
+  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, activeComposerState.draftDocument, activePromptStartFenced, composerAttachments, composerContextReferences, composerContextSendable, composerMode, draft, focusComposerTextarea, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
 
   const reconnectActiveAcpAgent = useCallback(() => {
     if (!activeAgent || !isAcpRuntime(activeAgent)) return
@@ -6355,6 +6363,7 @@ export function CodeWorkspace({
           sessionUpdatedAt: activeAcpRuntime?.sessionUpdatedAt || '',
           runtimeError: activeAcpRuntime?.error || '',
           draft,
+          draftDocument: activeComposerState.draftDocument,
           attachments: composerAttachments,
           contextReferences: composerContextReferences,
           unavailableReferenceIds: unavailableContextReferenceIds,

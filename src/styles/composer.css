@@ -2275,7 +2275,8 @@
   border-radius: 999px;
 }
 
-body.code-mode .code-composer textarea {
+body.code-mode .code-composer textarea,
+body.code-mode .code-composer .code-rich-input {
   width: 100%;
   min-height: 42px;
   max-height: 132px;
@@ -2292,7 +2293,8 @@ body.code-mode .code-composer textarea {
   word-break: break-word;
 }
 
-body.code-mode .code-composer textarea::placeholder {
+body.code-mode .code-composer textarea::placeholder,
+body.code-mode .code-composer .code-rich-input::placeholder {
   color: var(--code-text-quiet);
   font-weight: 400;
 }
@@ -2598,7 +2600,8 @@ body.code-mode .code-composer textarea::placeholder {
 .code-composer-add:disabled,
 .code-composer-send:disabled,
 .code-composer-mic:disabled,
-body.code-mode .code-composer textarea:disabled {
+body.code-mode .code-composer textarea:disabled,
+body.code-mode .code-composer .code-rich-input[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -2685,7 +2688,8 @@ body.code-mode .code-composer textarea:disabled {
   }
 }
 
-.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor {
+.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor,
+.code-main:has(.code-composer .code-rich-input:focus-within) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor {
   background-color: transparent !important;
   border-color: transparent !important;
   color: transparent !important;
@@ -2696,7 +2700,9 @@ body.code-mode .code-composer textarea:disabled {
 }
 
 .code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-bar,
-.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-underline {
+.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-underline,
+.code-main:has(.code-composer .code-rich-input:focus-within) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-bar,
+.code-main:has(.code-composer .code-rich-input:focus-within) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-underline {
   border-color: transparent !important;
   opacity: 0 !important;
 }
@@ -2849,7 +2855,8 @@ body.code-mode .code-composer textarea:disabled {
     color: var(--code-text-subtle);
   }
 
-  .code-composer textarea {
+  .code-composer textarea,
+  .code-composer .code-rich-input {
     min-height: 42px;
     font-size: 14px;
     color: var(--code-text);
@@ -3048,7 +3055,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     flex: 0 0 auto;
   }
 
-  body.code-mode.code-compact-layout .code-composer textarea {
+  body.code-mode.code-compact-layout .code-composer textarea,
+  body.code-mode.code-compact-layout .code-composer .code-rich-input {
     min-height: 22px;
     max-height: min(156px, calc(var(--app-visual-height, 100dvh) * 0.32));
     padding-right: 46px;
@@ -3059,7 +3067,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     line-height: 1.34;
   }
 
-  body.code-mode.code-compact-layout.code-mobile-touch .code-composer textarea {
+  body.code-mode.code-compact-layout.code-mobile-touch .code-composer textarea,
+  body.code-mode.code-compact-layout.code-mobile-touch .code-composer .code-rich-input {
     /* Keep touch browsers at 16px so focusing the Composer does not trigger
        viewport zoom. Narrow desktop windows can use the denser 14px size. */
     font-size: max(16px, var(--code-content-font-size));
@@ -3305,7 +3314,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
   color: var(--code-text);
 }
 
-.code-composer textarea::placeholder {
+.code-composer textarea::placeholder,
+.code-composer .code-rich-input::placeholder {
   color: var(--code-text-quiet);
 }
 
@@ -3439,15 +3449,18 @@ body.code-mode.code-compact-layout .code-composer.menu-open {
   box-shadow: var(--code-composer-shadow) !important;
 }
 
-body.code-mode.code-compact-layout .code-composer textarea {
+body.code-mode.code-compact-layout .code-composer textarea,
+body.code-mode.code-compact-layout .code-composer .code-rich-input {
   color: var(--code-text);
 }
 
-body.code-mode.code-compact-layout .code-composer textarea {
+body.code-mode.code-compact-layout .code-composer textarea,
+body.code-mode.code-compact-layout .code-composer .code-rich-input {
   caret-color: var(--code-text);
 }
 
-body.code-mode.code-compact-layout .code-composer textarea::placeholder {
+body.code-mode.code-compact-layout .code-composer textarea::placeholder,
+body.code-mode.code-compact-layout .code-composer .code-rich-input::placeholder {
   color: var(--code-text-quiet);
 }
 
@@ -3850,3 +3863,16 @@ button.code-composer-attachment-preview {
     pointer-events: auto;
   }
 }
+
+/* Structured Chat content shares typography and geometry before and after send. */
+body.code-mode .code-composer-document { position: relative; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; min-height: 1.5em; font: inherit; }
+body.code-mode .code-composer-document p { margin: 0; min-height: 1.5em; }
+body.code-mode .code-composer-document pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: .65em .8em; margin: .5em 0; border-radius: 8px; background: var(--code-code-bg); }
+body.code-mode .code-composer-document code { font-family: var(--code-mono-font, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: .9em; }
+body.code-mode .code-composer-document pre code { font-size: 1em; }
+body.code-mode .code-composer-document :is(h1,h2,h3,h4,h5,h6) { font-size: 1.12em; font-weight: 600; line-height: 1.5; margin: .4em 0; }
+body.code-mode .code-composer-document :is(ul,ol) { margin: .3em 0; padding-inline-start: 1.5em; }
+body.code-mode .code-composer-document blockquote { margin: .4em 0; padding-inline: 1em; color: var(--code-text-muted); }
+body.code-mode .code-composer-document a { color: inherit; text-decoration: underline; }
+body.code-mode .code-rich-input .code-composer-document:has(> p:only-child > br:only-child)::before { content: attr(data-placeholder); color: var(--code-text-muted); position: absolute; pointer-events: none; }
+body.code-mode .code-rich-input { cursor: text; }

@@ -1,3 +1,5 @@
+import { ComposerDocumentContent } from './ComposerDocumentContent'
+import type { ComposerDocument } from '../../../shared/composer-document.js'
 import { continuesPeerMessageGroup, peerMessageTimestamp } from './acp/peer-message-layout'
 import { FileLinkAccess } from '@/lib/file-link-access'
 import { requestWorkspace } from '@/lib/workspace-request-client'
@@ -1494,7 +1496,7 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
   return (
     <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
       <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
-        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptInputText text={text} /></div> : null}
+        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptInputText document={item.document} text={text} /></div> : null}
         <AgentTranscriptUserImages images={images} />
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
@@ -1535,15 +1537,16 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
-function AgentTranscriptInputText({ text }: { text: string }) {
+function AgentTranscriptInputText({ text, document }: { text: string; document?: ComposerDocument }) {
+  if (document) return <ComposerDocumentContent document={document} />
   return <div className="code-agent-transcript-input-text">{text}</div>
 }
 
 function AgentTranscriptUserMessage({ turn, copy }: { turn: AgentTranscriptTurn; copy: CodeCopy }) {
-  if (!turn.handoffContext) return <AgentTranscriptInputText text={turn.userMessage} />
+  if (!turn.handoffContext) return <AgentTranscriptInputText document={turn.userDocument} text={turn.userMessage} />
   return <details className="code-agent-transcript-context" data-testid="code-agent-handoff-context">
     <summary><span>{copy.handoffContext}</span><ChevronRightGlyph /></summary>
-    <div className="detail"><AgentTranscriptInputText text={turn.userMessage} /></div>
+    <div className="detail"><AgentTranscriptInputText document={turn.userDocument} text={turn.userMessage} /></div>
   </details>
 }
 
@@ -1822,7 +1825,7 @@ function AgentTranscriptProcessItemView({
   if (item.peerMessage) return <AgentTranscriptIncomingMessage copy={copy}
     turn={{ userSource: item.peerMessage, startedAt: item.createdAt ?? null }}>
     <div className="code-agent-transcript-user" data-process-item-id={item.id}>
-      <AgentTranscriptInputText text={item.detail || ''} />
+      <AgentTranscriptInputText document={item.document} text={item.detail || ''} />
       <AgentTranscriptUserImages images={item.images || []} />
       <AgentTranscriptAudios audios={item.audios || []} />
       <AgentTranscriptUserFiles files={item.files || []} />

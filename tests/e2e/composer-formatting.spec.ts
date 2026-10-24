@@ -1,3 +1,4 @@
+import type { ComposerInputElement } from '../../src/components/code/composer-input-element'
 import type { Locator } from '@playwright/test'
 import { expect, openFarming, terminalCheckpointOutput, test } from './fixtures'
 
@@ -15,6 +16,24 @@ test.beforeEach(async ({ page, browserName }) => {
   })
 })
 
+async function expectValue(input: Locator, value: string) {
+  await expect.poll(() => input.evaluate(element => {
+    const owner = element instanceof HTMLTextAreaElement ? element : element.parentElement as ComposerInputElement
+    return owner.value
+  })).toBe(value)
+}
+async function selectText(input: Locator, start?: number, end?: number) {
+  await input.evaluate((element, range) => {
+    const owner = element instanceof HTMLTextAreaElement ? element : element.parentElement as ComposerInputElement
+    owner.setSelectionRange(range[0] ?? owner.value.length, range[1] ?? owner.value.length)
+  }, [start, end])
+}
+async function selection(input: Locator) {
+  return input.evaluate(element => {
+    const owner = element instanceof HTMLTextAreaElement ? element : element.parentElement as ComposerInputElement
+    return [owner.selectionStart, owner.selectionEnd]
+  })
+}
 async function typography(input: Locator) {
   return input.evaluate(element => {
     const style = getComputedStyle(element)
@@ -80,27 +99,28 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       const prefix = mode === 'terminal' ? 'code-composer' : 'code-acp-composer'
       const input = surface.getByTestId(`${prefix}-input`)
       await expect(input).toBeEditable()
+      const editorMod = mode === 'terminal' ? 'ControlOrMeta' : await page.evaluate(() => /Mac|iP(hone|ad|od)/.test(navigator.platform) ? 'Meta' : 'Control')
       const before = await typography(input)
       expect(before.color).not.toBe('rgba(0, 0, 0, 0)')
       expect(before.opacity).toBe('1')
       sent.length = 0
       await input.focus()
       await page.keyboard.press('ControlOrMeta+v')
-      await expect(input).toHaveValue(copied)
+      await expectValue(input, copied)
       await expect(page.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
       expect(await typography(input)).toEqual(before)
 
       // Replace in the middle, then exercise the browser's actual undo stack.
       const start = copied.indexOf('docker_test')
       const end = start + 'docker_test'.length
-      await input.evaluate((element, range) => element.setSelectionRange(...range), [start, end] as const)
+      await selectText(input, start, end)
       await page.keyboard.insertText('plain_value')
       const replaced = copied.slice(0, start) + 'plain_value' + copied.slice(end)
-      await expect(input).toHaveValue(replaced)
-      await page.keyboard.press('ControlOrMeta+z')
-      await expect(input).toHaveValue(copied)
-      await page.keyboard.press('ControlOrMeta+Shift+z')
-      await expect(input).toHaveValue(replaced)
+      await expectValue(input, replaced)
+      await page.keyboard.press(`${editorMod}+z`)
+      await expectValue(input, copied)
+      await page.keyboard.press(`${editorMod}+Shift+z`)
+      await expectValue(input, replaced)
       // Composition events exercise application arbitration, not an OS candidate UI.
       await input.dispatchEvent('compositionstart', { data: '' })
       await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, keyCode: 229 })
@@ -109,22 +129,22 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await input.dispatchEvent('compositionend', { data: '中文确认' })
       // A separate newline follows the documented 120 ms IME confirmation guard.
       await page.waitForTimeout(150)
-      await input.evaluate(element => element.setSelectionRange(element.value.length, element.value.length))
+      await selectText(input)
       await page.keyboard.press('Shift+Enter')
       const suffix = '**`docker_test`** remains literal 🐱\n' + '  const value = "中文";\n\tconsole.log(value);\n'.repeat(12) + 'END_OF_DRAFT'
       await page.keyboard.insertText(suffix)
       const caret = start + 'plain_value'.length
       const draft = replaced.slice(0, caret) + '中文确认' + replaced.slice(caret) + '\n' + suffix
-      await expect(input).toHaveValue(draft)
+      await expectValue(input, draft)
       expect(await typography(input)).toEqual(before)
       expect(sent).toHaveLength(0)
-      await input.evaluate(element => { element.scrollTop = 0 })
+      await input.evaluate(element => { (element.closest('.code-rich-input') || element).scrollTop = 0 })
       await expect(input).toHaveScreenshot(`${mode}-${appearance}-plain-top.png`)
-      await input.evaluate(element => { element.scrollTop = element.scrollHeight })
-      expect(await input.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+      await input.evaluate(element => { const owner = element.closest('.code-rich-input') || element; owner.scrollTop = owner.scrollHeight })
+      expect(await input.evaluate(element => (element.closest('.code-rich-input') || element).scrollTop)).toBeGreaterThan(0)
       await expect(input).toHaveScreenshot(`${mode}-${appearance}-plain-bottom.png`)
       await surface.screenshot({ path: testInfo.outputPath(`${mode}-${appearance}-composed.png`), animations: 'disabled' })
-      if (mode === 'side') await expect(sourceInput).toHaveValue('Keep parent draft')
+      if (mode === 'side') await expectValue(sourceInput, 'Keep parent draft')
       // Persist and switch ownership before sending the same exact snapshot.
       await expect.poll(() => page.evaluate(() => localStorage.getItem('farming.code.agentComposerCheckpoint.v1'))).toContain('END_OF_DRAFT')
       await select(mode === 'terminal' ? sourceId : otherId)
@@ -138,20 +158,20 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
         await page.locator('[data-testid="code-agent-row"].related-child').click()
       }
-      await expect(input).toHaveValue(draft)
+      await expectValue(input, draft)
       if (mode !== 'side') {
         await page.reload()
-        await expect(input).toHaveValue(draft)
+        await expectValue(input, draft)
       }
       await surface.getByTestId(`${prefix}-send`).click()
-      await expect(input).toHaveValue('')
+      await expectValue(input, '')
       if (mode === 'terminal' && await page.getByTestId('code-pending-followup-send-next').count()) await page.getByTestId('code-pending-followup-send-next').click()
       await expect.poll(() => sent.length).toBe(1)
       if (mode === 'terminal') {
         expect(sent[0].inputParts).toEqual([{ type: 'paste', text: draft }, '\r'])
         await expect.poll(() => terminalCheckpointOutput(page, otherId)).toContain('END_OF_DRAFT')
       } else expect(sent[0].message).toBe(draft)
-      if (mode === 'side') await expect(sourceInput).toHaveValue('Keep parent draft')
+      if (mode === 'side') await expectValue(sourceInput, 'Keep parent draft')
     })
   }
 }
@@ -177,24 +197,25 @@ for (const mode of ['chat', 'terminal'] as const) {
       expect(await typography(input)).toEqual(before)
       await expect(page.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
       await input.focus()
-      await input.evaluate(element => { element.setSelectionRange(3, 14); element.scrollTop = 0 })
+      await selectText(input, 3, 14)
+      await input.evaluate(element => { (element.closest('.code-rich-input') || element).scrollTop = 0 })
       await expect(input).toBeFocused()
-      await expect.poll(() => input.evaluate(element => [element.selectionStart, element.selectionEnd, element.scrollTop])).toEqual([3, 14, 0])
+      await expect.poll(() => selection(input)).toEqual([3, 14])
       await expect(input).toHaveScreenshot(`${mode}-${appearance}-compact-plain.png`)
       const toggle = page.getByTestId('code-composer-editor-toggle')
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-expanded', 'true')
       expect(await input.evaluate((element, original) => element === original, textarea)).toBe(true)
-      expect(await input.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([3, 14])
-      await input.evaluate(element => { element.scrollTop = element.scrollHeight })
+      expect(await selection(input)).toEqual([3, 14])
+      await input.evaluate(element => { const owner = element.closest('.code-rich-input') || element; owner.scrollTop = owner.scrollHeight })
       await expect(input).toHaveScreenshot(`${mode}-${appearance}-expanded-plain.png`)
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-      await expect(input).toHaveValue(draft)
+      await expectValue(input, draft)
       await input.focus()
-      await input.evaluate(element => element.setSelectionRange(element.value.length, element.value.length))
+      await selectText(input)
       await page.keyboard.press('Enter')
-      await expect(input).toHaveValue(draft + '\n')
+      await expectValue(input, draft + '\n')
     }
   })
 }

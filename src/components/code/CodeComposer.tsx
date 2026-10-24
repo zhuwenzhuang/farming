@@ -1,3 +1,4 @@
+import { type ComposerInputElement } from './composer-input-element'
 import { useComposerTransfer } from './useComposerTransfer'
 import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -158,7 +159,7 @@ interface CodeComposerProps {
   submitAction: 'send' | 'interrupt' | 'disabled'
   speechSupported: boolean
   speechListening: boolean
-  textareaRef: RefObject<HTMLTextAreaElement | null>
+  textareaRef: RefObject<ComposerInputElement | null>
   attachmentInputRef: RefObject<HTMLInputElement | null>
   plusMenuRef: RefObject<HTMLDivElement | null>
   approvalMenuRef: RefObject<HTMLDivElement | null>
@@ -176,7 +177,7 @@ interface CodeComposerProps {
   onDiscardPendingFollowUp: (messageId: string) => void
   onEditPendingFollowUp: (messageId: string) => boolean
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
-  onPasteShortcutFallback: (textarea: HTMLTextAreaElement) => void
+  onPasteShortcutFallback: (textarea: ComposerInputElement) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
@@ -506,7 +507,7 @@ export function CodeComposer({
     selectedButton?.scrollIntoView({ block: 'nearest' })
   }, [showSlashMenu, selectedSlashCommand])
 
-  function updateSelectionFromTextarea(textarea: HTMLTextAreaElement | null = textareaRef.current) {
+  function updateSelectionFromTextarea(textarea: ComposerInputElement | null = textareaRef.current) {
     if (!textarea) return
     setTextareaSelectionStart(textarea.selectionStart ?? draft.length)
   }
@@ -675,7 +676,7 @@ export function CodeComposer({
       {hasQuotes ? composerAttachments : null}
       <textarea
           data-testid="code-composer-input"
-          ref={textareaRef}
+          ref={node => { textareaRef.current = node }}
           rows={1}
           enterKeyHint={touchPrimaryInput ? 'enter' : 'send'}
           name="farming-chat-message"

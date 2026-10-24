@@ -1,3 +1,4 @@
+import { composerDocumentFromContent, type ComposerDocument } from '../../../../shared/composer-document.js'
 import { isUnavailableAcpPeerReceipt, normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../../../../shared/agent-handoff-context'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
@@ -60,6 +61,7 @@ export interface AgentTranscriptLocation {
 }
 
 export interface AgentTranscriptProcessItem {
+  document?: ComposerDocument
   id: string
   type: string
   title: string
@@ -115,6 +117,7 @@ export interface AgentTranscriptSubagentState {
 
 export interface AgentTranscriptTurn {
   id: string
+  userDocument?: ComposerDocument
   userMessage: string
   userSource?: AcpPeerMessage
   handoffContext?: AgentHandoffContext
@@ -858,6 +861,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
           ...(peer ? { peerMessage: peer } : {}),
           ...(Number.isFinite(Number(entry.createdAt)) ? { createdAt: Number(entry.createdAt) } : {}),
           detail: contentText(entry.content),
+          document: composerDocumentFromContent(entry.content),
           images: contentImages(entry.content, entryId),
           audios: contentAudios(entry.content, entryId),
           files: contentFiles(entry.content, entryId),
@@ -879,6 +883,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
         current.userSource = normalizeAcpPeerMessage(record(entry._meta).peerMessage) || undefined
         current.handoffContext = normalizeAgentHandoffContext(record(entry._meta).farmingHandoff) || undefined
         current.userMessage = contentText(entry.content)
+        current.userDocument = composerDocumentFromContent(entry.content)
         current.userImages = contentImages(entry.content, entryId)
         current.userAudios = contentAudios(entry.content, entryId)
         current.userFiles = contentFiles(entry.content, entryId)

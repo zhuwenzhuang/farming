@@ -1,3 +1,4 @@
+import { literalComposerDocument, type ComposerDocument } from '../../../shared/composer-document.js'
 import type { Agent } from '@/types/agent'
 import { agentSessionId } from './model'
 import { createDefaultComposerHistoryState, type ComposerHistoryState } from './composer-history'
@@ -11,6 +12,8 @@ import {
 } from '../../../shared/provider-session-identity.js'
 
 export interface AgentComposerPendingFollowUpMessage {
+  document?: ComposerDocument
+  draftDocument?: ComposerDocument
   id: string
   text: string
   createdAt: number
@@ -29,6 +32,7 @@ export const MAX_COMPOSER_SUBMISSIONS = 32
 
 export type ComposerDeliveryOutcome = 'accepted' | 'rejected' | 'unknown'
 export interface ComposerDeliveryOptions {
+  document?: ComposerDocument
   onOutcome?: (outcome: ComposerDeliveryOutcome) => void
   reconcile?: boolean
 }
@@ -47,6 +51,7 @@ export interface AgentComposerUiState {
 }
 
 export interface AgentComposerState {
+  draftDocument?: ComposerDocument
   draft: string
   attachments: ComposerAttachment[]
   contextReferences?: ComposerContextReference[]
@@ -122,6 +127,12 @@ export function restorePendingFollowUpMessageForEdit(
   return {
     ...state,
     draft,
+    draftDocument: draft === state.draft ? state.draftDocument
+      : !state.draft.trim() ? message.draftDocument
+        : { version: 1, doc: { type: 'doc', content: [
+          ...(message.draftDocument || literalComposerDocument(restoredText)).doc.content!,
+          ...(state.draftDocument || literalComposerDocument(state.draft)).doc.content!,
+        ] } },
     attachments: [...state.attachments, ...restoredAttachments],
     contextReferences: [...(state.contextReferences || []), ...(message.contextReferences || []).filter(reference => !state.contextReferences?.some(existing => existing.id === reference.id))],
     mode: state.draft.trim() ? state.mode : (message.composerMode ?? 'default'),
@@ -194,6 +205,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
   return {
     ...primary,
     draft: primary.draft || incoming.draft,
+    draftDocument: primary.draft ? primary.draftDocument : incoming.draftDocument,
     attachments: [...incoming.attachments, ...primary.attachments],
     contextReferences: [...(incoming.contextReferences || []), ...(primary.contextReferences || []).filter(reference => !incoming.contextReferences?.some(existing => existing.id === reference.id))],
     mode: primary.mode !== 'default' ? primary.mode : incoming.mode,

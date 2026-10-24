@@ -1,3 +1,4 @@
+import type { ComposerDocument } from './composer-document.js'
 import { COMPOSER_SUBMISSION_PHASES, type ComposerSubmissionStatus } from './composer-submission.js'
 import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
 import { isAgentStateWire } from './agent-state-wire.js'
@@ -78,6 +79,7 @@ export interface InputMessage extends ExtensibleMessage {
 }
 
 export interface ComposerInputMessage extends ExtensibleMessage {
+  document?: ComposerDocument
   type: 'composer-input'
   message: string
   agentId?: string

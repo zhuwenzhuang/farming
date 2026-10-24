@@ -1,3 +1,4 @@
+import type { ComposerDocument } from '../../shared/composer-document.js'
 import type { ComposerStatusMessage, ComposerStatusRequestMessage } from '../../shared/browser-protocol'
 import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, RuntimeObservation, SystemStats, TerminalPreviewSnapshot } from './agent'
 import type {
@@ -70,6 +71,7 @@ export interface InputMessage {
 }
 
 export interface ComposerInputMessage {
+  document?: ComposerDocument
   type: 'composer-input'
   message: string
   agentId?: string

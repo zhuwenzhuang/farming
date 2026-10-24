@@ -1,3 +1,4 @@
+import { normalizeComposerDocument, composerDocumentText, type ComposerDocument } from '../../../shared/composer-document.js'
 import { isAcpComposerStateKey } from './acp/acp-composer-state'
 import { validatePastedTextFormats } from './composer-paste-format'
 import type { ComposerHistorySnapshot } from './composer-history'
@@ -48,6 +49,8 @@ interface PersistedComposerAttachment {
 }
 
 interface PersistedPendingMessage {
+  document?: ComposerDocument
+  draftDocument?: ComposerDocument
   contextReferences?: ComposerContextReference[];
   id: string
   text: string
@@ -64,6 +67,7 @@ interface PersistedSubmission extends PersistedPendingMessage {
 }
 
 interface PersistedComposerState {
+  draftDocument?: ComposerDocument
   contextReferences?: ComposerContextReference[];
   updatedAt: number
   draft?: string
@@ -229,6 +233,8 @@ function persistedMessage(message: AgentComposerPendingFollowUpMessage): Persist
   return {
     id,
     text,
+    document: normalizeComposerDocument(message.document),
+    draftDocument: normalizeComposerDocument(message.draftDocument),
     createdAt: finiteTimestamp(message.createdAt),
     ...(attachments ? { attachments } : {}),
     ...(contextReferences.length ? { contextReferences } : {}),
@@ -253,6 +259,8 @@ function restoredMessage(value: unknown): AgentComposerPendingFollowUpMessage | 
   return {
     id,
     text,
+    document: normalizeComposerDocument(value.document),
+    draftDocument: normalizeComposerDocument(value.draftDocument),
     createdAt: finiteTimestamp(value.createdAt),
     ...(attachments ? { attachments } : {}),
     ...(contextReferences.length ? { contextReferences } : {}),
@@ -274,7 +282,7 @@ function boundedHistory(entries: unknown, rawSnapshots?: unknown) {
     if (isRecord(raw)) {
       const contextReferences = persistedContextReferences(raw.contextReferences)
       if (!contextReferences) continue
-      snapshot = { attachments: restoredDraftAttachments(raw.attachments), contextReferences }
+      snapshot = { draftDocument: normalizeComposerDocument(raw.draftDocument), attachments: restoredDraftAttachments(raw.attachments), contextReferences }
     }
     const length = entry.length + JSON.stringify(snapshot).length
     if (total + length > MAX_HISTORY_TOTAL_CHARS) continue
@@ -322,6 +330,7 @@ function serializeState(state: AgentComposerState, updatedAt: number): Persisted
   const history = boundedHistory(state.history.entries, state.history.snapshots?.map(snapshot => snapshot ? { ...snapshot, attachments: persistedDraftAttachments(snapshot.attachments) } : null))
   return {
     updatedAt,
+    draftDocument: normalizeComposerDocument(state.draftDocument),
     ...(contextReferences.length ? { contextReferences } : {}),
     ...(draft ? { draft } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
@@ -362,6 +371,8 @@ function restoreState(value: unknown): AgentComposerState | null {
   const state = createDefaultAgentComposerState()
   state.contextReferences = contextReferences
   state.draft = draft
+  const document = normalizeComposerDocument(value.draftDocument)
+  state.draftDocument = document && composerDocumentText(document) === draft ? document : undefined
   state.attachments = restoredDraftAttachments(value.attachments)
   state.mode = composerMode(value.mode)
   state.history = { ...history, cursor: null }

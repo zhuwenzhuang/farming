@@ -1,3 +1,5 @@
+import { replaceComposerText } from './composer-document-editor'
+import { composerDocumentText } from '../../../shared/composer-document.js'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { existingComposerStateUpdateKey } from './agent-composer-state-key'
@@ -230,7 +232,10 @@ export function useAgentComposerState({
       const canonicalKey = resolveComposerStateKey(composerKey)
       if (!canonicalKey) return current
       const previous = current[canonicalKey] ?? createDefaultAgentComposerState()
-      const nextState = updater(previous)
+      const updated = updater(previous)
+      const nextState = updated.draftDocument && composerDocumentText(updated.draftDocument) !== updated.draft
+        ? { ...updated, draftDocument: updated.draft ? replaceComposerText(updated.draftDocument, updated.draft) : undefined }
+        : updated
       if (nextState === previous) return current
       composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
       composerStateDeletedAtRef.current.delete(canonicalKey)
@@ -245,7 +250,10 @@ export function useAgentComposerState({
       const updateKey = existingComposerStateUpdateKey(current, canonicalKey, composerKey)
       const previous = current[updateKey]
       if (!previous) return current
-      const nextState = updater(previous)
+      const updated = updater(previous)
+      const nextState = updated.draftDocument && composerDocumentText(updated.draftDocument) !== updated.draft
+        ? { ...updated, draftDocument: updated.draft ? replaceComposerText(updated.draftDocument, updated.draft) : undefined }
+        : updated
       if (nextState === previous) return current
       composerStateUpdatedAtRef.current.set(updateKey, nextCheckpointTimestamp(updateKey))
       composerStateDeletedAtRef.current.delete(updateKey)

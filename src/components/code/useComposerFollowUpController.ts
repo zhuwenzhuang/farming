@@ -196,6 +196,7 @@ export function settleComposerSubmissionState(
     return {
       ...state,
       draft: submitted.editableText ?? submitted.text,
+      draftDocument: submitted.draftDocument,
       attachments: (submitted.attachments || []).map((item, index) => ({ ...item, id: `restored-${messageId}-${index}`, status: 'ready' as const })),
       contextReferences: submitted.contextReferences || [],
       mode: submitted.composerMode || 'default',
@@ -205,7 +206,7 @@ export function settleComposerSubmissionState(
   return {
     ...state,
     ...(accepted && historyText !== undefined
-      ? { history: addComposerHistoryEntry(state.history, historyText, undefined, { attachments: (submitted?.attachments || []).map((item, index) => ({ ...item, id: `history-${messageId}-${index}`, status: 'ready' as const })), contextReferences: submitted?.contextReferences || [] }) }
+      ? { history: addComposerHistoryEntry(state.history, historyText, undefined, { attachments: (submitted?.attachments || []).map((item, index) => ({ ...item, id: `history-${messageId}-${index}`, status: 'ready' as const })), draftDocument: submitted?.draftDocument, contextReferences: submitted?.contextReferences || [] }) }
       : {}),
     submissions: accepted
       ? removeComposerSubmission(state.submissions, messageId)
@@ -267,6 +268,7 @@ export function useComposerFollowUpController({
       settleComposerDelivery(sendMessage(agent, submission.text, submission.attachments, submission.id,
         submission.delivery || 'prompt', submission.contextReferences, {
           reconcile,
+          document: submission.document,
           onOutcome: value => {
             outcome = value
             // Also reconcile a late definitive result after the outer deadline.
@@ -352,7 +354,7 @@ export function useComposerFollowUpController({
       focusComposer()
     }
     try {
-      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'prompt', message.contextReferences), settle)
+      settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'prompt', message.contextReferences, { document: message.document }), settle)
     } catch {
       settle(false)
     }
@@ -444,7 +446,7 @@ export function useComposerFollowUpController({
         // Terminal input has no admission ACK. Preserve it for an idle retry.
       }
       try {
-        settleComposerDelivery(sendMessage(agent, message.text, message.attachments, message.id, 'prompt', message.contextReferences), settle)
+        settleComposerDelivery(sendMessage(agent, message.text, message.attachments, message.id, 'prompt', message.contextReferences, { document: message.document }), settle)
       } catch {
         settle(false)
       }

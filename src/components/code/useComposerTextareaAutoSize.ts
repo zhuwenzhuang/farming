@@ -1,7 +1,8 @@
+import { type ComposerInputElement } from './composer-input-element'
 import { useLayoutEffect } from 'react'
 import type { RefObject } from 'react'
 
-function resizeComposerTextarea(textarea: HTMLTextAreaElement, expanded: boolean) {
+function resizeComposerTextarea(textarea: ComposerInputElement, expanded: boolean) {
   if (expanded) {
     textarea.style.height = '0px'
     textarea.style.overflowY = 'auto'
@@ -21,7 +22,7 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement, expanded: boolean
 }
 
 export function useComposerTextareaAutoSize(
-  textareaRef: RefObject<HTMLTextAreaElement | null>,
+  textareaRef: RefObject<ComposerInputElement | null>,
   value: string,
   expanded = false,
 ) {

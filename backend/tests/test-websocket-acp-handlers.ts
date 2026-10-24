@@ -1,3 +1,4 @@
+import { literalComposerDocument } from '../../shared/composer-document.js';
 import type {
   AcpPermissionResponseMessage,
   ComposerInputMessage,
@@ -104,6 +105,20 @@ function testPorts(overrides: Partial<WebSocketAcpPorts> = {}) {
 }
 
 async function run(): Promise<void> {
+  {
+    const harness = testPorts();
+    const ws = client();
+    const handlers = createWebSocketAcpHandlers<TestClient>(harness.ports);
+    const document = literalComposerDocument('# literal shell comment');
+    handlers.composerInput(ws, composer({ message: '# literal shell comment', document }));
+    await flush();
+    assert.deepStrictEqual(harness.composerCalls[0].content, [{ type: 'text', text: '# literal shell comment', _meta: { farmingInputDocument: document } }]);
+    handlers.composerInput(ws, composer({ requestId: 'mismatch', message: 'Other content', document }));
+    await flush();
+    assert.strictEqual(harness.composerCalls.length, 1);
+    assert.strictEqual(messages(ws).at(-1)?.accepted, false);
+  }
+
   {
     const harness = testPorts();
     const handlers = createWebSocketAcpHandlers<TestClient>(harness.ports);

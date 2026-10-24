@@ -1,3 +1,4 @@
+import { composerDocumentText, composerDocumentPrompt, literalComposerDocument, type ComposerDocument } from '../../../../shared/composer-document.js'
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
@@ -21,6 +22,7 @@ interface SubmitAcpDraftInput {
   agent: Agent | null
   composerKey: string
   draft: string
+  draftDocument?: ComposerDocument
   attachments: ComposerAttachment[]
   contextReferences?: ComposerContextReference[]
   contextValid?: boolean
@@ -62,6 +64,7 @@ export function submitAcpDraft({
   agent,
   composerKey,
   draft,
+  draftDocument,
   attachments,
   contextReferences = [],
   contextValid = true,
@@ -75,12 +78,26 @@ export function submitAcpDraft({
     !agent?.cwd || reference.workspace !== agent.cwd || reference.rootId !== projectFilesWorkspaceId(agent.cwd) || !reference.path
   ))) return false
   const promptAttachments = composerPromptAttachments(attachments)
-  const text = formatComposerMessage(composerMode, composerMessageWithContext(
-    composerMessageForNativeAttachments(draft, attachments).trim(), contextReferences,
+  const original = formatComposerMessage(composerMode, composerMessageWithContext(
+    draftDocument ? draft : composerMessageForNativeAttachments(draft, attachments), contextReferences,
   ))
+  const editableDocument = draftDocument && composerDocumentText(draftDocument) === draft ? draftDocument : undefined
+  const marker = '\u0000' + globalThis.crypto.randomUUID()
+  const envelope = formatComposerMessage(composerMode, composerMessageWithContext(marker, contextReferences))
+  const offset = envelope.indexOf(marker)
+  const document: ComposerDocument | undefined = editableDocument && offset >= 0 ? {
+    version: 1, doc: { type: 'doc', content: [
+      ...(offset ? literalComposerDocument(envelope.slice(0, offset)).doc.content || [] : []),
+      ...editableDocument.doc.content || [],
+      ...(offset + marker.length < envelope.length ? literalComposerDocument(envelope.slice(offset + marker.length)).doc.content || [] : []),
+    ] },
+  } : undefined
+  const text = document ? composerDocumentPrompt(document) : original.trim()
+  const snapshot = () => ({ ...createPendingFollowUpMessage(text, promptAttachments, draft, composerMode, contextReferences), document, draftDocument: editableDocument })
   if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false
   const clearOwnedDraft = (state: AgentComposerState) => {
     const ownsDraft = state.draft === draft
+      && state.draftDocument === draftDocument
       && state.attachments.length === attachments.length
       && state.attachments.every((attachment, index) => attachment.id === attachments[index]?.id)
       && (state.contextReferences || []).length === contextReferences.length
@@ -89,6 +106,7 @@ export function submitAcpDraft({
     return {
       ...state,
       draft: '',
+      draftDocument: undefined,
       attachments: [],
       contextReferences: [],
       mode: state.mode === composerMode ? 'default' as const : state.mode,
@@ -102,11 +120,11 @@ export function submitAcpDraft({
       attachments.forEach(revokeComposerAttachmentPreview)
       return {
         ...cleared,
-        history: addComposerHistoryEntry(cleared.history, draft, undefined, { attachments, contextReferences }),
+        history: addComposerHistoryEntry(cleared.history, draft, undefined, { attachments, contextReferences, draftDocument: editableDocument }),
         pendingFollowUp: {
           messages: [
             ...(cleared.pendingFollowUp?.messages || []),
-            createPendingFollowUpMessage(text, promptAttachments, draft, composerMode, contextReferences),
+            snapshot(),
           ],
           createdAt: cleared.pendingFollowUp?.createdAt || Date.now(),
         },
@@ -118,7 +136,7 @@ export function submitAcpDraft({
 
   // Local staging is not a delivery ACK. The shared controller sends this exact
   // snapshot once its predecessors have a definite outcome.
-  const message = createPendingFollowUpMessage(text, promptAttachments, draft, composerMode, contextReferences)
+  const message = snapshot()
   updateComposerState(composerKey, state => {
     if ((state.submissions?.length || 0) + (state.pendingFollowUp?.messages.length || 0) >= MAX_COMPOSER_SUBMISSIONS) return state
     const cleared = clearOwnedDraft(state)

@@ -1,3 +1,4 @@
+import { composerDocumentFromContent } from '../shared/composer-document.js';
 import { isAcpPeerPromptEcho, isAcpPeerPromptHistory, sameAcpInputContent } from './acp-peer-prompt.cjs';
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
@@ -461,6 +462,16 @@ class AcpSessionState {
       .filter(entry => policy.transcriptTurnStart(entry) && !entry.internal);
   }
 
+  private metadataInputs(): AcpEntry[] {
+    const policy = acpSessionProviderPolicy(this.provider);
+    const users = clone(this.entries.filter(entry => entry.type === 'message' && entry.role === 'user'));
+    const visibleIds = new Set(policy.sanitizeEntries(users, this.entries, 0)
+      .filter(entry => !entry.internal && (policy.transcriptTurnStart(entry)
+        || entry._meta?.farming?.steer === true || entry._meta?.codex?.steer === true))
+      .map(entry => entry.id));
+    return this.entries.filter(entry => visibleIds.has(entry.id));
+  }
+
   private boundaryPrefixHash(turns: AcpEntry[]): string {
     // Provider replays may regenerate entry/tool IDs. Verify the ordered user
     // prefix before rebinding the immutable boundary to this replay's IDs.
@@ -473,12 +484,11 @@ class AcpSessionState {
     // Provider presentation sanitizers may trim individual text blocks. Match
     // their selected input identities against raw content to retain envelope bytes.
     const inputs = (state: AcpSessionState) => {
-      const visibleIds = new Set(state.boundaryUserTurns().map(entry => entry.id));
-      return state.entries.filter(entry => visibleIds.has(entry.id));
+      return state.metadataInputs();
     };
     const prefixes = source.trustedInputPrefixes.slice();
     const savedInputs = inputs(source);
-    if (savedInputs.some(entry => entry._meta?.peerMessage || entry._meta?.farmingHandoff)) {
+    if (savedInputs.some(entry => entry._meta?.peerMessage || entry._meta?.farmingHandoff || composerDocumentFromContent(entry.content))) {
       prefixes.push(savedInputs);
     }
     const replayed = inputs(this);
@@ -491,14 +501,15 @@ class AcpSessionState {
       // IDs, revisions and later ordinary turns do not add provenance evidence.
       const lastTrusted = prefix.findLastIndex(entry =>
         normalizeAcpPeerMessage(entry._meta?.peerMessage)
-        || normalizeAgentHandoffContext(entry._meta?.farmingHandoff));
+        || normalizeAgentHandoffContext(entry._meta?.farmingHandoff) || composerDocumentFromContent(entry.content));
       if (lastTrusted < 0) continue;
       const saved: AcpEntry[] = prefix.slice(0, lastTrusted + 1).map(entry => {
         const peer = normalizeAcpPeerMessage(entry._meta?.peerMessage);
         const context = normalizeAgentHandoffContext(entry._meta?.farmingHandoff);
         return {
           type: 'message', role: 'user', content: clone(entry.content || []),
-          ...((peer || context) ? { _meta: {
+          ...((peer || context || entry._meta?.farming?.steer || entry._meta?.codex?.steer) ? { _meta: {
+            ...((entry._meta?.farming?.steer || entry._meta?.codex?.steer) ? { farming: { steer: true } } : {}),
             ...(peer ? { peerMessage: peer } : {}),
             ...(context ? { farmingHandoff: context } : {}),
           } } : {}),
@@ -511,9 +522,9 @@ class AcpSessionState {
           && !isAcpPeerPromptHistory(saved[matched].content || [], peer, replayed[matched].content || [])) break;
         const context = normalizeAgentHandoffContext(saved[matched]._meta?.farmingHandoff);
         const entry = entries.get(replayed[matched].id);
-        if (entry && (context || peer)) {
+        if (entry && (context || peer || composerDocumentFromContent(saved[matched].content))) {
           entry._meta = { ...entry._meta, ...(context ? { farmingHandoff: context } : {}), ...(peer ? { peerMessage: peer } : {}) };
-          if (peer) entry.content = clone(saved[matched].content);
+          if (peer || composerDocumentFromContent(saved[matched].content)) entry.content = clone(saved[matched].content);
           this.touchEntry(entry);
         }
       }
@@ -1334,14 +1345,13 @@ class AcpSessionState {
     // Native history owns ordinary conversation content. Keep only evidence
     // needed to reattach Farming provenance and media omitted by native replay.
     const hasEvidence = this.entries.some(entry => entry.type === 'message' && entry.role === 'user' && (
-      entry._meta?.peerMessage || entry._meta?.farmingHandoff
+      entry._meta?.peerMessage || entry._meta?.farmingHandoff || composerDocumentFromContent(entry.content)
       || (preserveMissingMedia && entry.content?.some(block => block.type === 'image' || block.type === 'audio'))
     ));
-    const visibleIds = new Set(hasEvidence ? this.boundaryUserTurns().map(entry => entry.id) : []);
-    const inputs = this.entries.filter(entry => visibleIds.has(entry.id));
+    const inputs = hasEvidence ? this.metadataInputs() : [];
     const lastEvidence = inputs.findLastIndex(entry =>
       normalizeAcpPeerMessage(entry._meta?.peerMessage)
-      || normalizeAgentHandoffContext(entry._meta?.farmingHandoff)
+      || normalizeAgentHandoffContext(entry._meta?.farmingHandoff) || composerDocumentFromContent(entry.content)
       || (preserveMissingMedia && entry.content?.some(block => block.type === 'image' || block.type === 'audio')));
     return {
       version: 1, provider: this.provider, sessionId: this.sessionId, cwd: this.cwd,

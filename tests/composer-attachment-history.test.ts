@@ -10,9 +10,9 @@ test('attachment-only history recalls the whole message and restores the unsent 
   const history = addComposerHistoryEntry({ entries: [], cursor: null }, '', undefined, saved)
   const unsent = { attachments: [], contextReferences: [{ ...reference, id: 'unsent' }] }
   const older = navigateComposerHistory(history, 'previous', '', unsent)
-  assert.deepEqual(older.snapshot, saved)
+  assert.deepEqual(older.snapshot, { ...saved, draftDocument: undefined })
   const back = navigateComposerHistory(older.history, 'next', '', saved)
-  assert.deepEqual(back.snapshot, unsent)
+  assert.deepEqual(back.snapshot, { ...unsent, draftDocument: undefined })
   const changed = addComposerHistoryEntry(history, '', undefined, unsent)
   assert.equal(changed.entries.length, 2)
 })

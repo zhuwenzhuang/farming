@@ -9,6 +9,12 @@ export function sameAcpInputContent(left: Record<string, unknown>[], right: Reco
       const { path: _path, uri: _uri, ...content } = block;
       return content;
     }
+    // Formatting is Farming-owned presentation evidence, not provider input identity.
+    if (block.type === 'text' && block._meta && typeof block._meta === 'object' && !Array.isArray(block._meta)) {
+      const { farmingInputDocument: _document, ...metadata } = block._meta as Record<string, unknown>;
+      const { _meta: _original, ...content } = block;
+      return Object.keys(metadata).length ? { ...content, _meta: metadata } : content;
+    }
     return block;
   };
   return isDeepStrictEqual(left.map(body), right.map(body));

@@ -22,7 +22,7 @@ export function validatePastedTextFormats(value: unknown, text: string): PastedT
     if (typeof start !== 'number' || typeof end !== 'number' || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < previousEnd || end <= start || end > text.length
       || (color !== undefined && (typeof color !== 'string' || !safeColor.test(color)))
       || [bold, italic, monospace].some(flag => flag !== undefined && typeof flag !== 'boolean')) return undefined
-    result.push({ start, end, ...(color ? { color } : {}), ...(bold ? { bold: true } : {}), ...(italic ? { italic: true } : {}), ...(monospace ? { monospace: true } : {}) })
+    result.push({ start, end, ...(typeof color === 'string' && color ? { color } : {}), ...(bold ? { bold: true } : {}), ...(italic ? { italic: true } : {}), ...(monospace ? { monospace: true } : {}) })
     previousEnd = end
   }
   return result.length ? result : undefined

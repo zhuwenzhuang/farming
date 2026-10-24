@@ -405,6 +405,7 @@ export function useWebSocket() {
     if (pending) return pending.promise
     const input: ComposerInputMessage = {
       type: 'composer-input',
+      document: options?.document,
       requestId,
       message,
       agentId,

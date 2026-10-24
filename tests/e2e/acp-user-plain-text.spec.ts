@@ -32,24 +32,17 @@ for (const appearance of ['light', 'dark', 'paper']) {
       'hold for steer without user echo',
     ].join('\n')
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-    await page.evaluate(async text => {
-      const pre = document.createElement('pre')
-      pre.textContent = text
-      await navigator.clipboard.write([new ClipboardItem({
-        'text/plain': new Blob([text], { type: 'text/plain' }),
-        'text/html': new Blob([pre.outerHTML], { type: 'text/html' }),
-      })])
-    }, source)
+    await page.evaluate(text => navigator.clipboard.writeText(text), source)
     const input = page.getByTestId('code-acp-composer-input')
     await input.focus()
     await page.keyboard.press('ControlOrMeta+v')
-    await expect(input).toHaveValue(source)
+    await expect.poll(() => input.innerText()).toBe(source)
     await page.getByTestId('code-acp-composer-send').click()
     await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
-    const message = page.locator('.code-agent-transcript-input-text').first()
+    const message = page.getByTestId('code-user-document').first()
     const check = async () => {
-      await expect(message).toHaveText(source, { useInnerText: false })
-      expect(await message.textContent()).toBe(source)
+      await expect.poll(() => message.innerText()).toBe(source)
+      expect(await message.innerText()).toBe(source)
       await expect(message.locator('h1, strong, li, a, table, pre, script')).toHaveCount(0)
       await expect(message).toHaveCSS('white-space', 'pre-wrap')
       expect(await page.evaluate(() => Object.hasOwn(window, 'markdownInjected'))).toBe(false)
@@ -70,12 +63,12 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await expect(process).toHaveAttribute('aria-expanded', 'false')
     await process.click()
     const steer = page.getByTestId('code-agent-transcript-steer')
-    await expect(steer.locator('.code-agent-transcript-input-text')).toHaveText(steerText)
+    await expect(steer.getByTestId('code-user-document')).toHaveText(steerText)
     await page.reload()
     await check()
     await expect(process).toBeVisible()
     if (await process.getAttribute('aria-expanded') === 'false') await process.click()
-    await expect(steer.locator('.code-agent-transcript-input-text')).toHaveText(steerText)
+    await expect(steer.getByTestId('code-user-document')).toHaveText(steerText)
     await input.blur()
     await message.evaluate(element => {
       const range = document.createRange()
