@@ -79,12 +79,21 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await page.locator('[data-testid="code-agent-row"].related-child').click()
     await expect(panel).toBeVisible()
     await expect(panel.getByTestId('code-user-document').locator('pre code')).toHaveText(code)
+
+    // Drain incidental setup/reload timers, then freeze the clock so the
+    // product-owned 60ms focus retry remains pending while focus moves.
+    await page.clock.pauseAt(new Date(Date.now() + 10_000))
+    const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await parentRow.evaluate(element => (element as HTMLElement).click())
+    await expect(main).toBeFocused()
+    await page.locator('[data-testid="code-agent-row"].related-child').evaluate(element => (element as HTMLElement).click())
+    await expect(panel).toBeVisible()
     await input.focus()
     await expect(input).toBeFocused()
     const outside = page.getByTestId('code-subagent-panel').getByRole('button', { name: 'Collapse related session' })
     await outside.focus()
     await expect(outside).toBeFocused()
-    await page.clock.fastForward(61)
+    await page.clock.runFor(61)
     await expect(outside).toBeFocused()
     await input.focus()
     await page.keyboard.press('ArrowUp');await expect(input.locator('pre code')).toHaveText(code)
