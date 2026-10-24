@@ -3781,6 +3781,7 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
   line-height: 1.5;
 }
 .code-composer-quote summary { cursor: pointer; }
+.code-composer-document > .code-composer-quote { margin-top: 10px; padding-right: 10px; }
 .code-composer-quote-excerpt {
   display: -webkit-box;
   -webkit-line-clamp: 2;

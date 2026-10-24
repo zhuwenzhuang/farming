@@ -20,6 +20,8 @@ export function normalizeComposerDocument(value: unknown): ComposerDocument | un
     if (!record(raw) || typeof raw.type !== 'string' || ++count > 30_000 || depth > 32) return undefined
     const type = raw.type
     const allowed = parent === '' ? type === 'doc'
+      : type === 'quotedContext' ? parent === 'doc'
+      : parent === 'quotedContext' ? type === 'text'
       : ['paragraph', 'heading'].includes(parent) ? inline.has(type)
         : parent === 'codeBlock' ? type === 'text'
           : ['bulletList', 'orderedList'].includes(parent) ? type === 'listItem' : blocks.has(type)
@@ -31,7 +33,11 @@ export function normalizeComposerDocument(value: unknown): ComposerDocument | un
     } else if (raw.text !== undefined) return undefined
     if (raw.attrs !== undefined) {
       if (!record(raw.attrs)) return undefined
-      if (type === 'heading') {
+      if (type === 'quotedContext') {
+        if (typeof raw.attrs.label !== 'string' || !raw.attrs.label.trim() || raw.attrs.label.length > 512) return undefined
+        chars += raw.attrs.label.length
+        node.attrs = { label: raw.attrs.label }
+      } else if (type === 'heading') {
         if (!Number.isInteger(raw.attrs.level) || Number(raw.attrs.level) < 1 || Number(raw.attrs.level) > 6) return undefined
         node.attrs = { level: Number(raw.attrs.level) }
       } else if (type === 'codeBlock') {
@@ -45,7 +51,7 @@ export function normalizeComposerDocument(value: unknown): ComposerDocument | un
       }
     }
     if (raw.marks !== undefined) {
-      if (parent === 'codeBlock' || !inline.has(type) || !Array.isArray(raw.marks) || raw.marks.length > 6) return undefined
+      if (parent === 'codeBlock' || parent === 'quotedContext' || !inline.has(type) || !Array.isArray(raw.marks) || raw.marks.length > 6) return undefined
       node.marks = []
       for (const mark of raw.marks) {
         if (!record(mark) || !['bold', 'italic', 'strike', 'underline', 'code', 'link'].includes(String(mark.type))) return undefined
@@ -60,6 +66,8 @@ export function normalizeComposerDocument(value: unknown): ComposerDocument | un
       node.content = []
       for (const child of raw.content) { const parsed = read(child, type, depth + 1); if (!parsed) return undefined; node.content.push(parsed) }
     }
+    if (type === 'quotedContext' && (!node.attrs?.label || !node.content?.length)) return undefined
+    if (chars > 250_000) return undefined
     if (['doc', 'blockquote', 'bulletList', 'orderedList', 'listItem'].includes(type) && !node.content?.length) return undefined
     if (type === 'listItem' && node.content?.[0]?.type !== 'paragraph') return undefined
     return node
@@ -91,6 +99,7 @@ export function composerDocumentPrompt(document: ComposerDocument): string {
     if (node.type === 'hardBreak') return '\n'
     if (node.type === 'horizontalRule') return '---'
     const body = (node.content || []).map(text).join(['paragraph', 'heading', 'codeBlock'].includes(node.type) ? '' : '\n')
+    if (node.type === 'quotedContext') return `Referenced context:\n- ${node.attrs?.label}:\n${body}`
     if (node.type !== 'codeBlock') return body
     const fence = '`'.repeat(Math.max(3, ...Array.from(body.matchAll(/`+/g), match => match[0].length + 1)))
     return `${fence}${node.attrs?.language || ''}\n${body}\n${fence}`

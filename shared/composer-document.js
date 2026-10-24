@@ -23,9 +23,11 @@ function normalizeComposerDocument(value) {
             return undefined;
         const type = raw.type;
         const allowed = parent === '' ? type === 'doc'
-            : ['paragraph', 'heading'].includes(parent) ? inline.has(type)
-                : parent === 'codeBlock' ? type === 'text'
-                    : ['bulletList', 'orderedList'].includes(parent) ? type === 'listItem' : blocks.has(type);
+            : type === 'quotedContext' ? parent === 'doc'
+                : parent === 'quotedContext' ? type === 'text'
+                    : ['paragraph', 'heading'].includes(parent) ? inline.has(type)
+                        : parent === 'codeBlock' ? type === 'text'
+                            : ['bulletList', 'orderedList'].includes(parent) ? type === 'listItem' : blocks.has(type);
         if (!allowed)
             return undefined;
         const node = { type };
@@ -39,7 +41,13 @@ function normalizeComposerDocument(value) {
         if (raw.attrs !== undefined) {
             if (!record(raw.attrs))
                 return undefined;
-            if (type === 'heading') {
+            if (type === 'quotedContext') {
+                if (typeof raw.attrs.label !== 'string' || !raw.attrs.label.trim() || raw.attrs.label.length > 512)
+                    return undefined;
+                chars += raw.attrs.label.length;
+                node.attrs = { label: raw.attrs.label };
+            }
+            else if (type === 'heading') {
                 if (!Number.isInteger(raw.attrs.level) || Number(raw.attrs.level) < 1 || Number(raw.attrs.level) > 6)
                     return undefined;
                 node.attrs = { level: Number(raw.attrs.level) };
@@ -58,7 +66,7 @@ function normalizeComposerDocument(value) {
             }
         }
         if (raw.marks !== undefined) {
-            if (parent === 'codeBlock' || !inline.has(type) || !Array.isArray(raw.marks) || raw.marks.length > 6)
+            if (parent === 'codeBlock' || parent === 'quotedContext' || !inline.has(type) || !Array.isArray(raw.marks) || raw.marks.length > 6)
                 return undefined;
             node.marks = [];
             for (const mark of raw.marks) {
@@ -84,6 +92,10 @@ function normalizeComposerDocument(value) {
                 node.content.push(parsed);
             }
         }
+        if (type === 'quotedContext' && (!node.attrs?.label || !node.content?.length))
+            return undefined;
+        if (chars > 250_000)
+            return undefined;
         if (['doc', 'blockquote', 'bulletList', 'orderedList', 'listItem'].includes(type) && !node.content?.length)
             return undefined;
         if (type === 'listItem' && node.content?.[0]?.type !== 'paragraph')
@@ -122,6 +134,8 @@ function composerDocumentPrompt(document) {
         if (node.type === 'horizontalRule')
             return '---';
         const body = (node.content || []).map(text).join(['paragraph', 'heading', 'codeBlock'].includes(node.type) ? '' : '\n');
+        if (node.type === 'quotedContext')
+            return `Referenced context:\n- ${node.attrs?.label}:\n${body}`;
         if (node.type !== 'codeBlock')
             return body;
         const fence = '`'.repeat(Math.max(3, ...Array.from(body.matchAll(/`+/g), match => match[0].length + 1)));

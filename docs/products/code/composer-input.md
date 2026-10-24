@@ -73,6 +73,13 @@ persistence and submission handling retain the quote across recovery or failed
 sends and include it with the question on submission. Main and side conversations
 use the same presentation and retain independent drafts.
 
+Submitted quotations keep that same compact disclosure as a separate context block
+inside the input document. The question remains prominent; the complete quotation
+is available on expansion. Provider-facing context headers are never UI copy.
+Prompt, Steer, refresh and history recovery preserve the quotation boundary using
+validated document metadata; unmarked old messages remain literal, without guessing
+boundaries from user-written text.
+
 ## Long Text Paste
 
 A plain-text paste longer than 1,000 Unicode characters becomes a captured text

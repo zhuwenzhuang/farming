@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react'
 import type { ComposerDocument, ComposerDocumentNode } from '../../../shared/composer-document.js'
+import { QuotedContextCard } from './QuotedContextCard'
 
 export function ComposerDocumentContent({ document }: { document: ComposerDocument }) {
   function render(node: ComposerDocumentNode, key: number): ReactNode {
@@ -13,6 +14,7 @@ export function ComposerDocumentContent({ document }: { document: ComposerDocume
       else if (mark.type === 'link') children = <a key={index} href={String(mark.attrs?.href)} target="_blank" rel="noopener noreferrer nofollow">{children}</a>
     }
     switch (node.type) {
+      case 'quotedContext': return <QuotedContextCard key={key} label={String(node.attrs?.label)} testId="code-user-quoted-context">{children}</QuotedContextCard>
       case 'text': return <Fragment key={key}>{children}</Fragment>
       case 'hardBreak': return <br key={key} />
       case 'paragraph': return <p key={key}>{children || <br />}</p>

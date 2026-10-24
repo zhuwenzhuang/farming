@@ -1,5 +1,5 @@
 import { replaceComposerText } from './composer-document-editor'
-import { composerDocumentText } from '../../../shared/composer-document.js'
+import { composerDocumentText, literalComposerDocument } from '../../../shared/composer-document.js'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { existingComposerStateUpdateKey } from './agent-composer-state-key'
@@ -265,5 +265,26 @@ export function useAgentComposerState({
     composerByAgentKey,
     updateComposerStateForKey,
     updateExistingComposerStateForKey,
+    moveComposerState: useCallback((sourceKey: string, targetKey: string) => {
+      setComposerByAgentKey(current => {
+        const source = current[sourceKey]
+        if (!source || sourceKey === targetKey) return current
+        const target = current[targetKey]
+        const merged = target ? mergeAgentComposerStates(target, source) : source
+        if (target?.draft && source.draft && target.draft !== source.draft) {
+          merged.draftDocument = { version: 1, doc: { type: 'doc', content: [
+            ...(source.draftDocument || literalComposerDocument(source.draft)).doc.content || [],
+            ...(target.draftDocument || literalComposerDocument(target.draft)).doc.content || [],
+          ] } }
+          merged.draft = composerDocumentText(merged.draftDocument)
+        }
+        const next = { ...current, [targetKey]: merged }
+        delete next[sourceKey]
+        composerStateUpdatedAtRef.current.set(targetKey, nextCheckpointTimestamp(targetKey))
+        composerStateDeletedAtRef.current.set(sourceKey, nextCheckpointTimestamp(sourceKey))
+        composerStateUpdatedAtRef.current.delete(sourceKey)
+        return next
+      })
+    }, [nextCheckpointTimestamp]),
   }
 }

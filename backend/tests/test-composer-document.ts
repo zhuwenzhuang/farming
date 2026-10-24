@@ -83,3 +83,29 @@ try {
   if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor)
   else Reflect.deleteProperty(globalThis, 'crypto')
 }
+
+const quote = { id: 'quote-1', kind: 'quote' as const, label: 'Quoted text', text: '# literal quote\n  keep indentation\n\nlast line' }
+state = { ...createDefaultAgentComposerState(), draft: 'Explain this', draftDocument: literalComposerDocument('Explain this'), contextReferences: [quote] }
+assert.ok(submitAcpDraft({ agent, composerKey: 'acp:test', draft: state.draft, draftDocument: state.draftDocument, attachments: [], contextReferences: [quote], composerMode: 'default', turnActive: false, updateComposerState: (_, change) => { state = change(state) } }))
+const quoted = state.submissions![0]!
+assert.equal(quoted.document!.doc.content![1]!.type, 'quotedContext')
+assert.equal(quoted.text, 'Explain this\nReferenced context:\n- Quoted text:\n' + quote.text)
+assert.deepEqual(normalizeComposerDocument(quoted.document), quoted.document)
+assert.deepEqual(composerDocumentFromContent([{ type: 'text', text: quoted.text, _meta: { farmingInputDocument: quoted.document } }]), quoted.document)
+state = settleComposerSubmissionState(state, quoted.id, false, undefined, 'rejected')
+assert.equal(state.draft, 'Explain this');assert.deepEqual(state.contextReferences, [quote])
+const malformedQuote = { version: 1, doc: { type: 'doc', content: [{ type: 'quotedContext', content: [{ type: 'text', text: 'quote' }] }] } }
+assert.equal(normalizeComposerDocument(malformedQuote), undefined)
+const ordinary = literalComposerDocument('Referenced context:\n- Quoted text:\nI typed this literally')
+assert.equal(ordinary.doc.content![0]!.type, 'paragraph', 'unmarked old messages and typed prose cannot be guessed into a reference')
+for (const kind of ['prompt', 'steer']) {
+  const original = new AcpSessionState({ provider: 'codex', sessionId: 'quoted-context' })
+  const input = [{ type: 'text', text: quoted.text, _meta: { farmingInputDocument: quoted.document } }]
+  if (kind === 'prompt') original.beginPrompt(input)
+  else { original.beginPrompt('Parent request'); original.recordAcceptedSteer(input, { messageId: 'quote-steer' }) }
+  const replay = new AcpSessionState({ provider: 'codex', sessionId: 'quoted-context' })
+  if (kind === 'prompt') replay.beginPrompt(quoted.text)
+  else { replay.beginPrompt('Parent request'); replay.recordAcceptedSteer([{ type: 'text', text: quoted.text }], { messageId: 'quote-steer-replayed' }) }
+  replay.restoreTrustedInputMetadata(original.exportRecoveryCheckpoint())
+  assert.deepEqual(composerDocumentFromContent(replay.entries.at(-1)!.content), quoted.document)
+}

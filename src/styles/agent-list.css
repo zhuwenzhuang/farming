@@ -622,6 +622,17 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
   overflow-y: auto;
 }
 
+.code-main.related-session-open > .code-agent-activity-dock,
+.code-subagent-panel > .code-agent-activity-dock {
+  position: relative;
+  inset: auto;
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin: 4px 12px;
+  max-height: min(28dvh, 220px);
+}
+
 .code-agent-launch-submenu-panel .agent-launch-icon {
   width: 16px;
   height: 16px;

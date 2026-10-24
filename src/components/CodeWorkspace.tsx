@@ -1,3 +1,5 @@
+import { useSubagentOpening } from './code/useSubagentOpening'
+import { SubagentPreparation } from './code/SubagentPreparation'
 import type { ComposerDocument } from '../../shared/composer-document.js'
 import { type ComposerInputElement, isComposerInputElement } from './code/composer-input-element'
 import type { ComposerDeliveryOptions } from './code/composer-state'
@@ -653,6 +655,7 @@ export function CodeWorkspace({
     composerByAgentKey,
     updateComposerStateForKey,
     updateExistingComposerStateForKey,
+    moveComposerState,
   } = useAgentComposerState({
     agents,
     permissionSwitchingAgentId,
@@ -2415,45 +2418,9 @@ export function CodeWorkspace({
       setRelatedSession(null)
     }
   }, [agents, relatedSession])
-  const [subagentError, setSubagentError] = useState('')
-  const [openingSubagent, setOpeningSubagent] = useState('')
-  const openingSubagentRef = useRef('')
-  const openSubagent = useCallback(async (parentAgentId: string) => {
-    if (openingSubagentRef.current) return
-    const parent = agents.find(agent => agent.id === parentAgentId)
-    if (!parent?.providerSessionKey) return
-    attachSubagent(parent.providerSessionKey)
-    openingSubagentRef.current = parentAgentId
-    setOpeningSubagent(parentAgentId)
-    setSubagentError('')
-    try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(parentAgentId)}/subagent`), {
-        method: 'POST', signal: AbortSignal.timeout(90000),
-      })
-      const result = await response.json() as {
-        error?: string
-        providerSessionId?: string
-        providerSessionKey?: string
-      }
-      if (!response.ok || result.error) throw new Error(result.error || 'Subagent could not be opened')
-      if (!result.providerSessionKey) throw new Error('Subagent has no durable session identity')
-      openAgentTargetRef.current(parentAgentId, { focusTerminal: false })
-      setRelatedSession({
-        parentAgentId,
-        parentSessionKey: parent.providerSessionKey,
-        sessionId: result.providerSessionId || '',
-        subagentSessionKey: result.providerSessionKey,
-        title: copy.subagent,
-      })
-      return result.providerSessionKey
-    } catch (caught) {
-      setSubagentError(caught instanceof Error ? caught.message : String(caught))
-      return null
-    } finally {
-      openingSubagentRef.current = ''
-      setOpeningSubagent('')
-    }
-  }, [agents, copy.subagent])
+  const openSubagentParent = useCallback((id: string) => openAgentTargetRef.current(id, { focusTerminal: false }), [])
+  const openSubagent = useSubagentOpening({ agents, title: copy.subagent, setTarget: setRelatedSession,
+    openParent: openSubagentParent, updateDraft: updateComposerStateForKey, moveDraft: moveComposerState })
   const quoteSelectionForAgent = useCallback((agentId: string, text: string, context?: Omit<ComposerContextReference, 'id'>) => {
     const agent = agents.find(candidate => candidate.id === agentId)
     const composerKey = isAcpRuntime(agent) ? acpComposerStateKeyForAgent(agent) : composerStateKeyForAgent(agent)
@@ -2472,22 +2439,10 @@ export function CodeWorkspace({
     }))
     if (activeTerminalIdRef.current === agentId) window.requestAnimationFrame(focusComposerTextarea)
   }, [agents, copy.quoteContextLabel, focusComposerTextarea, updateComposerStateForKey])
-  const quoteSelectionInSubagent = useCallback(async (parentAgentId: string, text: string) => {
-    const sessionKey = await openSubagent(parentAgentId)
+  const quoteSelectionInSubagent = useCallback((parentAgentId: string, text: string) => {
     const quote = quotedSelectionReference(text, copy.quoteContextLabel)
-    if (!sessionKey || !quote) return
-    const composerKey = `acp:${canonicalProviderSessionKey(sessionKey)}`
-    updateComposerStateForKey(composerKey, state => ({
-      ...state,
-      contextReferences: state.contextReferences?.some(reference => reference.id === quote.id)
-        ? state.contextReferences : [...(state.contextReferences || []), quote],
-      history: { ...state.history, cursor: null },
-    }))
-    window.requestAnimationFrame(() => {
-      document.querySelector<ComposerInputElement>('[data-testid="code-subagent-panel"] [data-testid="code-acp-composer-input"]')
-        ?.focus({ preventScroll: true })
-    })
-  }, [copy.quoteContextLabel, openSubagent, updateComposerStateForKey])
+    if (quote) openSubagent(parentAgentId, quote)
+  }, [copy.quoteContextLabel, openSubagent])
   const [chatFollowLatestRequest, setChatFollowLatestRequest] = useState<{ agentId: string; nonce: number } | null>(null)
   const sendComposerMessageToAgent = useCallback((
     agent: Agent,
@@ -3394,7 +3349,7 @@ export function CodeWorkspace({
       const parent = agents.find(agent => agent.providerSessionKey === child.subagentParentSessionKey)
       if (parent) {
         setRelatedSession({ parentAgentId: parent.id, parentSessionKey: parent.providerSessionKey,
-          subagentSessionKey: child.providerSessionKey, sessionId: child.providerSessionId || '', title: copy.subagent })
+          subagentAgentId: child.id, subagentSessionKey: child.providerSessionKey, sessionId: child.providerSessionId || '', title: copy.subagent })
         openAgentTargetRef.current(parent.id, options)
         return
       }
@@ -6287,8 +6242,10 @@ export function CodeWorkspace({
         relatedSession={relatedSession}
         onRelatedSessionChange={setRelatedSession}
         onOpenSubagent={openSubagent}
-        openingSubagent={openingSubagent}
-        subagentError={subagentError}
+        renderSubagentPreparation={target => target.preparation ? <SubagentPreparation
+          state={composerByAgentKey[target.preparation.draftKey] || DEFAULT_AGENT_COMPOSER_STATE}
+          update={change => updateComposerStateForKey(target.preparation!.draftKey, change)}
+          error={target.preparation.error} retryable={target.preparation.retryable} onCheck={() => openSubagent(target.parentAgentId)} copy={copy} language={uiPreferences.language} /> : null}
         onQuoteSelection={quoteSelectionForAgent}
         onQuoteSelectionInSubagent={quoteSelectionInSubagent}
         relatedAgents={activeAgents}

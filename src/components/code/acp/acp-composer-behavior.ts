@@ -82,14 +82,16 @@ export function submitAcpDraft({
     draftDocument ? draft : composerMessageForNativeAttachments(draft, attachments), contextReferences,
   ))
   const editableDocument = draftDocument && composerDocumentText(draftDocument) === draft ? draftDocument : undefined
+  const quotes = contextReferences.filter(reference => reference.kind === 'quote' && reference.text)
   const marker = '\u0000' + (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`)
-  const envelope = formatComposerMessage(composerMode, composerMessageWithContext(marker, contextReferences))
+  const envelope = formatComposerMessage(composerMode, composerMessageWithContext(marker, contextReferences.filter(reference => !quotes.includes(reference))))
   const offset = envelope.indexOf(marker)
-  const document: ComposerDocument | undefined = editableDocument && offset >= 0 ? {
+  const document: ComposerDocument | undefined = (editableDocument || quotes.length) && offset >= 0 ? {
     version: 1, doc: { type: 'doc', content: [
       ...(offset ? literalComposerDocument(envelope.slice(0, offset)).doc.content || [] : []),
-      ...editableDocument.doc.content || [],
+      ...(editableDocument || literalComposerDocument(draft)).doc.content || [],
       ...(offset + marker.length < envelope.length ? literalComposerDocument(envelope.slice(offset + marker.length)).doc.content || [] : []),
+      ...quotes.map(reference => ({ type: 'quotedContext', attrs: { label: reference.label }, content: [{ type: 'text', text: reference.text! }] })),
     ] },
   } : undefined
   const text = document ? composerDocumentPrompt(document) : original.trim()

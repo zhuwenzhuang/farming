@@ -5,6 +5,7 @@ import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { CloseGlyph, FileGlyph, FolderGlyph, SkillGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import type { ComposerContextReference } from './composer-message'
 import { PastedTextContent } from './PastedTextContent'
+import { QuotedContextCard } from './QuotedContextCard'
 
 export interface ComposerAttachmentView {
   id: string
@@ -90,7 +91,10 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
           </div>
         )
       })}
-      {visibleReferences.map(reference => (reference.kind === 'quote' || reference.kind === 'pasted-text' || reference.kind === 'document') ? (
+      {visibleReferences.map(reference => reference.kind === 'quote' ? <QuotedContextCard key={reference.id} label={reference.label}
+        actions={<button type="button" className="code-composer-attachment-remove" aria-label={`Remove ${reference.label}`} onClick={() => onRemoveReference?.(reference.id)}><CloseGlyph /></button>}>
+        <PastedTextContent reference={reference} />
+      </QuotedContextCard> : (reference.kind === 'pasted-text' || reference.kind === 'document') ? (
         <div key={reference.id} className="code-composer-quote" data-testid={reference.kind === 'document' ? 'code-composer-document' : reference.kind === 'pasted-text' ? 'code-composer-pasted-text' : 'code-composer-quote'}>
           {reference.kind === 'document' && reference.status !== 'ready' ? <span className="code-composer-document-status" role={reference.status === 'error' ? 'alert' : 'status'}>{reference.status === 'error' ? reference.error : 'Processing document…'}</span> : null}
           <details>

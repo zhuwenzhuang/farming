@@ -37,6 +37,9 @@ export interface RelatedSessionTarget {
   readable?: boolean
   parentSessionKey?: string
   subagentSessionKey?: string
+  subagentAgentId?: string
+  preparation?: { requestId: string; draftKey: string; error?: string; retryable?: boolean }
+  preparedSelection?: { start: number; end: number }
 }
 
 // Navigation carries exact identities. It never starts, stops or resumes work.

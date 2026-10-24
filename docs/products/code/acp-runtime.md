@@ -183,10 +183,22 @@ continues, with a read error if it cannot finish.
 
 ## Related Sessions And Fork
 
-A durable parent Session owns at most one retained Side Chat, created through the
-existing Fork admission. It inherits context, not authorization to continue the
+Each explicit Side Chat creation uses the existing Fork admission and retains its
+own child identity under the durable parent Session. It inherits context, not authorization to continue the
 parent's task. Parent and child own independent drafts, controls and Turns.
-Opening or closing a pane changes observation, not execution.
+Opening or closing a pane changes observation, not execution. The pane opens
+immediately with its captured quote and an editable preparation draft while the
+provider prepares the child. Sending waits for the child's durable identity.
+Completion atomically transfers that draft; closing or navigating away fences late
+presentation and never cancels or repeats the Fork. Preparation requests retain
+an idempotent request identity for explicit reconciliation after timeout or reload.
+Repeated activation while pending observes the same request. Errors retain the
+draft and offer a bounded result check, without automatically replaying creation.
+
+Each pane presents its own Goal and current plan above its composer in split
+layouts. Activity must not overlap input text or toolbar controls, including at
+narrow widths and during expansion. Goal and plan state comes from that pane's
+transcript, not its parent's presentation state.
 
 Native child IDs and capabilities are fenced to their immediate parent runtime
 generation. Associations precede child traffic and cannot change ownership.

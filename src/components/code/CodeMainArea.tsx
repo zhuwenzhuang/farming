@@ -1,3 +1,4 @@
+import type { ComposerInputElement } from './composer-input-element'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { MobileUnreadNavigation } from './MobileUnreadNavigation'
 import type { UnreadAgentTarget } from './mobile-unread-navigation'
@@ -288,8 +289,7 @@ interface CodeMainAreaProps {
   relatedSession: RelatedSessionTarget | null
   onRelatedSessionChange: (target: RelatedSessionTarget | null) => void
   onOpenSubagent: (parentAgentId: string) => void
-  openingSubagent: string
-  subagentError: string
+  renderSubagentPreparation: (target: RelatedSessionTarget) => ReactNode
   onQuoteSelection: (agentId: string, text: string, context?: Omit<ComposerContextReference, 'id'>) => void
   onQuoteSelectionInSubagent: (agentId: string, text: string) => void
   relatedAgents: Agent[]
@@ -734,8 +734,7 @@ export function CodeMainArea({
   relatedSession,
   onRelatedSessionChange: setRelatedSession,
   onOpenSubagent: openSubagent,
-  openingSubagent,
-  subagentError,
+  renderSubagentPreparation,
   onQuoteSelection,
   onQuoteSelectionInSubagent,
   renderSubagentComposer,
@@ -847,16 +846,30 @@ export function CodeMainArea({
   const agentSurfaceVisible = agentWorkspaceVisible || resourceAgentPanelVisible
   const relatedSessionVisible = agentWorkspaceVisible && relatedSession?.parentAgentId === activeTerminalId
     && (!relatedSession.parentSessionKey || relatedSession.parentSessionKey === activeAgent?.providerSessionKey)
-  const subagentAgent = relatedSession?.subagentSessionKey
-    ? relatedAgents.find(agent => agent.providerSessionKey === relatedSession.subagentSessionKey
+  const subagentAgent = relatedSession?.subagentSessionKey || relatedSession?.subagentAgentId
+    ? relatedAgents.find(agent => (relatedSession.subagentAgentId ? agent.id === relatedSession.subagentAgentId : agent.providerSessionKey === relatedSession.subagentSessionKey)
+      && Boolean(agent.providerSessionKey) && !agent.providerSessionTemporary
       && agent.subagentParentSessionKey === relatedSession.parentSessionKey) : undefined
+  const restoredPreparedSelection = useRef<RelatedSessionTarget['preparedSelection']>(undefined)
+  useLayoutEffect(() => {
+    if (!relatedSessionVisible || !subagentAgent || !relatedSession?.preparedSelection) return
+    if (restoredPreparedSelection.current === relatedSession.preparedSelection) return
+    restoredPreparedSelection.current = relatedSession.preparedSelection
+    // Preparation may finish after the reader has moved focus elsewhere.
+    if (document.activeElement !== document.body) return
+    const input = mainAreaRef.current?.querySelector<ComposerInputElement>('[data-testid="code-subagent-panel"] [data-composer-rich-input]')
+    if (input) {
+      input.focus({ preventScroll: true })
+      input.setSelectionRange(relatedSession.preparedSelection.start, relatedSession.preparedSelection.end)
+    }
+  }, [relatedSessionVisible, subagentAgent, relatedSession?.preparedSelection])
   const [subagentLoadingExpired, setSubagentLoadingExpired] = useState(false)
   useEffect(() => {
     setSubagentLoadingExpired(false)
-    if (!relatedSessionVisible || !relatedSession?.subagentSessionKey || subagentAgent) return
+    if (!relatedSessionVisible || !(relatedSession?.subagentSessionKey || relatedSession?.subagentAgentId) || subagentAgent) return
     const timer = window.setTimeout(() => setSubagentLoadingExpired(true), 15000)
     return () => window.clearTimeout(timer)
-  }, [relatedSessionVisible, relatedSession?.subagentSessionKey, subagentAgent])
+  }, [relatedSessionVisible, relatedSession?.subagentSessionKey, relatedSession?.subagentAgentId, subagentAgent])
   const acpComposerActive = isAcpRuntime(activeAgent)
   const subagentCommandAvailable = Boolean(
     !readOnly
@@ -1559,18 +1572,16 @@ export function CodeMainArea({
           setRelatedRatio(ratio)
           try { localStorage.setItem('farming.code.relatedRatio.v1', String(ratio)) } catch { /* layout remains in memory */ }
         }} /> : null}
-      {openingSubagent === activeTerminalId ? <div className="code-related-session-notice" role="status">{language === 'zh' ? '正在打开子 Agent…' : 'Opening subagent…'}</div> : null}
-      {subagentError ? <div className="code-related-session-notice" role="alert">{subagentError}</div> : null}
-      {relatedSessionVisible && relatedSession?.subagentSessionKey ? <aside className="code-related-session-panel code-subagent-panel" data-testid="code-subagent-panel" aria-label="Subagent">
+      {relatedSessionVisible && (relatedSession?.subagentSessionKey || relatedSession?.subagentAgentId || relatedSession?.preparation) ? <aside className="code-related-session-panel code-subagent-panel" data-testid="code-subagent-panel" aria-label="Subagent">
         <header className="code-related-session-header">
-          <CollaborationAgentIcon sessionId={subagentAgent ? subagentAgent.providerSessionId || subagentAgent.providerSessionKey || subagentAgent.id : relatedSession.sessionId || relatedSession.subagentSessionKey} />
+          <CollaborationAgentIcon sessionId={subagentAgent ? subagentAgent.providerSessionId || subagentAgent.providerSessionKey || subagentAgent.id : relatedSession.sessionId || relatedSession.subagentSessionKey || relatedSession.preparation?.requestId || ''} />
           <strong>{language === 'zh' ? '子 Agent' : 'Subagent'}</strong>
           <button type="button" className="code-agent-transcript-subagent-control" onClick={closeRelatedSession} aria-label="Collapse related session"><CloseGlyph /></button>
         </header>
-        {subagentAgent ? <SubagentBody agent={subagentAgent} active={relatedSessionFits || compactRelatedActive}
+        {relatedSession.preparation ? renderSubagentPreparation(relatedSession) : subagentAgent ? <SubagentBody key={subagentAgent.id} agent={subagentAgent} active={relatedSessionFits || compactRelatedActive}
           stickyTurnPromptEnabled={stickyTurnPromptEnabled}
           renderComposer={renderSubagentComposer} onReadLatest={onAgentReadLatest} onOpenFile={onOpenWorkspaceFilePath}
-          onQuoteSelection={onQuoteSelection} onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => { requestSubagent(relatedSession.parentAgentId) }}>{language === 'zh' ? '重新核对' : 'Reconcile'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
+          onQuoteSelection={onQuoteSelection} onQuoteInParent={readOnly ? undefined : quoteRelatedSelectionInParent} copy={copy} /> : subagentLoadingExpired ? <div role="alert">{language === 'zh' ? '子 Agent 状态尚未同步。' : 'Subagent state has not synchronized.'} <button type="button" onClick={() => window.location.reload()}>{language === 'zh' ? '刷新页面' : 'Reload page'}</button></div> : <div role="status">{language === 'zh' ? '正在加载子 Agent…' : 'Loading subagent…'}</div>}
       </aside> : relatedSessionVisible && relatedSession ? <RelatedSessionPanel
         key={`${relatedSession.parentAgentId}:${relatedSession.sessionId}`}
         target={relatedSession}

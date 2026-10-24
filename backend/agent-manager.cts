@@ -10018,7 +10018,8 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  async openSubagent(agentId: AgentId): Promise<AgentForkResult> {
+  async openSubagent(agentId: AgentId, requestId?: unknown): Promise<AgentForkResult> {
+    if (requestId !== undefined && (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(requestId))) return { error: 'Invalid subagent request ID' };
     this.assertAgentOperationAdmission();
     await this.recoveryGate.wait();
     this.assertAgentOperationAdmission();
@@ -10028,17 +10029,18 @@ class AgentManager extends EventEmitter {
     if (!parentKey || parent.providerSessionTemporary || parent.subagentParentSessionKey) {
       return { error: 'Subagent requires an independent, durable parent session' };
     }
-    const pending = this.subagentRequests.get(parentKey);
+    const requestKey = requestId ? `${parentKey}:${requestId}` : parentKey;
+    const pending = this.subagentRequests.get(requestKey);
     if (pending) return pending;
     const parentOperation = activeLifecycleOperation(parent);
     if (parent.archived || (parentOperation && ['archive', 'delete'].includes(parentOperation.type))) {
       return { error: 'Parent is being archived or removed' };
     }
     const request = (async (): Promise<AgentForkResult> => {
-      const prior = [...(parent.lifecycleJournal?.entries || [])].reverse().find(operation => (
-        operation.type === 'fork' && operation.request?.purpose === 'subagent'
-        && !['succeeded', 'failed', 'cancelled'].includes(operation.state)
-      ));
+      const operations = [...(parent.lifecycleJournal?.entries || [])].reverse()
+        .filter(operation => operation.type === 'fork' && operation.request?.purpose === 'subagent');
+      const prior = (requestId ? operations.find(operation => operation.requestKey === `fork-request:${requestId}`) : undefined)
+        ?? operations.find(operation => !['succeeded', 'failed', 'cancelled'].includes(operation.state));
       // Settled requests do not reserve a parent slot. Only an unresolved Fork
       // must reconcile its original identity before another creation is admitted.
       const runtime = runtimeBindingOf(parent, 'acp');
@@ -10047,9 +10049,9 @@ class AgentManager extends EventEmitter {
         purpose: 'subagent',
         targetRuntime: 'chat',
         expectedRevision: prior ? Number(prior.request?.expectedRevision) : Number(runtime.sessionRevision || 0),
-        requestId: prior ? prior.requestKey.slice('fork-request:'.length) : `subagent-${crypto.randomUUID()}`,
+        requestId: prior ? prior.requestKey.slice('fork-request:'.length) : typeof requestId === 'string' ? requestId : `subagent-${crypto.randomUUID()}`,
       });
-      if (result.error) return result;
+      if (result.error) return { ...result, uncertain: result.uncertain === true };
       const created = (this.configManager?.listAgentSessionRecords?.() ?? [...this.agents.values()]).find(record => (
         canonicalProviderSessionKey(record.subagentParentSessionKey) === parentKey
         && (record.runtimeAgentId ?? record.id) === result.agentId
@@ -10057,9 +10059,9 @@ class AgentManager extends EventEmitter {
       if (!created?.providerSessionKey) return { error: 'Subagent creation is not yet durably reconciled', uncertain: true };
       return { ...result, providerSessionKey: created.providerSessionKey };
     })();
-    this.subagentRequests.set(parentKey, request);
+    this.subagentRequests.set(requestKey, request);
     try { return await request; }
-    finally { if (this.subagentRequests.get(parentKey) === request) this.subagentRequests.delete(parentKey); }
+    finally { if (this.subagentRequests.get(requestKey) === request) this.subagentRequests.delete(requestKey); }
   }
 
   async forkAgent(
