@@ -2635,7 +2635,6 @@ function AgentTranscriptTurnView({
   )
   const receipts = resolvedProcessItems.filter(item => item.type === 'peer-receipt')
   const errors = resolvedProcessItems.filter(item => item.type === 'error')
-  const hasProcess = mainProcessItems.some(item => item.type !== 'error')
   const processEntries = useMemo(() => {
     // Turn failures stay visible outside activity disclosure, exactly once.
     const items = mainProcessItems.filter(item => item.type !== 'error')
@@ -2674,9 +2673,9 @@ function AgentTranscriptTurnView({
     flush()
     return entries
   }, [collaborationProcessItemIds, groupProcessActions, resolvedProcessItems, source])
-  const incomingMessageCount = receipts.length + resolvedProcessItems.filter(item => item.peerMessage).length + (turn.userSource ? 1 : 0)
+  const incomingMessageCount = receipts.length + resolvedProcessItems.filter(item => item.peerMessage).length
   const messageCount = outgoingSummary.count + incomingMessageCount
-  const hasDisclosure = hasProcess || collaborationEvents.length > 0 || receipts.length > 0 || (settledResult && Boolean(turn.userSource))
+  const hasDisclosure = expandedProcessEntries.length > 0
   const runningCompaction = turn.status === 'inProgress'
     ? [...mainProcessItems]
       .reverse()
@@ -3017,11 +3016,11 @@ function AgentTranscriptTurnView({
       {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
         <AgentTranscriptUserMessage turn={turn} copy={copy} />
       </div> : turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
-        !settledResult || !turn.userSource ? inputMessage : null
+        inputMessage
       ) : null}
 
       {!settledResult && !effectiveProcessOpen ? <AgentTranscriptPeerReceipts items={receipts} copy={copy} /> : null}
-      {hasDisclosure ? (
+      {hasDisclosure || (source === 'acp' && turn.status === 'missingFinalReply') ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
           {hasDisclosure ? (
             <>
@@ -3122,7 +3121,6 @@ function AgentTranscriptTurnView({
           ) : null}
               {effectiveProcessOpen ? (
             <div className="code-agent-transcript-process-list">
-              {settledResult && turn.userSource ? inputMessage : null}
               {expandedProcessEntries.map(entry => {
                 if (entry.kind === 'receipts') return <AgentTranscriptPeerReceipts key={entry.id} items={entry.items} copy={copy} />
                 if (entry.kind === 'collaboration') return <AgentTranscriptCollaborationSpace
@@ -4417,7 +4415,6 @@ export function AgentTranscriptPane({
     if (savedAnchor?.surface === 'chat' && savedAnchor.locator.childId) {
       const anchoredTurn = turns.find(turn => turn.id === savedAnchor.locator.id)
       const anchoredProcess = anchoredTurn?.processItems.some(item => item.id === savedAnchor.locator.childId)
-        || (anchoredTurn?.userSource && savedAnchor.locator.childId === `${anchoredTurn.id}-user`)
       if (anchoredTurn && anchoredProcess
         && !openProcessTurnIds.has(anchoredTurn.id)
         && !element.querySelector(`[data-process-item-id="${CSS.escape(savedAnchor.locator.childId)}"]`)) {

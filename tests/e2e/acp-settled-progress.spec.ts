@@ -1,5 +1,55 @@
 import { expect, openFarming, test } from './fixtures'
 
+test('input and result stay visible without empty activity, including media and failures', async ({ page, workspaceRoot }) => {
+  const created = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  const { agentId } = await created.json() as { agentId: string }
+  const identity = await (await page.request.get(`/farming/api/agents/${agentId}/acp-transcript`)).json() as {
+    sessionId: string; runtimeEpoch: string
+  }
+  const message = (id: string, role: string, text: string, meta = {}) => ({
+    id, type: 'message', role, content: [{ type: 'text', text }], _meta: meta,
+  })
+  const start = (id: string, text: string, stop = 'end_turn') => ({
+    ...message(id, 'user', text), turnCompletedAt: 200, turnStopReason: stop,
+  })
+  const final = { codex: { phase: 'final_answer' } }
+  await page.route(new RegExp(`/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), route => route.fulfill({ json: {
+    version: 1, agentId, ...identity, fromRevision: null, toRevision: 1000000, replace: true, settled: true,
+    transcript: { sessionId: identity.sessionId, revision: 1000000, state: 'idle', includesLatest: true, stopReason: 'end_turn', entries: [
+      start('plain', 'Return the result directly.'),
+      message('plain-result', 'assistant', 'Direct result.', final),
+      start('planned', 'Return the plan result.'),
+      { id: 'plan', type: 'plan', plan: [{ content: 'Check the change', status: 'completed', priority: 'medium' }] },
+      message('plan-result', 'assistant', 'Planned result.', final),
+      start('media', 'Return an image.'),
+      message('media-progress', 'assistant', 'Rendering the image.', { codex: { phase: 'commentary' } }),
+      { id: 'media-result', type: 'message', role: 'assistant', _meta: final, content: [{ type: 'image', mimeType: 'image/png',
+        data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf1sAAAAASUVORK5CYII=' }] },
+      start('failure', 'Report a connection failure.', 'error'),
+      { id: 'error', type: 'error', message: 'The connection failed.', status: 'failed' },
+    ] },
+  } }))
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const turns = page.locator('.code-agent-transcript-turn')
+  await expect(turns).toHaveCount(4)
+  for (const index of [0, 1, 3]) {
+    await expect(turns.nth(index).getByTestId('code-agent-transcript-process-summary')).toHaveCount(0)
+    await expect(turns.nth(index).locator('.code-agent-transcript-user')).toBeVisible()
+  }
+  await expect(turns.nth(0).locator('.code-agent-transcript-assistant')).toHaveText('Direct result.')
+  await expect(turns.nth(1).locator('.code-agent-transcript-assistant')).toHaveText('Planned result.')
+  const media = turns.nth(2)
+  await expect(media.locator('.code-agent-transcript-answer img')).toBeVisible()
+  await expect(media.getByTestId('code-acp-progress-update')).toHaveCount(0)
+  await media.getByTestId('code-agent-transcript-process-summary').click()
+  await expect(media.getByTestId('code-acp-progress-update')).toHaveText('Rendering the image.')
+  await expect(media.locator('.code-agent-transcript-answer img')).toBeVisible()
+  await expect(turns.last().getByTestId('code-agent-transcript-error')).toHaveText(/The connection failed/)
+})
+
 for (const provider of ['codex', 'claude']) {
   for (const appearance of ['light', 'dark', 'paper']) {
     test(`settled ${provider} commentary folds with evidence in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
@@ -129,8 +179,12 @@ for (const appearance of ['light', 'dark', 'paper']) {
         message('steer-two', 'user', 'Keep the report concise.', { farming: { steer: true } }),
         { id: 'read', type: 'tool', title: 'Read verification report', kind: 'read', status: 'completed' },
         message('result', 'assistant', 'Verified successfully. No deployment was performed.', { codex: { phase: 'final_answer' } }),
-        message('peer-task', 'user', 'Check the follow-up change.', { peerMessage: peer }),
+        { ...message('peer-task', 'user', 'Check the follow-up change.', { peerMessage: peer }), turnCompletedAt: 300, turnStopReason: 'end_turn' },
         message('peer-result', 'assistant', 'Follow-up verified.', { codex: { phase: 'final_answer' } }),
+        message('peer-work', 'user', 'Check the next change.', { peerMessage: peer }),
+        message('peer-progress', 'assistant', 'Checking the next change now.', { codex: { phase: 'commentary' } }),
+        message('peer-steer', 'user', 'Also check the validation.', { peerMessage: peer, farming: { steer: true } }),
+        message('peer-work-result', 'assistant', 'Next change verified.', { codex: { phase: 'final_answer' } }),
       ] },
     } }))
     await openFarming(page)
@@ -138,7 +192,16 @@ for (const appearance of ['light', 'dark', 'paper']) {
     const turns = page.locator('.code-agent-transcript-turn')
     const completed = turns.first()
     const summary = completed.getByTestId('code-agent-transcript-process-summary')
-    await expect(turns).toHaveCount(2)
+    await expect(turns).toHaveCount(3)
+    const peerTurn = turns.nth(1)
+    const peerWork = turns.last()
+    await expect(peerTurn.locator('.code-agent-transcript-user')).toHaveText('Check the follow-up change.')
+    await expect(peerTurn.locator('.code-agent-transcript-assistant')).toHaveText('Follow-up verified.')
+    await expect(peerTurn.getByTestId('code-agent-transcript-process-summary')).toHaveCount(0)
+    await expect(peerWork.locator('.code-agent-transcript-user')).toHaveText('Check the next change.')
+    await expect(peerWork.locator('.code-agent-transcript-assistant')).toHaveText('Next change verified.')
+    await expect(peerWork.getByTestId('code-agent-transcript-process-summary')).toContainText('1 Agent message')
+    await expect(peerWork.getByTestId('code-acp-progress-update')).toHaveCount(0)
     await expect(summary).toContainText('2 steering updates')
     await expect(summary).toContainText('2 Agent messages')
     const details = completed.locator('[data-testid="code-acp-progress-update"], .code-agent-transcript-steer-content, [data-testid="code-agent-outgoing-body"], .code-agent-transcript-peer-message .code-agent-transcript-user')
@@ -146,7 +209,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await page.setViewportSize({ width, height: 844 })
       await expect(details).toHaveCount(0)
       await expect(completed.locator('.code-agent-transcript-assistant')).toHaveText('Verified successfully. No deployment was performed.')
-      await expect(page.getByTestId('code-agent-message-source')).toHaveCount(0)
+      await expect(completed.getByTestId('code-agent-message-source')).toHaveCount(0)
       await summary.scrollIntoViewIfNeeded()
       await expect.poll(() => summary.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
       await page.screenshot({ path: testInfo.outputPath(`minimal-${appearance}-${width}.png`), animations: 'disabled' })
@@ -160,18 +223,21 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await expect(completed.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
       await summary.click()
     }
-    const peerTurn = turns.last()
-    await expect(peerTurn.getByTestId('code-agent-transcript-process-summary')).toContainText('1 Agent message')
-    await peerTurn.getByTestId('code-agent-transcript-process-summary').click()
+    await peerWork.getByTestId('code-agent-transcript-process-summary').click()
+    await expect(peerWork.getByTestId('code-acp-progress-update')).toHaveText('Checking the next change now.')
+    await expect(peerWork.locator('.code-agent-transcript-user')).toHaveText(['Check the next change.', 'Also check the validation.'])
+    await expect(peerWork.locator('.code-agent-transcript-assistant')).toHaveText('Next change verified.')
     await expect(peerTurn.getByTestId('code-agent-message-source')).toHaveText('Reviewer')
     await expect(peerTurn.locator('.code-agent-transcript-user')).toHaveText('Check the follow-up change.')
     await page.reload()
     await expect(summary).toHaveAttribute('aria-expanded', 'false')
     await expect(details).toHaveCount(0)
-    await expect(page.getByTestId('code-agent-message-source')).toHaveCount(0)
+    await expect(completed.getByTestId('code-agent-message-source')).toHaveCount(0)
+    await expect(peerTurn.getByTestId('code-agent-transcript-process-summary')).toHaveCount(0)
+    await expect(peerWork.getByTestId('code-acp-progress-update')).toHaveCount(0)
     await summary.click()
     await expect(details).toHaveCount(5)
-    // Restoring a saved position inside a folded peer input must reveal it.
+    // A saved position on the initial message must not manufacture a disclosure.
     await page.addInitScript(id => {
       const key = `farming.reading-anchor.v1:agent:${id}:chat`
       const anchor = JSON.stringify({ version: 1, surface: 'chat', resource: { kind: 'agent', id },
@@ -181,7 +247,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       sessionStorage.setItem(key, anchor)
     }, agentId)
     await page.reload()
-    await expect(peerTurn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'true')
+    await expect(peerTurn.getByTestId('code-agent-transcript-process-summary')).toHaveCount(0)
     await expect(peerTurn.getByTestId('code-agent-message-source')).toHaveText('Reviewer')
   })
 }

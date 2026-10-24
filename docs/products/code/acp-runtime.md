@@ -432,9 +432,10 @@ compact. User disclosure and history-reading intent survive updates and settleme
 While a Turn is active or its history is partial, progress stays visible in the
 compact flow. Once it settles with a final answer, collapsed activity hides
 commentary, tool evidence, accepted steering, settled questions and Agent messages
-together. The original human request and final result remain directly visible;
-the disclosure summarizes steering and Agent message counts. Peer-originated input
-retains its source inside the disclosure. Only questions in the authoritative live
+together. The initial request and final result of each Turn remain directly visible,
+whether the request came from the user or another Agent. The disclosure summarizes
+only intermediate steering and Agent messages; an initial peer request retains its
+source beside its visible input and is not counted as process activity. Only questions in the authoritative live
 pending set remain actionable and visible outside a collapsed result. Steering
 acceptance does not imply a separate answer or that the instruction was fulfilled. Explicitly expanded activity retains
 its ordered contents across settlement. Interrupted or missing-answer Turns retain
@@ -443,6 +444,10 @@ related Sessions and restored history, without changing stored messages. Disclos
 changes are browser-owned and never send, retry or cancel input. A failed or unknown
 delivery remains owned by input admission, not by result folding; late incoming
 messages cannot establish completion of another execution.
+An activity disclosure exists only when it has renderable intermediate entries;
+an input/result pair alone never creates an empty disclosure. Its summary counts
+and expanded contents refer to the same intermediate activity. Folding does not
+change Turn boundaries, result attribution or provider execution state.
 Accepted input may reveal latest content; background updates, pagination and
 layout changes must not force that navigation. When Sticky turn prompt
 (`stickyTurnPromptEnabled`, enabled by default in Settings → Interface) is active,
