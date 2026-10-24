@@ -33,7 +33,7 @@ export function selectBrowserScreen(files) {
       select(['touch-files', 'mobile-files', 'mobile-auth']);
     }
     if (/^extensions\/language-server\/|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
-    if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(composer-|mobile-composer)/.test(filename)) select(['composer']);
+    if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(?:composer-.*|mobile-composer|desktop-responsive-input|text-selection)\.spec\.ts(?:$|-snapshots\/)|^tests\/e2e\/composer-test-input\.ts$/.test(filename)) select(['composer']);
     if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|terminal-state-protocol|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
     if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control|read-only-access)|^tests\/e2e\/(mobile-auth-readonly|read-only-chat-rejection)/.test(filename)) select(['mobile-auth']);
     if (/^src\/.*[Ss]idebar|^src\/styles\/sidebar|^tests\/e2e\/sidebar-/.test(filename)) select(['sidebar']);
@@ -63,7 +63,7 @@ export function selectBrowserScreen(files) {
   }
   return {
     files, lanes: definitions.filter(([name]) => selected.has(name)).map(([name, script]) => ({ name, script })),
-    unmapped, maxParallel: 4, laneTimeoutMs: 180_000,
+    unmapped, maxParallel: 2, laneTimeoutMs: 180_000,
     scope: 'Early changed-area screen; full final exact-SHA CI remains required.',
     timingRisk: selected.size > 4 ? 'More than four selected lanes require a bounded queue; this screen may exceed three minutes.' : null,
     omissionReason: selected.size === 0 && unmapped.length === 0 ? 'No mapped browser input selected a lane; metadata and other backend inputs still require their owning checks.' : null,
@@ -120,7 +120,10 @@ export async function runBrowserScreen(args = process.argv.slice(2), dependencie
     code = await (dependencies.runIsolated ?? runIsolated)(['--project', 'chromium', '--lanes', String(plan.lanes.length), '--retain-evidence'], {
       ...dependencies.isolated,
       env: { ...process.env, FARMING_PLAYWRIGHT_PORT_BASE: String(basePort) },
-      laneConcurrency: 4,
+      // The full changed-area set shares native PTY, fake-provider and
+      // authoritative inventory work. Four concurrent Servers can reset an
+      // otherwise isolated lane request before its bounded test timeout.
+      laneConcurrency: 2,
       createLaneCommand: ({ laneIndex }) => laneCommand(plan.lanes[laneIndex - 1].script),
       executeLane: async parameters => {
         const started = Date.now();

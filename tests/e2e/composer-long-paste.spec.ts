@@ -1,3 +1,4 @@
+import { expectValue, selectText } from './composer-test-input'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator } from '@playwright/test'
@@ -40,6 +41,41 @@ for (const mode of ['chat', 'terminal'] as const) {
     const send = page.getByTestId(mode === 'chat' ? 'code-acp-composer-send' : 'code-composer-send')
     await expect(input).toBeEditable()
     await input.fill('Review this')
+    if (mode === 'chat') {
+      await selectText(input)
+      expect(await paste(input, ' short text')).toBe(true)
+      await expectValue(input, 'Review this short text')
+      expect(await paste(input, 'x'.repeat(250_001), '<p>oversized</p>')).toBe(true)
+      await expect(page.getByRole('alert')).toContainText('Pasted content is too large')
+      await expectValue(input, 'Review this short text')
+      await input.fill('Review this')
+      await selectText(input)
+      expect(await paste(input, documentText, `<pre>${documentText}</pre>`)).toBe(true)
+      await expect(input.locator('pre code')).toHaveText(documentText)
+      await expect(page.getByTestId('code-composer-pasted-text')).toHaveCount(0)
+      expect(sent).toHaveLength(0)
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 844 })
+        for (const appearance of ['light', 'dark', 'paper']) {
+          await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+          await expect(send).toBeInViewport()
+          const bounds = await input.locator('..').boundingBox()
+          expect(bounds!.x).toBeGreaterThanOrEqual(0)
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+          await page.screenshot({ path: testInfo.outputPath(`chat-${width}-${appearance}.png`), animations: 'disabled' })
+        }
+      }
+      await page.reload()
+      await expect(input.locator('pre code')).toHaveText(documentText)
+      await send.click()
+      await expectValue(input, '')
+      await expect.poll(() => sent.length).toBe(1)
+      expect(sent[0]).toContain(JSON.stringify(documentText).slice(1, -1))
+      expect(sent[0]).toContain('"type":"composer-input"')
+      expect(sent[0]).toContain('"type":"codeBlock"')
+      await expect(page.getByTestId('code-user-document').locator('pre code')).toHaveText(documentText)
+      return
+    }
     expect(await paste(input, 'short text')).toBe(false)
     expect(await paste(input, 'x'.repeat(250_001))).toBe(true)
     await expect(page.getByText('Pasted text exceeds 250,000 characters. Split it into smaller documents before pasting.', { exact: true })).toBeVisible()
@@ -127,17 +163,14 @@ test('side chat owns its pasted document separately from the parent draft', asyn
   const child = pane.getByTestId('code-acp-composer-input')
   await child.fill('Review child document')
   await paste(child, documentText, `<pre><b>${documentText}</b></pre>`)
-  const card = pane.getByTestId('code-composer-pasted-text')
-  await expect(card).toHaveCount(1)
-  await expect(page.locator('.code-composer-shell').getByTestId('code-composer-pasted-text')).toHaveCount(0)
-  await card.getByRole('button', { name: 'Show in text field' }).click()
-  await expect(child).toHaveText('Review child document\n\n' + documentText)
-  await expect(pane.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
+  const code = child.locator('pre code')
+  await expect(code).toHaveText(documentText)
+  await expect(pane.getByTestId('code-composer-pasted-text')).toHaveCount(0)
   await expect(parent).toHaveText('Keep parent draft')
   await child.fill('Review child document')
   await paste(child, documentText, `<pre><b>${documentText}</b></pre>`)
   await pane.getByTestId('code-acp-composer-send').click()
-  await expect(card).toHaveCount(0)
+  await expect(child).toHaveText('')
   await expect(pane.locator('.code-agent-transcript-user').last()).toContainText('END_OF_PASTED_DOCUMENT')
   await expect(parent).toHaveText('Keep parent draft')
 })
@@ -163,6 +196,34 @@ for (const mode of ['chat', 'terminal'] as const) {
     page.on('request', request => { if (request.url().includes('clipboard-probe.invalid')) requests.push(request.url()) })
     expect(await paste(input, code, html + '<img src="https://clipboard-probe.invalid/a" onerror="window.clipboardExecuted=true"><script>window.clipboardExecuted=true</script>')).toBe(true)
     const card = page.getByTestId('code-composer-pasted-text')
+    if (mode === 'chat') {
+      const literal = code.replace(/\r\n/g, '\n')
+      await expect(card).toHaveCount(0)
+      await expect(input.locator('pre code')).toHaveText(literal)
+      await expect(input.locator('img,script,iframe')).toHaveCount(0)
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 844 })
+        for (const appearance of ['light', 'dark', 'paper']) {
+          await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+          const content = input.locator('pre code')
+          await expect(content).toHaveCSS('white-space', 'pre-wrap')
+          await page.screenshot({ path: testInfo.outputPath(`formatted-chat-${width}-${appearance}.png`), animations: 'disabled' })
+        }
+      }
+      expect(requests).toEqual([])
+      expect(await page.evaluate(() => Reflect.get(window, 'clipboardExecuted'))).toBeUndefined()
+      await page.reload()
+      await expect(input.locator('pre code')).toHaveText(literal)
+      await input.fill('Before REPLACE after')
+      await selectText(input, 7, 14)
+      expect(await paste(input, 'Important docs', '<strong>Important</strong> <a href="https://example.com/docs">docs</a>')).toBe(true)
+      await expectValue(input, 'Before Important docs after')
+      await expect(input.locator('strong')).toHaveText('Important')
+      await expect(input.locator('a')).toHaveAttribute('href', 'https://example.com/docs')
+      await page.reload()
+      await expectValue(input, 'Before Important docs after')
+      return
+    }
     await expect(card).toHaveCount(1)
     await expect(input).toHaveValue('Review this code')
     await expect(card.locator('img,script,iframe,a')).toHaveCount(0)

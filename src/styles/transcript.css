@@ -1837,6 +1837,10 @@ button.code-agent-transcript-message-source:hover {
 
 .code-agent-transcript-file-link {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: start;
   align-items: center;
   gap: 5px;
   vertical-align: baseline;

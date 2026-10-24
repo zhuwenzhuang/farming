@@ -94,6 +94,11 @@ export function pasteComposerDocument(view: EditorView, event: ClipboardEvent) {
       while (walker.nextNode()) walker.currentNode.textContent = walker.currentNode.textContent?.replace(/\u00a0/g, ' ') || ''
       slice = parser.parseSlice(dom.body)
     }
+    // A copied code block remains a block when inserted into existing prose.
+    // An open slice otherwise joins its text into the destination paragraph.
+    if (slice.content.firstChild?.type.name === 'codeBlock' && slice.content.lastChild?.type.name === 'codeBlock') {
+      slice = new Slice(slice.content, 0, 0)
+    }
     tr.replaceSelection(slice)
   } else tr.replaceSelection(textSlice(text, view.state.schema))
   editorDocument(tr.doc) // Reject atomically before committing an oversized document.

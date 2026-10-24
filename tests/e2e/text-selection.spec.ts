@@ -17,7 +17,7 @@ async function dragSelectInput(page: Page, input: Locator) {
   await page.mouse.move(box!.x + 14, textY, { steps: 12 })
   await page.mouse.up()
   const selection = await input.evaluate(element => {
-    const field = element as HTMLInputElement | HTMLTextAreaElement
+    const field = (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element : element.parentElement) as HTMLInputElement | HTMLTextAreaElement
     return {
       start: field.selectionStart ?? 0,
       end: field.selectionEnd ?? 0,

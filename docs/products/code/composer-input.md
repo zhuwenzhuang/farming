@@ -118,7 +118,8 @@ its native plain-text textarea and submission contract.
 Paste interpretation is automatic and based on source evidence. Editor clipboard
 language metadata preserves code; HTML preserves supported paragraphs, headings,
 lists, links, emphasis and code blocks. Code retains indentation, blank lines and
-literal `#` comments. Without structural evidence, text stays literal, including
+literal `#` comments. A standalone pasted code block remains a block when inserted
+into an existing paragraph. Without structural evidence, text stays literal, including
 Markdown-looking markers. Typing does not activate Markdown input rules. There
 is no format selector. Unsupported HTML wrappers contribute their text; scripts,
 executable attributes and unsafe links are removed before schema parsing. Source

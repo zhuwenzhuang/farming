@@ -13,7 +13,7 @@ const changed = ['src/components/files/FileEditorTouchSource.tsx',
 test('2.2.86 native Files/Composer/disclosure changes select owning bounded lanes', () => {
   const plan = selectBrowserScreen(changed);
   assert.deepEqual(plan.lanes.map(lane => lane.name), ['touch-files', 'mobile-files', 'mobile-auth', 'composer', 'interaction']);
-  assert.equal(plan.maxParallel, 4);
+  assert.equal(plan.maxParallel, 2);
   assert.equal(plan.laneTimeoutMs, 180_000);
   assert(plan.timingRisk);
   assert.deepEqual(plan.unmapped, []);
@@ -85,11 +85,11 @@ function runnerDependencies({ buildFails = false, failLane = false } = {}) {
     },
   };
 }
-test('one shared build, max four concurrent lanes, isolated ports/Config/evidence and all-settled failure', async () => {
+test('one shared build, isolated ports/Config/evidence and all-settled failure', async () => {
   const fake = runnerDependencies({ failLane: true });
   const code = await runBrowserScreen(['--base', 'HEAD'], fake.dependencies);
   assert.equal(code, 1);
-  assert.deepEqual(fake.counts(), { builds: 1, maximum: 4, completed: 5 });
+  assert.deepEqual(fake.counts(), { builds: 1, maximum: 2, completed: 5 });
   assert.equal(fake.writes.at(-1).receipts.length, 5);
   for (const key of ['FARMING_PLAYWRIGHT_PORT', 'FARMING_PLAYWRIGHT_CONFIG_DIR', 'FARMING_PLAYWRIGHT_OUTPUT_DIR']) {
     assert.equal(new Set(fake.environment.map(env => env[key])).size, 5);
@@ -103,6 +103,13 @@ test('one shared build, max four concurrent lanes, isolated ports/Config/evidenc
     assert(lane.args.includes('--max-failures=1'));
     assert.equal(lane.command, process.platform === 'win32' ? 'npm.cmd' : 'npm');
   }
+});
+test('changed-area screen caps shared Servers at two concurrent lanes', async () => {
+  const fake = runnerDependencies();
+  let laneConcurrency;
+  fake.dependencies.runIsolated = async (_args, options) => { laneConcurrency = options.laneConcurrency; return 0; };
+  assert.equal(await runBrowserScreen(['--base', 'HEAD'], fake.dependencies), 0);
+  assert.equal(laneConcurrency, 2);
 });
 test('build failure starts zero browser lanes, plan is mutation-free and unknown product changes block', async () => {
   const fake = runnerDependencies({ buildFails: true });
@@ -145,7 +152,7 @@ test('convergence changes select focused UI, wire and Computer owners without ig
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.name),
     ['ui-boundaries', 'mobile-viewport', 'identity-files', 'wire-state', 'computer-resource']);
-  assert.equal(plan.maxParallel, 4);
+  assert.equal(plan.maxParallel, 2);
 });
 
 // Shared reading owners affect both parked Terminals and mobile unread Chat.
@@ -156,7 +163,7 @@ test('read acknowledgement owners select interaction and mobile unread screens',
   assert.deepEqual(plan.lanes.map(lane => lane.name), ['interaction', 'mobile-viewport']);
 });
 
- test('structured documents, quoted child preparation and attention pinning retain owning scenarios', () => {
+test('structured documents, quoted child preparation and attention pinning retain owning scenarios', () => {
   const plan = selectBrowserScreen(['shared/composer-document.ts', 'shared/composer-document.js',
     'src/components/code/QuotedContextCard.tsx', 'src/components/code/SubagentBody.tsx',
     'src/components/code/SubagentPreparation.tsx', 'src/components/code/useSubagentOpening.ts',
@@ -165,4 +172,10 @@ test('read acknowledgement owners select interaction and mobile unread screens',
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.name),
     ['interaction', 'wire-state', 'structured-composer', 'quoted-side', 'dynamic-pinning']);
+});
+
+test('rich editor selection and responsive input specs belong to the Composer owner', () => {
+  const plan = selectBrowserScreen(['tests/e2e/desktop-responsive-input.spec.ts', 'tests/e2e/text-selection.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.name), ['composer']);
 });

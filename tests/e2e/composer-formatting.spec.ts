@@ -121,10 +121,10 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       expect(await typography(input)).toEqual(before)
       expect(sent).toHaveLength(0)
       await input.evaluate(element => { (element.closest('.code-rich-input') || element).scrollTop = 0 })
-      await expect(inputViewport).toHaveScreenshot(`${mode}-${appearance}-plain-top.png`)
+      await expect(input).toHaveScreenshot(`${mode}-${appearance}-plain-top.png`)
       await input.evaluate(element => { const owner = element.closest('.code-rich-input') || element; owner.scrollTop = owner.scrollHeight })
       expect(await input.evaluate(element => (element.closest('.code-rich-input') || element).scrollTop)).toBeGreaterThan(0)
-      await expect(inputViewport).toHaveScreenshot(`${mode}-${appearance}-plain-bottom.png`)
+      await expect(input).toHaveScreenshot(`${mode}-${appearance}-plain-bottom.png`)
       await surface.screenshot({ path: testInfo.outputPath(`${mode}-${appearance}-composed.png`), animations: 'disabled' })
       if (mode === 'side') await expectValue(sourceInput, 'Keep parent draft')
       // Persist and switch ownership before sending the same exact snapshot.

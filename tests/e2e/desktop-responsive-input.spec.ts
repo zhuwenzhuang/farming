@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
+import { expectValue, selectText, selection } from './composer-test-input'
 
 for (const runtime of ['chat', 'terminal'] as const) {
   test(`desktop ${runtime} keeps input semantics on narrow load and resize`, async ({ page, workspaceRoot }, testInfo) => {
@@ -32,23 +33,27 @@ for (const runtime of ['chat', 'terminal'] as const) {
     try {
       for (const width of [390, 900, 767, 768, 390]) {
         await input.fill('Preserve draft and selection')
-        await input.evaluate(element => element.setSelectionRange(3, 8))
+        await selectText(input, 3, 8)
         await page.setViewportSize({ width, height: 844 })
-        await expect(input).toHaveValue('Preserve draft and selection')
-        expect(await input.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([3, 8])
+        await expectValue(input, 'Preserve draft and selection')
+        expect(await selection(input)).toEqual([3, 8])
         expect(await original?.evaluate(element => element.isConnected)).toBe(true)
         await expect(input).toHaveAttribute('enterkeyhint', 'send')
         const before = sent.length
         await input.fill('First line')
         await input.press('End')
         await input.press('Shift+Enter')
-        await expect(input).toHaveValue('First line\n')
-        await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true })
-        await expect(input).toHaveValue('First line\n')
+        await expectValue(input, 'First line\n')
+        await input.dispatchEvent('compositionstart', { data: '' })
+        await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true, keyCode: 229 })
+        await input.dispatchEvent('compositionend', { data: '' })
+        await expectValue(input, 'First line\n')
         expect(sent).toHaveLength(before)
+        // The subsequent submit is independent of the IME confirmation guard.
+        await page.waitForTimeout(150)
         await input.fill(runtime === 'chat' ? `image attachment responsive input ${width}` : `printf 'RESPONSIVE_${width}\\n'`)
         await input.press('Enter')
-        await expect(input).toHaveValue('')
+        await expectValue(input, '')
         await expect.poll(() => sent.length).toBe(before + 1)
       }
       await page.getByTestId('code-mobile-menu').click()
@@ -80,7 +85,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
         await input.fill(runtime === 'chat' ? 'image attachment expanded desktop input' : "printf 'EXPANDED_DESKTOP\\n'")
         const before = sent.length
         await input.press('Enter')
-        await expect(input).toHaveValue('')
+        await expectValue(input, '')
         await expect.poll(() => sent.length).toBe(before + 1)
         await expect(toggle).toHaveAttribute('aria-expanded', 'false')
       }
@@ -94,13 +99,13 @@ for (const runtime of ['chat', 'terminal'] as const) {
           await input.fill('Touch draft')
           await input.press('End')
           await input.press('Enter')
-          await expect(input).toHaveValue('Touch draft\n')
+          await expectValue(input, 'Touch draft\n')
           await expect(input).toHaveAttribute('enterkeyhint', 'enter')
           expect(sent).toHaveLength(before)
         }
         await session.send('Emulation.setTouchEmulationEnabled', { enabled: false })
         await expect(input).toHaveAttribute('enterkeyhint', 'send')
-        await expect(input).toHaveValue('Touch draft\n')
+        await expectValue(input, 'Touch draft\n')
       } finally {
         await session.detach()
       }

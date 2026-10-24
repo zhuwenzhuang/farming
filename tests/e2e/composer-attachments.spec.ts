@@ -1,3 +1,4 @@
+import { expectValue } from './composer-test-input'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
@@ -25,7 +26,7 @@ for (const mode of ['chat', 'terminal'] as const) {
       transfer.setData('text/plain', 'both files')
       element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
     })
-    await expect(input).toHaveValue('Review: both files')
+    await expectValue(input, 'Review: both files')
     const card = page.getByTestId('code-composer-document')
     await expect(card).toHaveCount(1)
     await expect(card.getByRole('status')).toHaveCount(0)
@@ -60,17 +61,17 @@ for (const mode of ['chat', 'terminal'] as const) {
     await expect(image).toHaveCount(1)
     await image.click(); await expect(page.getByTestId('composer-image-viewer').locator('img')).toHaveJSProperty('naturalWidth', 1); await page.keyboard.press('Escape')
     await send.click()
-    await expect(input).toHaveValue('')
+    await expectValue(input, '')
     await expect(card).toHaveCount(0)
     if (mode === 'terminal' && await page.getByTestId('code-pending-followup-send-next').count()) await page.getByTestId('code-pending-followup-send-next').click()
     // Chat staging clears the editor before admission records input history.
     if (mode === 'chat') await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
     await input.press('ArrowUp')
-    await expect(input).toHaveValue('Review: both files')
+    await expectValue(input, 'Review: both files')
     await expect(card).toHaveCount(1)
     await expect(image).toHaveCount(1)
     await input.press('ArrowDown')
-    await expect(input).toHaveValue('')
+    await expectValue(input, '')
     await expect(card).toHaveCount(0)
     await input.evaluate(element => {
       const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array([0, 1, 2])], 'unsupported.bin'))

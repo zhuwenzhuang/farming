@@ -401,8 +401,8 @@ function run() {
       && npmPackageScript.includes("'monaco-editor', 'dompurify', 'npm'")
       && npmPackageScript.includes('package/dist/frontend-licenses.txt')
       && npmPackageScript.includes("expressManifest.version !== '5.2.1'")
-      && npmPackageScript.includes("bodyParserManifest.version !== '2.3.0'")
-      && npmPackageScript.includes("qsManifest.version !== '6.16.0'"),
+      && npmPackageScript.includes("bodyParserManifest.version !== '2.4.0'")
+      && npmPackageScript.includes("qsManifest.version !== '6.16.1'"),
     'npm packaging must stage the locked production tree, exclude build-only runtime trees while preserving frontend notices, and pin the reviewed Express body-parsing chain',
   );
   assert(

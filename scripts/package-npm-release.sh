@@ -126,15 +126,16 @@ const pruneSdk = directory => {
 pruneSdk(sdkDist);
 
 // Express 5.2 declares body-parser ^2.2.1 and qs ^6.14.0, and body-parser
-// 2.3.0 declares qs ^6.15.2, so the patched production chain resolves
-// naturally. Pin the reviewed versions instead of rewriting override edges.
+// 2.4.0 requires qs ^6.16.1, so the patched production chain resolves
+// naturally. Verify the direct request and resolved version independently.
 const expressManifestPath = path.join(stageRoot, 'node_modules', 'express', 'package.json');
 const expressManifest = JSON.parse(fs.readFileSync(expressManifestPath, 'utf8'));
 const bodyParserManifestPath = resolveDependencyManifest(expressManifestPath, 'body-parser');
 const bodyParserManifest = JSON.parse(fs.readFileSync(bodyParserManifestPath, 'utf8'));
 const qsManifestPath = resolveDependencyManifest(bodyParserManifestPath, 'qs');
 const qsManifest = JSON.parse(fs.readFileSync(qsManifestPath, 'utf8'));
-if (expressManifest.version !== '5.2.1' || bodyParserManifest.version !== '2.3.0' || qsManifest.version !== '6.16.0') {
+if (expressManifest.version !== '5.2.1' || bodyParserManifest.version !== '2.4.0' || qsManifest.version !== '6.16.1'
+  || bodyParserManifest.dependencies.qs !== '^6.16.1') {
   throw new Error(
     `Express production chain mismatch: express=${expressManifest.version}, body-parser=${bodyParserManifest.version}, qs=${qsManifest.version}`,
   );

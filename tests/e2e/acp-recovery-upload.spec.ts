@@ -222,7 +222,7 @@ test('settles a fast image upload, enables Send, and delivers the first media Pr
   const input = page.getByTestId('code-acp-composer-input')
   await input.fill('inspect this uploaded image')
   const timings = await page.evaluate(async expected => {
-    const composer = document.querySelector<HTMLTextAreaElement>('[data-testid="code-acp-composer-input"]')
+    const composer = document.querySelector<HTMLElement>('[data-testid="code-acp-composer-input"]')
     const sendButton = document.querySelector<HTMLButtonElement>('[data-testid="code-acp-composer-send"]')
     if (!composer || !sendButton) throw new Error('Composer controls unavailable')
     const startedAt = performance.now()
@@ -230,7 +230,7 @@ test('settles a fast image upload, enables Send, and delivers the first media Pr
     const result = { inputClearedMs: -1, userMessageVisibleMs: -1, agentResponseStartedMs: -1 }
     while (performance.now() - startedAt < 10_000) {
       const elapsed = performance.now() - startedAt
-      if (result.inputClearedMs < 0 && composer.value === '') result.inputClearedMs = elapsed
+      if (result.inputClearedMs < 0 && composer.textContent === '') result.inputClearedMs = elapsed
       if (result.userMessageVisibleMs < 0 && [...document.querySelectorAll('.code-agent-transcript-user')].some(element => element.textContent?.includes(expected))) {
         result.userMessageVisibleMs = elapsed
       }

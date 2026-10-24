@@ -102,12 +102,18 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
   await address.press('Enter')
   await expect(spreadsheet.locator('.code-spreadsheet-inspector span')).toHaveText('00123')
   await expect(spreadsheet.getByRole('link', { name: 'Download original' })).toHaveCount(0)
+  const clipboardDefaults = await page.evaluateHandle(() => ({ writeText: navigator.clipboard.writeText, execCommand: document.execCommand }))
   await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', {
     configurable: true, value: () => Promise.reject(new Error('Clipboard denied')),
   }))
   await page.evaluate(() => Object.defineProperty(document, 'execCommand', { configurable: true, value: () => false }))
   await spreadsheet.getByRole('button', { name: 'Copy selection', exact: true }).click()
   await expect(spreadsheet.getByRole('textbox', { name: 'Copy selection' })).toHaveValue('00123')
+  await page.evaluate(original => {
+    Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: original.writeText })
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: original.execCommand })
+  }, clipboardDefaults)
+  await clipboardDefaults.dispose()
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.locator('body').evaluate((element, value) => { element.dataset.appearance = value }, appearance)
     await page.screenshot({ path: testInfo.outputPath(`spreadsheet-quote-${appearance}.png`), animations: 'disabled' })
@@ -150,6 +156,8 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
   await expect(pane).toContainText('Received 0 image.')
   await childInput.fill('Keep my child draft')
   const answer = pane.locator('.code-agent-transcript-assistant').last()
+  await answer.click()
+  await expect(childInput).not.toBeFocused()
   await answer.evaluate(element => {
     const range = document.createRange()
     range.selectNodeContents(element)
