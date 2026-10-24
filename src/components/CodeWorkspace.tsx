@@ -2008,7 +2008,11 @@ export function CodeWorkspace({
         return
       }
       input?.focus({ preventScroll: true })
-      if (document.activeElement === input) composerOwnedFocus = true
+      if (
+        input
+        && document.activeElement instanceof Node
+        && input.contains(document.activeElement)
+      ) composerOwnedFocus = true
     }
     scheduleFocusRetries(focus, { delays: [60] })
   }, [])

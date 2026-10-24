@@ -56,6 +56,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
 
   test(`structured side Chat keeps independent draft and restores messages in ${appearance}`, async ({ page, workspaceRoot }) => {
     test.setTimeout(120_000)
+    await page.clock.install()
     await page.request.post('/farming/api/settings', { data: { appearance, language: 'en' } })
     const response = await page.request.post('/farming/api/control/agents', { data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' } })
     const { agentId } = await response.json() as { agentId: string }
@@ -78,6 +79,14 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await page.locator('[data-testid="code-agent-row"].related-child').click()
     await expect(panel).toBeVisible()
     await expect(panel.getByTestId('code-user-document').locator('pre code')).toHaveText(code)
-    await input.focus();await page.keyboard.press('ArrowUp');await expect(input.locator('pre code')).toHaveText(code)
+    await input.focus()
+    await expect(input).toBeFocused()
+    const outside = page.getByTestId('code-subagent-panel').getByRole('button', { name: 'Collapse related session' })
+    await outside.focus()
+    await expect(outside).toBeFocused()
+    await page.clock.fastForward(61)
+    await expect(outside).toBeFocused()
+    await input.focus()
+    await page.keyboard.press('ArrowUp');await expect(input.locator('pre code')).toHaveText(code)
   })
 }
