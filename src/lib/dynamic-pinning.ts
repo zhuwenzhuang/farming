@@ -22,8 +22,8 @@ function finiteTimestamp(value: unknown) {
 }
 
 export function agentHasCurrentDynamicPinAttention(agent: DynamicPinAgentState) {
+  if (agent.status === 'pending') return false
   return agent.unread === true
-    || agent.status === 'pending'
     || agentTurnActiveFromState(agent)
 }
 
@@ -45,7 +45,7 @@ export function isAgentDynamicallyPinned(
   agent: DynamicPinAgentState,
   now: number,
 ) {
-  if (agent.archived === true || agent.isMain === true) return false
+  if (agent.archived === true || agent.isMain === true || agent.status === 'pending') return false
   const activityAt = dynamicPinActivityAt(agent, now)
   return activityAt > 0 && now - activityAt < DYNAMIC_PIN_ACTIVITY_WINDOW_MS
 }

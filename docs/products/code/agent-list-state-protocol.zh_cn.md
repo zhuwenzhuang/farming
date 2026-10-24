@@ -201,8 +201,10 @@ Restore 后仍显示原值。Runtime 与权限重启必须保留标记，Fork �
 只在一个位置出现；手动置顶保持现有顺序并排在前面，纯动态置顶按稳定的 Project 顺序排在后面，
 中间没有分隔线，也没有第二套行样式。
 
-未手动置顶的 Live Agent 在权威 Runtime Observation 为 Starting、Working 或 Waiting、状态为
-Pending，或权威未读投影为 True 时持续符合条件。除此之外，它会在以下有效时间中的最新值之后
+Pending Agent 不参与动态置顶：启动或恢复不是任务活跃，即使重启后仍保留最近时间戳或未读状态。
+手动置顶仍保持可见。启动结束后，按当前权威状态重新判断资格，重连或 Reload 后也遵循同一规则。
+符合资格的 Live Agent 在权威 Runtime Observation 为 Working 或 Waiting（Terminal 还包括 Starting），
+或权威未读投影为 True 时持续符合条件。除此之外，它会在以下有效时间中的最新值之后
 严格保留不足一小时：`lastActivity`（缺失时使用 `startedAt`）、Attention Update 或 Exit。
 打开或查看 Agent 不计为活跃，Read Cursor 也不作为活跃时间来源。仍需关注时，现有相对时间显示为
 `now`；关注状态结束后，

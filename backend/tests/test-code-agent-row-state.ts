@@ -222,6 +222,18 @@ function run() {
   assert.strictEqual(forcedActiveAge.ageVisible, true);
 
   const cutoff = now - DYNAMIC_PIN_ACTIVITY_WINDOW_MS;
+  for (const patch of [
+    { lastActivity: now },
+    { lastActivity: cutoff - 1, unread: true },
+    { attentionUpdatedAt: now, exitedAt: now },
+    { runtimeBinding: { kind: 'terminal' }, runtimeObservation: { phase: 'starting' } },
+    { runtimeObservation: { phase: 'working' } },
+  ]) {
+    assert.strictEqual(isAgentDynamicallyPinned({ ...patch, status: 'pending' }, now), false,
+      'startup/recovery must not promote pending agents, even with recent or stale attention');
+  }
+  assert.strictEqual(dynamicPinActivityAt({ status: 'pending', lastActivity: cutoff, unread: true }, now), cutoff,
+    'a manually pinned pending agent must not report startup as current task attention');
   assert.strictEqual(
     isAgentDynamicallyPinned({ lastActivity: cutoff + 1 }, now),
     true,

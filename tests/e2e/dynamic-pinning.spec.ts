@@ -167,6 +167,65 @@ test('projects recent attention into Pinned without turning it into a manual pin
   await expect(projectRow).toBeVisible()
 })
 
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`pending recovery stays in its Project with dynamic pinning in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.clock.install()
+    await page.request.post('/farming/api/settings', { data: { language: 'en', appearance } })
+    const workspace = path.join(workspaceRoot, 'recovery')
+    fs.mkdirSync(workspace, { recursive: true })
+    const recent = await createControlAgent(page, workspace)
+    const unread = await createControlAgent(page, workspace)
+    const manual = await createControlAgent(page, workspace)
+    await renameAgent(page, recent, 'Recent task recovering')
+    await renameAgent(page, unread, 'Unread task recovering')
+    await renameAgent(page, manual, 'Manual pin recovering')
+    await pinAgent(page, manual)
+    const recovering = new Set<string>()
+    const timestamp = Date.now()
+    await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+      const server = socket.connectToServer()
+      socket.onMessage(message => server.send(message))
+      const projectRecovery = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(projectRecovery)
+        if (!value || typeof value !== 'object') return value
+        const record = value as Record<string, unknown>
+        if (typeof record.id === 'string' && recovering.has(record.id) && record.runtimeBinding) {
+          return { ...record, status: 'pending', lastActivity: timestamp, unread: record.id === unread,
+            runtimeObservation: { kind: 'shell', phase: 'idle', confidence: 'authoritative',
+              source: 'structured-runtime', observerVersion: 'recovery-test', observedAt: timestamp } }
+        }
+        return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, projectRecovery(child)]))
+      }
+      server.onMessage(message => socket.send(JSON.stringify(projectRecovery(JSON.parse(String(message))))))
+    })
+    await openFarming(page)
+    const pinned = page.getByTestId('code-pinned-section')
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'recovery' })
+    await pinned.getByTestId('code-pinned-dynamic-toggle').click()
+    await expect.poll(() => agentIds(pinned)).toHaveLength(3)
+    for (const id of [recent, unread, manual]) recovering.add(id)
+    await page.reload()
+    await expect.poll(() => agentIds(pinned)).toEqual([manual])
+    for (const id of [recent, unread]) {
+      await expect(project.locator(`[data-agent-id="${id}"][data-testid="code-agent-row"]`)).toBeVisible()
+    }
+    await expect(pinned.locator('.code-agent-dot.pending')).toHaveCount(1)
+    await expect(project.locator('.code-agent-dot.pending:not(.turn-active)')).toHaveCount(2)
+    await expect(page.getByTestId('code-pinned-dynamic-unread')).toBeVisible()
+    await saveSidebarScreenshot(page, testInfo, `${appearance}-pending-in-project.png`)
+    // Reconnect reconstructs eligibility from structural lifecycle state.
+    recovering.delete(recent)
+    await page.reload()
+    await expect(pinned.locator(`[data-agent-id="${recent}"][data-testid="code-agent-row"]`)).toBeVisible()
+    recovering.add(recent)
+    await page.reload()
+    await expect.poll(() => agentIds(pinned)).toEqual([manual])
+    await pinned.getByTestId('code-pinned-dynamic-toggle').click()
+    await pinned.getByTestId('code-pinned-dynamic-toggle').click()
+    await expect.poll(() => agentIds(pinned)).toEqual([manual])
+  })
+}
+
 test('Project Archive protects manual and dynamic pinned Agents', async ({ page, workspaceRoot }) => {
   await page.clock.install()
   const workspace = path.join(workspaceRoot, 'dynamic-pinning-project-archive')
@@ -307,7 +366,8 @@ test('keeps every current attention state pinned while recent idle work expires'
 
   const pinnedSection = page.getByTestId('code-pinned-section')
   await pinnedSection.getByTestId('code-pinned-dynamic-toggle').click()
-  for (const agentId of Object.values(ids)) {
+  await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${ids.pending}"]`)).toHaveCount(0)
+  for (const agentId of [ids.working, ids.waiting, ids.unread, ids.completed]) {
     const row = pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     await expect(row).toBeVisible()
     await expect(row.getByTestId('code-agent-row-age')).toHaveText('now')
@@ -320,7 +380,7 @@ test('keeps every current attention state pinned while recent idle work expires'
   await page.clock.fastForward(DYNAMIC_PIN_ACTIVITY_WINDOW_MS + 60_000)
   await setCurrentAttentionStates()
   await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${ids.completed}"]`)).toHaveCount(0)
-  for (const agentId of [ids.working, ids.waiting, ids.pending, ids.unread]) {
+  for (const agentId of [ids.working, ids.waiting, ids.unread]) {
     await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toBeVisible()
   }
 

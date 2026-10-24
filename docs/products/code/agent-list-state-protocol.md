@@ -416,8 +416,12 @@ or history-only Sessions. A live Agent appears in exactly one place. Manual
 pins remain first in their existing order; dynamic-only rows follow in stable
 Project order, without a separator or a second row treatment.
 
-An unpinned live Agent qualifies while its authoritative runtime observation is
-starting, working, or waiting, while it is pending, or while its authoritative
+Pending Agents never qualify for dynamic pinning: startup or recovery is not
+task activity, even when recent timestamps or unread state survive a restart.
+Manual pins remain visible. Once startup settles, eligibility is recomputed
+from the current authoritative state, including after reconnect or reload.
+An eligible live Agent qualifies while its authoritative runtime observation is
+working or waiting (or starting for a Terminal), or while its authoritative
 unread projection is true. Otherwise it qualifies for strictly less than one
 hour after the newest valid `lastActivity` (falling back to `startedAt`),
 attention update, or exit. Opening or viewing an Agent does not count as
