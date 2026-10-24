@@ -21,7 +21,7 @@ function assertProcessIsNotLive(processId, message) {
       );
       return;
     } catch (error) {
-      if (error?.code === 'ENOENT') return;
+      if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return;
       throw error;
     }
   }
