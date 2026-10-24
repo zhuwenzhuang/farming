@@ -1494,7 +1494,7 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
   return (
     <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
       <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
-        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptUserMarkdown text={text} copy={copy} /></div> : null}
+        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptInputText text={text} /></div> : null}
         <AgentTranscriptUserImages images={images} />
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
@@ -1535,24 +1535,15 @@ function AgentTranscriptCommunicationRecipient({ peer, fallback, directed, copy 
   return directed ? copy.agentTranscriptCollaborationRecipient(name) : name
 }
 
-function AgentTranscriptUserMarkdown({ text, copy }: { text: string; copy: CodeCopy }) {
-  const components = useCompactTranscriptMarkdownComponents(copy)
-  return <div className="code-markdown-preview code-agent-transcript-user-markdown">
-    <ReactMarkdown
-      remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
-      rehypePlugins={[rehypeGuardInvalidKatex, rehypeKatex, rehypeHighlight]}
-      skipHtml
-      components={components}
-      urlTransform={agentTranscriptUrlTransform}
-    >{text}</ReactMarkdown>
-  </div>
+function AgentTranscriptInputText({ text }: { text: string }) {
+  return <div className="code-agent-transcript-input-text">{text}</div>
 }
 
 function AgentTranscriptUserMessage({ turn, copy }: { turn: AgentTranscriptTurn; copy: CodeCopy }) {
-  if (!turn.handoffContext) return <AgentTranscriptUserMarkdown text={turn.userMessage} copy={copy} />
+  if (!turn.handoffContext) return <AgentTranscriptInputText text={turn.userMessage} />
   return <details className="code-agent-transcript-context" data-testid="code-agent-handoff-context">
     <summary><span>{copy.handoffContext}</span><ChevronRightGlyph /></summary>
-    <div className="detail"><AgentTranscriptUserMarkdown text={turn.userMessage} copy={copy} /></div>
+    <div className="detail"><AgentTranscriptInputText text={turn.userMessage} /></div>
   </details>
 }
 
@@ -1831,7 +1822,7 @@ function AgentTranscriptProcessItemView({
   if (item.peerMessage) return <AgentTranscriptIncomingMessage copy={copy}
     turn={{ userSource: item.peerMessage, startedAt: item.createdAt ?? null }}>
     <div className="code-agent-transcript-user" data-process-item-id={item.id}>
-      <AgentTranscriptUserMarkdown text={item.detail || ''} copy={copy} />
+      <AgentTranscriptInputText text={item.detail || ''} />
       <AgentTranscriptUserImages images={item.images || []} />
       <AgentTranscriptAudios audios={item.audios || []} />
       <AgentTranscriptUserFiles files={item.files || []} />

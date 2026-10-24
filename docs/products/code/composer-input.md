@@ -108,6 +108,13 @@ restores it atomically and removes the card exactly once. Existing persisted car
 with an editable Markdown representation retain that representation for recovery
 and submission compatibility. Shift+Cmd/Ctrl+V bypasses folding for that paste.
 
+Sent Chat input follows the same literal-text contract: initial requests, accepted
+Steer messages and incoming Agent requests preserve their source, indentation and
+line breaks, including after reload. Markdown delimiters, Shell comments and HTML
+remain visible text; the renderer must not interpret them or add code fences.
+Structured attachments keep their own presentation. Assistant output retains its
+rich-content rendering.
+
 The Agent draft string is the sole editing and submission owner. The same native
 textarea owns visible text, caret, selection, IME, scrolling and undo; no transparent
 text or syntax overlay may replace its rendering. Markdown-like content must not

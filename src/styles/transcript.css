@@ -2917,12 +2917,13 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   transform: rotate(90deg);
 }
 
-/* Message bubbles own their geometry; their content shares Markdown typography. */
-.code-markdown-preview.code-agent-transcript-user-markdown {
+/* Input is literal text, including Shell comments and Markdown delimiters. */
+.code-agent-transcript-input-text {
   width: 100%;
   margin: 0;
   padding: 0;
-  white-space: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .code-agent-transcript-scroll:has(> .code-agent-transcript-turn.turn-focus-runway) {
