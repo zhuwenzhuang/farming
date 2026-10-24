@@ -697,8 +697,8 @@ test('ordinary transport failure before the global deadline does not preserve pr
   let reads = 0;
   const result = await observe((request, response) => {
     if (++reads === 1) response.writeHead(404).end();
-    else request.socket.destroy();
-  }, { timeout: 150, uploadResult: { exitCode: 0 } });
+    else setTimeout(() => request.socket.destroy(), 1);
+  }, { timeout: 1_000, uploadResult: { exitCode: 0 } });
   assert(reads >= 2);
   assert.equal(result.code, 2, result.output);
   assert.equal(result.state.status, 'uncertain');

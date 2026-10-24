@@ -51,7 +51,7 @@ if(name==='npx'){ if(args.includes('build')) {fs.mkdirSync('packages/dashboard/o
 if(name==='zig'){console.log('0.15.2');process.exit(0);}
 if(args.includes('--list')) {console.log('cargo-zigbuild v0.22.3:');process.exit(0);}
 if(process.env.FIXTURE_FAIL==='1') process.exit(7);
-if(args.includes('--release')) {Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,80);const target=args[args.indexOf('--target')+1];const dir=path.join(process.env.CARGO_TARGET_DIR,target,'release');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'agent-browser'),'#!/bin/sh\\nprintf "agent-browser 1.0.0-farming.1\\\\n"\\n',{mode:0o755});}
+if(args.includes('--release')) {Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,80);const target=args[args.indexOf('--target')+1];const dir=path.join(process.env.CARGO_TARGET_DIR,target,'release');fs.mkdirSync(dir,{recursive:true});const temporary=path.join(dir,'.agent-browser-'+process.pid);fs.writeFileSync(temporary,'#!/bin/sh\\nprintf "agent-browser 1.0.0-farming.1\\\\n"\\n',{mode:0o755});fs.renameSync(temporary,path.join(dir,'agent-browser'));}
 `;
     for (const name of ['cargo', 'npx', 'zig']) fs.writeFileSync(path.join(bin, name), fakeTool, { mode: 0o755 });
     const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TMPDIR: temporary,
