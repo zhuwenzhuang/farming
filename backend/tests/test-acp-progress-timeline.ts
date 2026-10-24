@@ -65,4 +65,16 @@ assert.deepStrictEqual(
   ],
 );
 
+assert.deepStrictEqual(
+  acpProgressFlowEntries([
+    { id: 'read', type: 'tool', kind: 'read' },
+    { id: 'incoming', type: 'peer-message' },
+    { id: 'steer', type: 'user-steer' },
+    { id: 'receipt', type: 'peer-receipt' },
+    { id: 'test', type: 'tool', kind: 'execute' },
+  ]).map(entry => entry.kind === 'item' ? entry.item.id : entry.items.map(item => item.id)),
+  [['read'], 'incoming', 'steer', 'receipt', ['test']],
+  'incoming messages and steering retain their place between tool groups',
+);
+
 console.log('test-acp-progress-timeline passed');

@@ -60,6 +60,7 @@ export function isAcpAnswerSegment(item: AcpProgressTimelineItem) {
 function isAcpProgressBoundary(item: AcpProgressTimelineItem) {
   const type = String(item.type || '').trim().toLowerCase()
   return type === 'progress' || type === 'answer' || type === 'user-steer' || type === 'error' || type === 'question'
+    || type === 'peer-message' || type === 'peer-receipt'
 }
 
 export function acpProgressFlowEntries<T extends AcpProgressTimelineItem>(

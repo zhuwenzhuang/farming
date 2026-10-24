@@ -114,6 +114,7 @@ export interface CodeCopy {
   agentTranscriptWorkingFor: (duration: string) => string
   agentTranscriptWorkedFor: (duration: string) => string
   agentTranscriptCompactingContext: string
+  agentTranscriptSteerCount: (count: number) => string
   agentTranscriptProcessCount: (count: number) => string
   agentTranscriptCollaborationInProgress: string
   agentTranscriptCollaborationHeading: string
@@ -888,6 +889,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptWorkingFor: duration => `Working for ${duration}`,
   agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
   agentTranscriptCompactingContext: 'Compacting context',
+  agentTranscriptSteerCount: count => `${count} steering ${count === 1 ? 'update' : 'updates'}`,
   agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   agentTranscriptCollaborationInProgress: 'In progress',
   agentTranscriptCollaborationHeading: 'Agent activity',
@@ -1699,6 +1701,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptWorkingFor: duration => `Working for ${duration}`,
   agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
   agentTranscriptCompactingContext: '正在压缩上下文',
+  agentTranscriptSteerCount: count => `${count} 条用户补充`,
   agentTranscriptProcessCount: count => `${count} 个事件`,
   agentTranscriptCollaborationInProgress: '进行中',
   agentTranscriptCollaborationHeading: 'Agent 动态',

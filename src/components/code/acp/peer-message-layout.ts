@@ -24,7 +24,7 @@ export function continuesPeerMessageGroup(previous: AgentTranscriptTurn | undefi
   return before.senderAddress === after.senderAddress
 }
 
-export function peerMessageTimestamp(turn: AgentTranscriptTurn): number | null {
+export function peerMessageTimestamp(turn: Pick<AgentTranscriptTurn, 'userSource' | 'startedAt'>): number | null {
   const timestamp = turn.userSource?.timestamp ? Date.parse(turn.userSource.timestamp) : NaN
   return Number.isFinite(timestamp) ? timestamp : turn.startedAt
 }

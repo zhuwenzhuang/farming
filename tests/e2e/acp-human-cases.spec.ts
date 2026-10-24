@@ -1331,7 +1331,7 @@ test.describe('ACP human-like browser matrix', () => {
     await sendAcpMessage(page, `native peer communication peer-session=${peerSessionId}`)
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'Peer communication example complete.' })
     const feed = turn.getByTestId('code-agent-transcript-collaboration')
-    await expect(feed.getByTestId('code-agent-outgoing-preview')).toHaveCount(3)
+    await expect(feed.getByTestId('code-agent-outgoing-preview')).toHaveCount(0)
     await expect(feed.getByTestId('code-agent-outgoing-message')).toHaveCount(0)
     const events = feed.getByTestId('code-agent-transcript-collaboration-event')
     const messages = feed.getByTestId('code-agent-outgoing-message')
@@ -1597,7 +1597,7 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('11 hide completed intermediate work behind one folded entry', async () => {
       const processSummary = richTurn.getByTestId('code-agent-transcript-process-summary')
       await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-      await expect(richTurn.getByTestId('code-agent-transcript-process-compact-list')).toBeVisible()
+      await expect(richTurn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
       await expect(richTurn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
       await processSummary.click()
       await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
@@ -2398,7 +2398,7 @@ test.describe('ACP human-like browser matrix', () => {
 
     await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-    await expect(turn.getByTestId('code-agent-transcript-process-compact-list')).toContainText('Inspecting files')
+    await expect(turn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
     await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
 
     await processSummary.click()

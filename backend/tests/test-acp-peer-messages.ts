@@ -107,6 +107,23 @@ async function run() {
     assert.equal(failed.turns[0].status, 'interrupted', 'real failures remain visible');
   }
 
+  // Accepted peer steering stays in the execution timeline with its source.
+  const steering = projectAcpTranscript({ state: 'idle', entries: [
+    { id: 'human', type: 'message', role: 'user', content: [{ type: 'text', text: 'Check' }] },
+    { id: 'peer-steer', type: 'message', role: 'user', content: codex.content,
+      _meta: { ...codex._meta, farming: { steer: true } } },
+    { id: 'human-steer', type: 'message', role: 'user', content: [{ type: 'text', text: 'No deployment' }],
+      _meta: { farming: { steer: true } } },
+    { id: 'final', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Checked' }],
+      _meta: { codex: { phase: 'final_answer' } } },
+  ] }).turns;
+  assert.equal(steering.length, 1);
+  assert.equal(steering[0].status, 'completed');
+  assert.equal(steering[0].finalMessage, 'Checked');
+  assert.deepEqual(steering[0].processItems.map(item => item.type), ['peer-message', 'user-steer']);
+  assert.deepEqual(steering[0].processItems[0].peerMessage, codex._meta.peerMessage);
+  assert.equal(steering[0].processItems[0].detail, 'Hello');
+
   const receipt = { id: 'receipt', type: 'message', role: 'user', content: encrypted.content, _meta: encrypted._meta };
   assert(!isUnavailableAcpPeerReceipt({ ...receipt, content: [{ type: 'text', text: 'Readable part' }] }));
   assert(!isUnavailableAcpPeerReceipt({ ...receipt, content: [{ type: 'image', data: 'image', mimeType: 'image/png' }] }));

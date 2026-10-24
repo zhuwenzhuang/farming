@@ -56,13 +56,19 @@ test('parent and child keep progress readable across unavailable receipts, settl
         document.body.dataset.appearance = value
         document.documentElement.dataset.appearance = value
       }, appearance)
-      for (const label of ['Parent', 'Child']) {
-        await expect(page.getByText(`${label}: build passed; checking test results.`, { exact: true })).toBeVisible()
-        await expect(page.getByText(`${label}: all 42 checks passed.`, { exact: true })).toBeVisible()
-      }
+      await expect(page.getByText('Parent: build passed; checking test results.', { exact: true })).toBeVisible()
+      await expect(page.getByText('Parent: all 42 checks passed.', { exact: true })).toBeVisible()
       await expect(panel.getByText('Child: verification complete.', { exact: true })).toBeVisible()
+      await expect(panel.getByTestId('code-acp-progress-update')).toHaveCount(0)
+      const summary = panel.getByTestId('code-agent-transcript-process-summary')
+      await summary.click()
+      await expect(panel.getByText('Child: all 42 checks passed.', { exact: true })).toBeVisible()
+      await summary.click()
+      await expect(panel.getByTestId('code-acp-progress-update')).toHaveCount(0)
       await expect(page.getByTestId('code-agent-transcript-missing-final-reply')).toHaveCount(0)
       const receipts = page.getByTestId('code-agent-peer-receipts')
+      await expect(receipts).toHaveCount(1)
+      await summary.click()
       await expect(receipts).toHaveCount(2)
       await expect(receipts.first().locator('summary')).toHaveText('8 encrypted messages from Codex')
       await expect(page.locator('.code-agent-transcript-message-unavailable').first()).toBeHidden()
@@ -71,6 +77,7 @@ test('parent and child keep progress readable across unavailable receipts, settl
       await expect(panel.locator('.code-agent-transcript-message-unavailable')).toBeVisible()
       await expect(panel.getByTestId('code-agent-peer-receipts').getByText('/root/reviewer', { exact: true })).toHaveCount(4)
       await panel.getByTestId('code-agent-peer-receipts').locator('summary').click()
+      await summary.click()
       const screenshot = await page.screenshot({ path: testInfo.outputPath(`${appearance}-${pass}.png`), animations: 'disabled' })
       expect([screenshot.readUInt32BE(16), screenshot.readUInt32BE(20)]).toEqual([1600, 1000])
     }
@@ -84,7 +91,7 @@ test('parent and child keep progress readable across unavailable receipts, settl
     }, appearance)
     for (const label of ['Parent', 'Review 0']) {
       await switcher.getByRole('button', { name: label, exact: true }).click()
-      await expect(page.getByText(`${label === 'Parent' ? 'Parent' : 'Child'}: all 42 checks passed.`, { exact: true })).toBeVisible()
+      await expect(page.getByText(label === 'Parent' ? 'Parent: all 42 checks passed.' : 'Child: verification complete.', { exact: true })).toBeVisible()
       const image = await page.screenshot({ path: testInfo.outputPath(`${appearance}-compact-${label}.png`), animations: 'disabled' })
       expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual([760, 900])
     }

@@ -498,6 +498,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
 
   await page.reload()
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.getByTestId('code-agent-transcript-missing-final-reply')).toBeVisible()
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(1)
   await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image after editing')
   await expect(page.getByTestId('code-agent-transcript-steer-time')).toHaveCount(1)
@@ -694,6 +695,9 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('自己再看看')
 
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
+  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'disabled')
+  await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+  await page.getByTestId('code-agent-transcript-process-summary').click()
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
   await expect(page.locator('.code-agent-transcript-steer-content')).toHaveText([
     '你自己先看看自己迭代到合理的展示吧。',
@@ -742,6 +746,8 @@ test('send button uses Steer selected in settings during an active turn', async 
     await page.getByTestId('code-acp-composer-send').click()
     await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
     await expect(page.getByText('Implementation continued successfully.', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+    await page.getByTestId('code-agent-transcript-process-summary').click()
     await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('Continue with the simpler design')
   } finally {
     await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
@@ -771,6 +777,8 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.reload()
       await row.click()
       await expect(page.getByText('Implementation continued successfully.', { exact: true })).toBeVisible()
+      await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+      await page.getByTestId('code-agent-transcript-process-summary').click()
       await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('Continue with the simpler design')
       await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
       const transcript = await page.request.get(`/farming/api/agents/${agentId}/acp-transcript?maxTurns=5&entryPatches=v1`)

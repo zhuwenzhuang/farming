@@ -84,6 +84,7 @@ export interface AgentTranscriptProcessItem {
   question?: { requestId: string; message: string; status: string; answer: string }
   collaboration?: AgentTranscriptCollaboration
   peerReceipt?: AcpPeerMessage
+  peerMessage?: AcpPeerMessage
 }
 
 export interface AgentTranscriptCollaborationState {
@@ -848,11 +849,13 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     }
     if (entry.type === 'message' && entry.role === 'user') {
       if (isSteerEntry(entry) && current) {
+        const peer = normalizeAcpPeerMessage(record(entry._meta).peerMessage)
         const entryId = stringValue(entry.id) || String(++sequence)
         current.processItems.push({
           id: `acp-steer-${entryId}`,
-          type: 'user-steer',
-          title: 'Steering update',
+          type: peer ? 'peer-message' : 'user-steer',
+          title: peer ? 'Agent message received' : 'Steering update',
+          ...(peer ? { peerMessage: peer } : {}),
           ...(Number.isFinite(Number(entry.createdAt)) ? { createdAt: Number(entry.createdAt) } : {}),
           detail: contentText(entry.content),
           images: contentImages(entry.content, entryId),

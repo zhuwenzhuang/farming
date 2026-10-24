@@ -1349,7 +1349,14 @@ function compactProcessEntries(
   entries: ProcessEntry[],
   turnStatus: AgentTranscriptTurn['status'],
   source: string,
+  hasFinalAnswer: boolean,
+  pendingQuestionIds: ReadonlySet<string>,
 ) {
+  if (source === 'acp' && turnStatus === 'completed' && hasFinalAnswer) {
+    const items = entries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item])
+      .filter(item => item.question && pendingQuestionIds.has(item.question.requestId))
+    return { entries: items.map(item => ({ kind: 'item' as const, item })), items }
+  }
   if (source === 'acp' && (turnStatus === 'inProgress' || turnStatus === 'partial')) {
     const compactEntries: ProcessEntry[] = []
     let groupIndex = -1
@@ -1378,10 +1385,12 @@ function compactProcessEntries(
       items: entries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item]),
     }
   }
+  // Unsettled, interrupted and missing-answer Turns retain their evidence.
   const showAcpProgress = source === 'acp'
   const eligible = entries.flatMap(entry => {
     if (entry.kind === 'item') {
-      return isUserSteerProcessItem(entry.item) || (showAcpProgress && isAcpProgressUpdate(entry.item))
+      return isUserSteerProcessItem(entry.item) || (source === 'acp' && (entry.item.question || entry.item.peerMessage))
+        || (showAcpProgress && isAcpProgressUpdate(entry.item))
         ? [entry.item]
         : []
     }
@@ -1391,7 +1400,8 @@ function compactProcessEntries(
   })
   const selectedIndexes = new Set<number>()
   eligible.forEach((item, index) => {
-    if (isUserSteerProcessItem(item) || (showAcpProgress && isAcpProgressUpdate(item))) {
+    if (isUserSteerProcessItem(item) || (source === 'acp' && (item.question || item.peerMessage))
+      || (showAcpProgress && isAcpProgressUpdate(item))) {
       selectedIndexes.add(index)
     }
   })
@@ -1561,7 +1571,7 @@ function AgentTranscriptPeerReceipts({ items, copy }: { items: AgentTranscriptPr
 }
 
 function AgentTranscriptIncomingMessage({ copy, turn, continued = false, hasNext = false, children }: {
-  copy: CodeCopy; turn: AgentTranscriptTurn; continued?: boolean; hasNext?: boolean; children: ReactNode
+  copy: CodeCopy; turn: Pick<AgentTranscriptTurn, 'userSource' | 'startedAt'>; continued?: boolean; hasNext?: boolean; children: ReactNode
 }) {
   const source = turn.userSource
   const navigation = useContext(CommunicationPeerNavigation)
@@ -1817,6 +1827,16 @@ function AgentTranscriptProcessItemView({
   onRetryTerminalOutcome?: (itemId: string) => void
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
+  if (item.type === 'peer-receipt') return <AgentTranscriptPeerReceipts items={[item]} copy={copy} />
+  if (item.peerMessage) return <AgentTranscriptIncomingMessage copy={copy}
+    turn={{ userSource: item.peerMessage, startedAt: item.createdAt ?? null }}>
+    <div className="code-agent-transcript-user" data-process-item-id={item.id}>
+      <AgentTranscriptUserMarkdown text={item.detail || ''} copy={copy} />
+      <AgentTranscriptUserImages images={item.images || []} />
+      <AgentTranscriptAudios audios={item.audios || []} />
+      <AgentTranscriptUserFiles files={item.files || []} />
+    </div>
+  </AgentTranscriptIncomingMessage>
   if (isUserSteerProcessItem(item)) {
     return <AgentTranscriptSteerItem item={item} copy={copy} />
   }
@@ -2623,10 +2643,40 @@ function AgentTranscriptTurnView({
       ? processEntriesForTurn(items, source)
       : items.map(item => ({ kind: 'item' as const, item }))
   }, [groupProcessActions, mainProcessItems, source])
-  const compactProcess = useMemo(
-    () => compactProcessEntries(processEntries, turn.status, source),
-    [processEntries, source, turn.status],
+  const hasFinalAnswer = Boolean(
+    turn.finalMessage.trim() || resultImages.length || resultAudios.length || resultFiles.length,
   )
+  const settledResult = source === 'acp' && turn.status === 'completed' && hasFinalAnswer
+  const { requests: pendingQuestions } = useContext(AcpQuestionContext)
+  const pendingQuestionIds = useMemo(() => new Set(pendingQuestions.map(request => request.requestId)), [pendingQuestions])
+  const compactProcess = useMemo(
+    () => compactProcessEntries(processEntries, turn.status, source, hasFinalAnswer, pendingQuestionIds),
+    [hasFinalAnswer, pendingQuestionIds, processEntries, source, turn.status],
+  )
+  const expandedProcessEntries = useMemo(() => {
+    const entries: Array<ProcessEntry | { kind: 'collaboration'; id: string; items: AgentTranscriptProcessItem[] } | { kind: 'receipts'; id: string; items: AgentTranscriptProcessItem[] }> = []
+    let items: AgentTranscriptProcessItem[] = []
+    let kind: 'process' | 'collaboration' | 'receipts' = 'process'
+    const flush = () => {
+      if (!items.length) return
+      if (kind !== 'process') entries.push({ kind, id: items[0]!.id, items })
+      else entries.push(...(groupProcessActions ? processEntriesForTurn(items, source) : items.map(item => ({ kind: 'item' as const, item }))))
+      items = []
+    }
+    for (const item of resolvedProcessItems) {
+      if (item.type === 'error') continue
+      const nextKind = item.type === 'peer-receipt' ? 'receipts'
+        : source === 'acp' && collaborationProcessItemIds.has(item.id) ? 'collaboration' : 'process'
+      if (nextKind !== kind) flush()
+      kind = nextKind
+      items.push(item)
+    }
+    flush()
+    return entries
+  }, [collaborationProcessItemIds, groupProcessActions, resolvedProcessItems, source])
+  const incomingMessageCount = receipts.length + resolvedProcessItems.filter(item => item.peerMessage).length + (turn.userSource ? 1 : 0)
+  const messageCount = outgoingSummary.count + incomingMessageCount
+  const hasDisclosure = hasProcess || collaborationEvents.length > 0 || receipts.length > 0 || (settledResult && Boolean(turn.userSource))
   const runningCompaction = turn.status === 'inProgress'
     ? [...mainProcessItems]
       .reverse()
@@ -2949,31 +2999,35 @@ function AgentTranscriptTurnView({
     },
   }), [agentId, copy, onOpenFile, turn.id, workspaceRoot])
 
+  const inputMessage = (
+    <AgentTranscriptIncomingMessage copy={copy} turn={turn} continued={peerContinued} hasNext={peerHasNext}>
+      <div className="code-agent-transcript-user" data-process-item-id={`${turn.id}-user`}>
+        {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
+        {turn.userMessage ? <div><AgentTranscriptUserMessage turn={turn} copy={copy} /></div> : null}
+        <AgentTranscriptUserImages images={userImages} />
+        <AgentTranscriptAudios audios={userAudios} />
+        <AgentTranscriptUserFiles files={userFiles} />
+        {!turn.userSource ? <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" /> : null}
+      </div>
+    </AgentTranscriptIncomingMessage>
+  )
+
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''} ${peerHasNext ? 'peer-group-open' : ''} ${turnFocusRunway ? 'turn-focus-runway' : ''}`} data-turn-id={turn.id}>
       {turn.handoffContext ? <div className="code-agent-transcript-context-origin" role="note">
         <AgentTranscriptUserMessage turn={turn} copy={copy} />
       </div> : turn.userSource || turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
-        <AgentTranscriptIncomingMessage copy={copy} turn={turn} continued={peerContinued} hasNext={peerHasNext}>
-          <div className="code-agent-transcript-user" data-process-item-id={`${turn.id}-user`}>
-            {turn.userSource?.bodyUnavailable ? <div className="code-agent-transcript-message-unavailable">{copy.agentTranscriptPeerBodyUnavailable}</div> : null}
-            {turn.userMessage ? <div><AgentTranscriptUserMessage turn={turn} copy={copy} /></div> : null}
-            <AgentTranscriptUserImages images={userImages} />
-            <AgentTranscriptAudios audios={userAudios} />
-            <AgentTranscriptUserFiles files={userFiles} />
-            {!turn.userSource ? <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" /> : null}
-          </div>
-        </AgentTranscriptIncomingMessage>
+        !settledResult || !turn.userSource ? inputMessage : null
       ) : null}
 
-      <AgentTranscriptPeerReceipts items={receipts} copy={copy} />
-      {hasProcess || collaborationEvents.length > 0 ? (
+      {!settledResult && !effectiveProcessOpen ? <AgentTranscriptPeerReceipts items={receipts} copy={copy} /> : null}
+      {hasDisclosure ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
-          {hasProcess || collaborationEvents.length > 0 ? (
+          {hasDisclosure ? (
             <>
               <button
             type="button"
-            className={`code-agent-transcript-process-summary ${outgoingSummary.count ? 'has-outgoing' : ''}`}
+            className={`code-agent-transcript-process-summary ${messageCount || userSteerItems.length ? 'has-outgoing' : ''}`}
             data-testid="code-agent-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
             title={[liveToolActivity?.label || turnProcessTitle(mainProcessTurn, copy), ...outgoingSummary.states.map(state =>
@@ -2995,7 +3049,12 @@ function AgentTranscriptTurnView({
                 <span className="code-agent-transcript-process-summary-content">
                   <span className="code-agent-transcript-process-summary-heading">
                     <span className="code-agent-transcript-process-summary-label">{processSummaryLabel}</span>
-                    {outgoingSummary.count > 0 ? <span className="code-agent-transcript-outgoing-count">{copy.agentTranscriptCollaborationMessageCount(outgoingSummary.count)}</span> : null}
+                    {userSteerItems.length > 0 ? <span className="code-agent-transcript-outgoing-count">{copy.agentTranscriptSteerCount(userSteerItems.length)}</span> : null}
+                    {messageCount > 0 ? <span className="code-agent-transcript-outgoing-count">{copy.agentTranscriptCollaborationMessageCount(messageCount)}</span> : null}
+                    {settledResult ? outgoingSummary.states.map(state => <span key={state.action}
+                      className="code-agent-transcript-outgoing-count" role="status">
+                      {state.action === 'recorded' ? copy.agentTranscriptCollaborationUnknown : collaborationActionLabel(state.action, copy)} · {state.count}
+                    </span>) : null}
                   </span>
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
@@ -3061,9 +3120,17 @@ function AgentTranscriptTurnView({
               })}
             </div>
           ) : null}
-              {effectiveProcessOpen && hasProcess ? (
+              {effectiveProcessOpen ? (
             <div className="code-agent-transcript-process-list">
-              {processEntries.map(entry => {
+              {settledResult && turn.userSource ? inputMessage : null}
+              {expandedProcessEntries.map(entry => {
+                if (entry.kind === 'receipts') return <AgentTranscriptPeerReceipts key={entry.id} items={entry.items} copy={copy} />
+                if (entry.kind === 'collaboration') return <AgentTranscriptCollaborationSpace
+                  key={entry.id} compact={false} processItems={entry.items} subagentStates={subagentStates}
+                  copy={copy} disclosureScope={turn.id} openActivityIds={openCollaborationActivityIds}
+                  setOpenActivityIds={setOpenCollaborationActivityIds} onLoadProcessItemDetail={onLoadProcessItemDetail}
+                  onStopTerminal={onStopTerminal} onInputTerminal={onInputTerminal} onResizeTerminal={onResizeTerminal}
+                  onStopSubagent={onStopSubagent} />
                 if (entry.kind === 'group') {
                   const groupOpen = openProcessItemIds.has(entry.id)
                     || entry.items.some(item => openProcessItemIds.has(item.id))
@@ -3125,7 +3192,7 @@ function AgentTranscriptTurnView({
               })}
             </div>
               ) : null}
-            {source === 'acp' && collaborationEvents.length > 0 ? (
+            {source === 'acp' && !effectiveProcessOpen && !settledResult && collaborationEvents.length > 0 ? (
               <AgentTranscriptCollaborationSpace
                 compact={!effectiveProcessOpen}
                 processItems={resolvedProcessItems}
@@ -4349,7 +4416,9 @@ export function AgentTranscriptPane({
     const savedAnchor = readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     if (savedAnchor?.surface === 'chat' && savedAnchor.locator.childId) {
       const anchoredTurn = turns.find(turn => turn.id === savedAnchor.locator.id)
-      if (anchoredTurn?.processItems.some(item => item.id === savedAnchor.locator.childId)
+      const anchoredProcess = anchoredTurn?.processItems.some(item => item.id === savedAnchor.locator.childId)
+        || (anchoredTurn?.userSource && savedAnchor.locator.childId === `${anchoredTurn.id}-user`)
+      if (anchoredTurn && anchoredProcess
         && !openProcessTurnIds.has(anchoredTurn.id)
         && !element.querySelector(`[data-process-item-id="${CSS.escape(savedAnchor.locator.childId)}"]`)) {
         setOpenProcessTurnIds(current => new Set(current).add(anchoredTurn.id))

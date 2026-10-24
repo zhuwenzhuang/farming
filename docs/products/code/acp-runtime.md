@@ -328,8 +328,10 @@ plain labels. Clicking a source selects it without resuming execution.
 Native encrypted receipts show unavailable readable content, never ciphertext or
 sender-side reconstruction. Outgoing native collaboration is a chronological
 activity feed: send success is neither a read receipt nor task completion. Outgoing
-messages share the Turn's Worked disclosure. Its collapsed summary retains the
-message count and compact message rows. Each row starts with the target Agent's
+messages share the Turn's Worked disclosure. During execution its collapsed summary retains the
+message count and compact message rows. After successful settlement with a result,
+only the count and unresolved delivery statuses remain; opening Worked restores
+the messages in timeline order. Each row starts with the target Agent's
 assigned collaboration icon (stable by Session identity), followed by its name and a single-line, ellipsized preview. Markdown
 is parsed into readable text before clipping. Rows toggle their own message detail
 without expanding the entire Worked group; keyboard activation follows the same
@@ -427,6 +429,20 @@ Chat shares [Composer](composer-input.md), [UI design](../../development/ui-desi
 and [interaction](../../development/ui-interaction-protocol.md) contracts. Keep
 conversation progress readable, detailed evidence reversible and live activity
 compact. User disclosure and history-reading intent survive updates and settlement.
+While a Turn is active or its history is partial, progress stays visible in the
+compact flow. Once it settles with a final answer, collapsed activity hides
+commentary, tool evidence, accepted steering, settled questions and Agent messages
+together. The original human request and final result remain directly visible;
+the disclosure summarizes steering and Agent message counts. Peer-originated input
+retains its source inside the disclosure. Only questions in the authoritative live
+pending set remain actionable and visible outside a collapsed result. Steering
+acceptance does not imply a separate answer or that the instruction was fulfilled. Explicitly expanded activity retains
+its ordered contents across settlement. Interrupted or missing-answer Turns retain
+progress and expose failures outside the disclosure. These rules also apply to
+related Sessions and restored history, without changing stored messages. Disclosure
+changes are browser-owned and never send, retry or cancel input. A failed or unknown
+delivery remains owned by input admission, not by result folding; late incoming
+messages cannot establish completion of another execution.
 Accepted input may reveal latest content; background updates, pagination and
 layout changes must not force that navigation. When Sticky turn prompt
 (`stickyTurnPromptEnabled`, enabled by default in Settings → Interface) is active,
