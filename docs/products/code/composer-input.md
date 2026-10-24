@@ -140,6 +140,8 @@ validates the document and its text projection before admission. Initial input
 and accepted Steer render from the same document and shared content styles as the
 editor. Old messages and Agent requests without a document retain literal text;
 assistant output keeps its existing rich rendering.
+Provider presentation cleanup must preserve validated user documents and their
+exact text, including trailing spaces, blank lines and literal context-like tags.
 
 History, queue editing, failure restoration and browser checkpoints carry the
 complete document. Later edits and acknowledgements cannot change a submitted

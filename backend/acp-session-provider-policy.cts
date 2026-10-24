@@ -1,4 +1,5 @@
 import { isUnavailableAcpPeerReceipt } from '../shared/acp-peer-message';
+import { composerDocumentFromContent } from '../shared/composer-document.js';
 import { visibleUserMessageText } from './codex-transcript.cjs';
 import {
   isCodexContextCompactionMessage,
@@ -56,6 +57,7 @@ function genericTranscriptTurnStart(entry: AcpEntry | null | undefined): boolean
 
 function codexInternalUserScope(entry: AcpEntry | null | undefined): InternalUserScope {
   if (entry?.type !== 'message' || entry.role !== 'user') return null;
+  if (composerDocumentFromContent(entry.content)) return null;
   const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
   if (hasAttachment) return null;
   const text = contentText(entry.content);
@@ -203,6 +205,11 @@ function sanitizeCodexEntries(
     }
     for (const content of entry.content || []) {
       if (content.type !== 'text') continue;
+      // Admitted editor documents own their exact projection, including code
+      // whitespace and literal context-like text. Provider presentation cleanup
+      // must not invalidate that projection before the shared renderer sees it.
+      if (entry.type === 'message' && entry.role === 'user'
+        && composerDocumentFromContent([content])) continue;
       content.text = entry.type === 'message' && entry.role === 'user' && entry.internal !== true
         ? visibleUserMessageText(content.text, { renderedAttachmentKinds })
         : stripCodexInternalContextBlocks(content.text);

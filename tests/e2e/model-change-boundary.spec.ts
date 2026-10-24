@@ -1,6 +1,24 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
+import type { Locator } from '@playwright/test'
+
+async function expectBoundaryScreenshot(boundary: Locator, name: string) {
+  await boundary.scrollIntoViewIfNeeded()
+  // Earlier rich-message layout can put this small crop on a fractional pixel.
+  // Anchor its raster phase without changing typography, size, or surrounding flow.
+  const transform = await boundary.evaluate(element => {
+    const previous = element.style.transform
+    const { x, y } = element.getBoundingClientRect()
+    element.style.transform = `translate(${Math.round(x) - x}px, ${Math.round(y) - y}px)`
+    return previous
+  })
+  try {
+    await expect(boundary).toHaveScreenshot(name)
+  } finally {
+    await boundary.evaluate((element, value) => { element.style.transform = value }, transform)
+  }
+}
 
 test('keeps confirmed model changes between chat turns across reload and appearances', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-change-history')
@@ -48,13 +66,13 @@ test('keeps confirmed model changes between chat turns across reload and appeara
       document.body.dataset.appearance = value
     }, appearance)
     await expect(boundary).toBeVisible()
-    await expect(boundary).toHaveScreenshot(`model-change-${appearance}.png`)
+    await expectBoundaryScreenshot(boundary, `model-change-${appearance}.png`)
     await scroll.screenshot({ path: test.info().outputPath(`model-change-context-${appearance}.png`) })
   }
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(boundary).toBeVisible()
   expect(await boundary.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy()
-  await expect(boundary).toHaveScreenshot('model-change-narrow.png')
+  await expectBoundaryScreenshot(boundary, 'model-change-narrow.png')
 })
 
 

@@ -1673,10 +1673,11 @@ function AgentTranscriptOutgoingMessage({ activity, recipient, open, onToggleDet
 }
 
 function AgentTranscriptCollaborationTimeline({
-  processItems, subagentStates, renderProcessItem, onLoadMessage, copy, disclosureScope, openActivityIds, setOpenActivityIds, compact,
+  processItems, associationProcessItems = processItems, subagentStates, renderProcessItem, onLoadMessage, copy, disclosureScope, openActivityIds, setOpenActivityIds, compact,
 }: {
   compact: boolean
   processItems: AgentTranscriptProcessItem[]
+  associationProcessItems?: AgentTranscriptProcessItem[]
   subagentStates: AgentTranscriptSubagentState[]
   renderProcessItem: (processItemId: string) => ReactNode
   onLoadMessage?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
@@ -1703,7 +1704,7 @@ function AgentTranscriptCollaborationTimeline({
     {activities.filter((activity, index) => index >= hiddenCount || openActivityIds.has(`${disclosureScope}:${activity.id}`)).map(activity => {
       const peer = parentAgentId ? peerNavigation?.resolve(parentAgentId, activity.threadId) : null
       const hasChildAssociation = subagentStates.some(state => state.threadId === activity.threadId)
-        || processItems.some(item => item.subagentSessionId === activity.threadId)
+        || associationProcessItems.some(item => item.subagentSessionId === activity.threadId)
       const recipientName = subagentStates.find(state => state.threadId === activity.threadId)?.name || activity.name
       const disclosureId = `${disclosureScope}:${activity.id}`
       const open = openActivityIds.has(disclosureId)
@@ -2007,6 +2008,7 @@ function SafeAgentTranscriptProcessItemView(
 function AgentTranscriptCollaborationSpace({
   compact,
   processItems,
+  associationProcessItems = processItems,
   subagentStates,
   copy,
   disclosureScope,
@@ -2020,6 +2022,7 @@ function AgentTranscriptCollaborationSpace({
 }: {
   compact: boolean
   processItems: AgentTranscriptProcessItem[]
+  associationProcessItems?: AgentTranscriptProcessItem[]
   subagentStates: AgentTranscriptSubagentState[]
   copy: CodeCopy
   disclosureScope: string
@@ -2098,6 +2101,7 @@ function AgentTranscriptCollaborationSpace({
     <AgentTranscriptCollaborationTimeline
       compact={compact}
       processItems={resolvedItems}
+      associationProcessItems={associationProcessItems}
       subagentStates={subagentStates}
       disclosureScope={disclosureScope}
       openActivityIds={openActivityIds}
@@ -3118,7 +3122,7 @@ function AgentTranscriptTurnView({
               {expandedProcessEntries.map(entry => {
                 if (entry.kind === 'receipts') return <AgentTranscriptPeerReceipts key={entry.id} items={entry.items} copy={copy} />
                 if (entry.kind === 'collaboration') return <AgentTranscriptCollaborationSpace
-                  key={entry.id} compact={false} processItems={entry.items} subagentStates={subagentStates}
+                  key={entry.id} compact={false} processItems={entry.items} associationProcessItems={turn.processItems} subagentStates={subagentStates}
                   copy={copy} disclosureScope={turn.id} openActivityIds={openCollaborationActivityIds}
                   setOpenActivityIds={setOpenCollaborationActivityIds} onLoadProcessItemDetail={onLoadProcessItemDetail}
                   onStopTerminal={onStopTerminal} onInputTerminal={onInputTerminal} onResizeTerminal={onResizeTerminal}

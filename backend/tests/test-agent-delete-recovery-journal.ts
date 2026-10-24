@@ -226,6 +226,67 @@ async function run() {
     assert.strictEqual(duplicateDelete.killed, true);
     assert.strictEqual(duplicateDelete.missing, true);
 
+    const registerRelatedAgent = (id: string, parentKey = '') => {
+      const related = {
+        ...successfulAgent,
+        id,
+        status: 'running',
+        persistentSessionId: '',
+        providerSessionId: id,
+        providerSessionKey: `agent-session:claude:${id}`,
+        subagentParentSessionKey: parentKey,
+        lifecycleJournal: undefined,
+        runtimeBinding: { kind: 'acp', state: 'idle' },
+      };
+      related.persistentSessionId = recoveredStore.rememberAgent(related);
+      recoveredManager.agents.set(id, related);
+      return related;
+    };
+    const concurrentParent = registerRelatedAgent('concurrent-parent');
+    const concurrentChild = registerRelatedAgent('concurrent-child', concurrentParent.providerSessionKey);
+    let releaseChildDelete!: () => void;
+    const childDeleteGate = new Promise<boolean>(resolve => { releaseChildDelete = () => resolve(true); });
+    const stoppedRelatedIds: string[] = [];
+    recoveredRuntime.unregisterAgentAndWait = async (id: string) => {
+      stoppedRelatedIds.push(id);
+      return id === concurrentChild.id ? childDeleteGate : true;
+    };
+    const childDelete = await recoveredManager.requestKillAgent(concurrentChild.id, { recordHistory: false });
+    const parentDelete = await recoveredManager.requestKillAgent(concurrentParent.id, { recordHistory: false });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(stoppedRelatedIds, [concurrentChild.id], 'parent waits for exact child lifecycle cleanup');
+    releaseChildDelete();
+    assert.strictEqual((await childDelete.completion).killed, true);
+    assert.strictEqual((await parentDelete.completion).killed, true, 'already deleted child satisfies parent release');
+    assert.deepStrictEqual(stoppedRelatedIds, [concurrentChild.id, concurrentParent.id]);
+    for (const related of [concurrentChild, concurrentParent]) {
+      assert.strictEqual(recoveredManager.agents.has(related.id), false);
+      assert.strictEqual(latestLifecycleOperation(recoveredStore.readRecord(related.persistentSessionId)).state, 'succeeded');
+    }
+
+    for (const failure of ['declined', 'throw']) {
+      const blockedParent = registerRelatedAgent(`blocked-parent-${failure}`);
+      const blockedChild = registerRelatedAgent(`blocked-child-${failure}`, blockedParent.providerSessionKey);
+      stoppedRelatedIds.length = 0;
+      recoveredRuntime.retainAgent = async () => {
+        if (failure === 'throw') throw new Error('child release unproven');
+        return { retained: false, sessionId: blockedChild.providerSessionId };
+      };
+      const blockedDelete = await recoveredManager.requestKillAgent(blockedParent.id, { recordHistory: false });
+      const blockedResult = await blockedDelete.completion;
+      assert.match(blockedResult.error, /Related session cleanup/);
+      assert.strictEqual(blockedResult.retryable, true);
+      assert.deepStrictEqual(stoppedRelatedIds, [], 'failed child release must not stop parent');
+      const blockedOperation = latestLifecycleOperation(recoveredStore.readRecord(blockedParent.persistentSessionId));
+      assert.strictEqual(blockedOperation.state, 'blocked', 'returned child failure must not leave Delete pending');
+      assert.match(blockedOperation.error, /Related session cleanup/);
+      assert.strictEqual(recoveredManager.agents.has(blockedChild.id), true);
+      // A fresh explicit cleanup succeeds after the exact child removal settles.
+      assert.strictEqual((await recoveredManager.killAgent(blockedChild.id, { recordHistory: false })).killed, true);
+      assert.strictEqual((await recoveredManager.killAgent(blockedParent.id, { recordHistory: false })).killed, true);
+      assert.strictEqual(latestLifecycleOperation(recoveredStore.readRecord(blockedParent.persistentSessionId)).state, 'succeeded');
+    }
+
     const pendingCreateAgent = {
       ...successfulAgent,
       id: 'agent-pending-create-delete',

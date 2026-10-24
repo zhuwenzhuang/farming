@@ -11392,16 +11392,6 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return { agentId, killed: true, missing: true };
 
-    if (!agent.subagentParentSessionKey && agent.providerSessionKey) {
-      const children = [...this.agents.values()].filter(child => child.subagentParentSessionKey === agent.providerSessionKey);
-      for (const child of children) {
-        try {
-          const result = await this.retainSubagent(child.id, true);
-          if (result !== true) return { agentId, error: 'Related session cleanup did not complete', retryable: true };
-        } catch (caught) { return { agentId, error: `Related session cleanup failed: ${(caught as ErrorRecord).message}`, retryable: true }; }
-      }
-    }
-
     let persistentOperationId = typeof options.persistentOperationId === 'string'
       ? options.persistentOperationId
       : '';
@@ -11434,6 +11424,22 @@ class AgentManager extends EventEmitter {
       this.emitStateChange({ agentIds: [agentId] });
       return { agentId, error, cleanupUncertain: true, retryable: true };
     };
+
+    if (!agent.subagentParentSessionKey && agent.providerSessionKey) {
+      const children = [...this.agents.values()].filter(child => child.subagentParentSessionKey === agent.providerSessionKey);
+      for (const child of children) {
+        try {
+          const result = await this.retainSubagent(child.id, true);
+          // Release queues behind child lifecycle work. A concurrent Delete may
+          // have removed that exact child before release gets its turn.
+          if (result !== true && this.agents.has(child.id)) {
+            return cleanupFailure('Related session cleanup did not complete');
+          }
+        } catch (caught) {
+          return cleanupFailure(`Related session cleanup failed: ${(caught as ErrorRecord).message}`);
+        }
+      }
+    }
 
     const requireEngineExit = options.requireEngineExit !== false;
     const currentRuntimeKind = runtimeKind(agent);

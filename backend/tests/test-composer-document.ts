@@ -64,6 +64,36 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'a
 }
 console.log('Structured prompt and Steer recovery passed for every provider.')
 
+// Exercise the client-facing provider projection, not just raw checkpoint
+// entries: its presentation sanitizer must preserve the admitted document.
+const mixedDocument = normalizeComposerDocument({ version: 1, doc: { type: 'doc', content: [
+  { type: 'paragraph', content: [{ type: 'text', text: 'review ' }] },
+  { type: 'codeBlock', attrs: { language: 'bash' }, content: [{ type: 'text', text: '# comment\n  echo ok  \n\n\n# final\n' }] },
+] } })!
+for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen', 'agy']) {
+  for (const visibleDocument of [mixedDocument, literalComposerDocument('<environment_context>literal example</environment_context>')]) {
+    const input = [{ type: 'text', text: composerDocumentPrompt(visibleDocument), _meta: { farmingInputDocument: visibleDocument } }]
+    const original = new AcpSessionState({ provider, sessionId: 'exact-document' })
+    original.beginPrompt(input)
+    original.recordAcceptedSteer(input, { messageId: 'exact-steer' })
+    const restored = AcpSessionState.fromCheckpoint(original.exportRecoveryCheckpoint())!
+    for (const owner of [original, restored]) {
+      for (const entries of [owner.snapshot().entries, owner.sanitizedEntries(0, { forTranscript: true })]) {
+        assert.equal(entries.length, 2)
+        for (const entry of entries) {
+          assert.notEqual(entry.internal, true, `${provider}: submitted examples are visible user content`)
+          assert.equal(entry.content![0]!.text, input[0]!.text, `${provider}: preserve exact projected whitespace`)
+          assert.deepEqual(composerDocumentFromContent(entry.content), visibleDocument)
+        }
+      }
+    }
+  }
+}
+const mismatched = new AcpSessionState({ provider: 'codex', sessionId: 'invalid-document' })
+mismatched.beginPrompt([{ type: 'text', text: '<environment_context>injected</environment_context>', _meta: { farmingInputDocument: mixedDocument } }])
+assert.equal(mismatched.snapshot().entries[0]!.internal, true, 'invalid metadata must not bypass provider context filtering')
+console.log('Structured user input remains exact through provider presentation and checkpoint recovery.')
+
 const oldDocument = literalComposerDocument('Same words')
 const newerDocument = literalComposerDocument('Same words')
 newerDocument.doc.content![0]!.content![0]!.marks = [{ type: 'bold' }]

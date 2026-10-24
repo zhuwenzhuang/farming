@@ -211,7 +211,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await expect(completed.locator('.code-agent-transcript-assistant')).toHaveText('Verified successfully. No deployment was performed.')
       await expect(completed.getByTestId('code-agent-message-source')).toHaveCount(0)
       await summary.scrollIntoViewIfNeeded()
-      await expect.poll(() => summary.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await expect.poll(() => summary.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0)
       await page.screenshot({ path: testInfo.outputPath(`minimal-${appearance}-${width}.png`), animations: 'disabled' })
       await summary.focus()
       await page.keyboard.press('Enter')
@@ -222,6 +222,10 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await expect(completed.getByTestId('code-agent-message-source')).toHaveText('Reviewer')
       await expect(completed.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
       await summary.click()
+      await expect(summary).toHaveAttribute('aria-expanded', 'false')
+      // A rotating chevron temporarily extends beyond its layout box. Finish
+      // the close transition before measuring the next viewport's settled layout.
+      await expect(summary.locator('.code-agent-transcript-chevron')).toHaveCSS('transform', 'none')
     }
     await peerWork.getByTestId('code-agent-transcript-process-summary').click()
     await expect(peerWork.getByTestId('code-acp-progress-update')).toHaveText('Checking the next change now.')

@@ -230,7 +230,10 @@ pending input and native child activity prevent release. History remains retaine
 an explicit new message resumes the Session without replaying old input.
 Parent archive includes owned Side Chats and proven native descendants. Failure
 or incomplete inventory blocks success. Parent stop releases exact owned children
-and Resources; an unavailable parent rejects child input.
+and Resources; an unavailable parent rejects child input. Concurrent child deletion
+settles before parent cleanup continues. An already removed child satisfies release;
+a remaining child with unproven cleanup blocks the parent operation with a durable
+error instead of leaving it pending.
 
 ## Agent Communication And A2A
 

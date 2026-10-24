@@ -130,8 +130,11 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         return event.defaultPrevented
       })).toBe(true)
       await viewer.getByRole('button', { name: 'Fit diagram to view' }).click()
-      await expect(viewer.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible()
-      const svgBefore = (await viewer.locator('.code-markdown-mermaid-canvas > svg').boundingBox())!
+      const fullscreenSvg = viewer.locator('.code-markdown-mermaid-canvas > svg')
+      await expect(fullscreenSvg).toBeVisible()
+      await expect.poll(() => fullscreenSvg.evaluate(svg => svg.getBoundingClientRect().width)).toBeGreaterThan(0)
+      const svgBefore = await fullscreenSvg.boundingBox()
+      if (!svgBefore) throw new Error('Fitted fullscreen diagram bounds are unavailable')
       const point = { x: svgBefore.x + svgBefore.width * 0.3, y: svgBefore.y + svgBefore.height * 0.4 }
       await page.mouse.move(point.x, point.y)
       if (browserName === 'webkit' && isMobile) {
