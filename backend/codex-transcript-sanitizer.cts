@@ -281,8 +281,10 @@ function consumeCodexInlineVisualizationStream(
   return { directives, text };
 }
 
-function stripCodexInternalContextBlocks(value: unknown): string {
-  let text = normalizeCodexTranscriptText(value);
+function stripCodexInternalContextBlocks(value: unknown, options: { preserveWhitespace?: boolean } = {}): string {
+  let text = options.preserveWhitespace
+    ? String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    : normalizeCodexTranscriptText(value);
   if (!text) return '';
 
   [
@@ -317,6 +319,7 @@ function stripCodexInternalContextBlocks(value: unknown): string {
   text = text.replace(/(^|\n)\s*# AGENTS\.md instructions for[^\n]*\n[\s\S]*?<\/INSTRUCTIONS>\s*(?=\n|$)/gi, '$1');
   text = stripCodexAppDirectives(text);
 
+  if (options.preserveWhitespace) return text;
   return text
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

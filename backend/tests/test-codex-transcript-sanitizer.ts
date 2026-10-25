@@ -4,7 +4,17 @@ const {
   MAX_CODEX_INLINE_VISUALIZATION_BUFFER_BYTES,
   consumeCodexInlineVisualizationStream,
   createCodexInlineVisualizationStreamState,
+  stripCodexInternalContextBlocks,
 } = require('../codex-transcript-sanitizer.cjs');
+
+for (const text of [' ', '\n\n', '  select  \n\n\n  value;  ']) {
+  assert.strictEqual(stripCodexInternalContextBlocks(text, { preserveWhitespace: true }), text);
+}
+assert.strictEqual(stripCodexInternalContextBlocks('  visible  '), 'visible');
+assert.strictEqual(stripCodexInternalContextBlocks(
+  '<codex_internal_context>hidden</codex_internal_context>visible ::created-thread{threadId="private"}',
+  { preserveWhitespace: true },
+).trim(), 'visible');
 
 const stream = createCodexInlineVisualizationStreamState();
 const prefix = '::codex-inline-vis{file="';

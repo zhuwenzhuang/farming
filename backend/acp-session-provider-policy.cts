@@ -212,7 +212,9 @@ function sanitizeCodexEntries(
         && composerDocumentFromContent([content])) continue;
       content.text = entry.type === 'message' && entry.role === 'user' && entry.internal !== true
         ? visibleUserMessageText(content.text, { renderedAttachmentKinds })
-        : stripCodexInternalContextBlocks(content.text);
+        // Identified assistant fragments may rejoin across accepted Steers.
+        // Whitespace at a fragment edge is still part of the native message.
+        : stripCodexInternalContextBlocks(content.text, { preserveWhitespace: entry.role === 'assistant' && Boolean(entry.messageId) });
     }
   }
   return entries;

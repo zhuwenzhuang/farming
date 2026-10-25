@@ -267,6 +267,43 @@ function isSteerEntry(entry: AcpRecord) {
     || record(record(entry._meta).codex).steer === true
 }
 
+function continuousAssistantEntries(values: unknown[]): AcpRecord[] {
+  const entries: AcpRecord[] = []
+  let messageIndex = -1
+  for (const value of values) {
+    const entry = record(value)
+    if (entry.type === 'message' && entry.role === 'user' && isSteerEntry(entry)) {
+      entries.push(entry)
+      continue
+    }
+    const previous = entries[messageIndex]
+    const assistant = entry.role === 'assistant' && (entry.type === 'message' || entry.type === 'thought')
+      && Boolean(stringValue(entry.messageId)) && !entry.sessionMessage
+    if (assistant && previous && entry.messageId === previous.messageId && entry.type === previous.type
+      && entry.internal === previous.internal && entry.internalScope === previous.internalScope
+      && codexMessagePhase(entry) === codexMessagePhase(previous)) {
+      // Steer receipt can split one native message inside a Markdown token.
+      // Join its exact content before rendering, retaining the first identity
+      // and the intervening Steers after it. Stored event order is untouched.
+      const content = [...list(previous.content)]
+      const continuation = list(entry.content)
+      const tail = record(content[content.length - 1])
+      const head = record(continuation[0])
+      if (tail.type === 'text' && head.type === 'text') {
+        content[content.length - 1] = { ...tail, text: stringValue(tail.text) + stringValue(head.text) }
+        content.push(...continuation.slice(1))
+      } else {
+        content.push(...continuation)
+      }
+      entries[messageIndex] = { ...previous, content }
+      continue
+    }
+    messageIndex = assistant ? entries.length : -1
+    entries.push(entry)
+  }
+  return entries
+}
+
 function diffBlocks(content: unknown) {
   return list(content)
     .map(record)
@@ -837,7 +874,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     if (finished) turns.push(finished)
     current = null
   }
-  for (const value of sessionEntries) {
+  for (const value of continuousAssistantEntries(sessionEntries)) {
     const entry = record(value)
     if (entry.internalScope === 'entry') continue
     if (isUnavailableAcpPeerReceipt(entry)) {

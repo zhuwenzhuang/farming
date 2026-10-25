@@ -459,6 +459,13 @@ related Sessions and restored history, without changing stored messages. Disclos
 changes are browser-owned and never send, retry or cancel input. A failed or unknown
 delivery remains owned by input admission, not by result folding; late incoming
 messages cannot establish completion of another execution.
+When accepted Steering splits a streaming assistant message, presentation joins
+fragments with the same explicit native message identity, kind and phase before
+rendering Markdown, keeping the Steering inputs after that message. Links, code
+blocks and tables therefore remain whole. Joining never crosses a different
+message, tool, Turn or other activity boundary, and never guesses a missing
+identity. Stored event order remains authoritative; live updates and restored
+history use the same presentation rule.
 An activity disclosure exists only when it has renderable intermediate entries;
 an input/result pair alone never creates an empty disclosure. Its summary counts
 and expanded contents refer to the same intermediate activity. Folding does not
