@@ -699,3 +699,12 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   .code-terminal-grid:has(> .code-mobile-unread-preview) { position: relative; }
 }
+
+body.code-mode.code-compact-layout .code-chat-width-toggle,
+body.code-mode.code-compact-layout .code-terminal-mode-toggle.chat-width-only {
+  display: none;
+}
+.code-terminal-mode-toggle button:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
+}

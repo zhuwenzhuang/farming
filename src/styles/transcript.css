@@ -40,7 +40,7 @@
   overflow-y: auto;
   overscroll-behavior-x: none;
   overflow-anchor: none;
-  padding: 36px clamp(18px, 4vw, 54px) 8px;
+  padding: 36px var(--code-transcript-inline-padding, clamp(18px, 4vw, 54px)) 8px;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -167,12 +167,12 @@
 
 .code-agent-work-pane.runtime-switchable .code-agent-transcript-user,
 .code-agent-work-pane.runtime-switchable .code-agent-transcript-peer-message {
-  margin-right: 68px;
+  margin-right: var(--code-transcript-controls-space, 68px);
 }
 
 @container (max-width: 800px) {
   .code-agent-transcript-scroll {
-    padding: 8px 12px 6px;
+    padding: 8px var(--code-transcript-inline-padding, 12px) 6px;
     scroll-padding-top: 6px;
     scroll-padding-bottom: 3px;
   }
@@ -249,11 +249,11 @@
 
 .code-agent-transcript-blank {
   width: 100%;
-  max-width: 980px;
+  max-width: var(--code-transcript-column-width, 980px);
   height: 100%;
   box-sizing: border-box;
   margin: 0 auto;
-  padding: 36px clamp(18px, 4vw, 54px) 8px;
+  padding: 36px var(--code-transcript-inline-padding, clamp(18px, 4vw, 54px)) 8px;
   color: var(--code-text-subtle);
   font-size: 14px;
   line-height: 20px;
@@ -261,7 +261,7 @@
 
 .code-agent-transcript-turn {
   width: 100%;
-  max-width: 980px;
+  max-width: var(--code-transcript-column-width, 980px);
   margin: 0 auto var(--code-transcript-turn-gap, 26px);
   user-select: text;
   -webkit-user-select: text;
@@ -1827,7 +1827,7 @@ button.code-agent-transcript-message-source:hover {
 
 .code-agent-transcript-assistant {
   min-width: 0;
-  max-width: 820px;
+  max-width: var(--code-transcript-answer-max-width, 820px);
   padding: 0;
   font-size: var(--code-content-font-size);
   line-height: var(--code-content-line-height);
@@ -1941,8 +1941,8 @@ button.code-agent-transcript-message-source:hover {
 
 .code-agent-transcript-answer {
   position: relative;
-  width: fit-content;
-  max-width: min(820px, calc(100% - 34px));
+  width: var(--code-transcript-answer-width, fit-content);
+  max-width: var(--code-transcript-answer-max-width, min(820px, calc(100% - 34px)));
   display: grid;
   gap: 5px;
   min-width: 0;
@@ -2945,14 +2945,14 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   left: 0;
   right: 0;
   z-index: 2;
-  padding: 10px clamp(18px, 4vw, 54px) 10px;
+  padding: 10px var(--code-transcript-inline-padding, clamp(18px, 4vw, 54px)) 10px;
   background: linear-gradient(180deg, var(--code-bg-canvas) 0%, var(--code-bg-canvas) 74%, transparent 100%);
   pointer-events: none;
 }
 
 .code-agent-transcript-sticky-turn {
   width: 100%;
-  max-width: 980px;
+  max-width: var(--code-transcript-column-width, 980px);
   margin: 0 auto;
   box-sizing: border-box;
   display: flex;
@@ -2979,8 +2979,8 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-work-pane.runtime-switchable .code-agent-transcript-sticky-turn {
-  max-width: min(980px, calc(100% - 68px));
-  margin-right: max(68px, calc((100% - 980px) / 2));
+  max-width: min(var(--code-transcript-column-width, 980px), calc(100% - var(--code-transcript-controls-space, 68px)));
+  margin-right: max(var(--code-transcript-controls-space, 68px), calc((100% - var(--code-transcript-column-width, 980px)) / 2));
 }
 
 .code-agent-transcript-sticky-turn:hover {
@@ -3024,13 +3024,13 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 
 @container (max-width: 800px) {
   .code-agent-transcript-sticky-turn-wrap {
-    padding: 6px 12px 8px;
+    padding: 6px var(--code-transcript-inline-padding, 12px) 8px;
   }
 
   .code-agent-transcript-sticky-turn,
   .code-agent-work-pane.runtime-switchable .code-agent-transcript-sticky-turn {
-    max-width: 100%;
-    margin-right: 0;
+    max-width: calc(100% - var(--code-transcript-controls-space, 0px));
+    margin-right: var(--code-transcript-controls-space, 0px);
   }
 }
 
@@ -3099,4 +3099,15 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 .code-agent-transcript-outgoing-preview[aria-expanded="true"] .code-agent-transcript-chevron {
   transform: rotate(90deg);
+}
+
+/* Width is a Chat presentation preference; compact layouts retain their geometry. */
+body.code-mode:not(.code-compact-layout) .code-agent-transcript.wide-layout {
+  --code-transcript-column-width: 100%;
+  --code-transcript-answer-width: 100%;
+  --code-transcript-answer-max-width: 100%;
+  --code-transcript-inline-padding: 24px;
+}
+body.code-mode:not(.code-compact-layout) .code-agent-work-pane.has-chat-width-toggle {
+  --code-transcript-controls-space: 98px;
 }

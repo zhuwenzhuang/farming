@@ -115,6 +115,12 @@ text in the existing Agent composer owner. The editor owns local transactions,
 selection, IME and undo; expanding keeps the same editor mounted. Terminal keeps
 its native plain-text textarea and submission contract.
 
+Local typing and draft resizing preserve selection and the input viewport.
+The rich editor grows with its content up to the shared height limit, then scrolls;
+typing must not collapse its height for textarea-style measurement.
+Only an empty editor document shows the placeholder. Text beside a line break
+remains content, including during paste, undo and recovery.
+
 Paste interpretation is automatic and based on source evidence. Editor clipboard
 language metadata preserves code; HTML preserves supported paragraphs, headings,
 lists, links, emphasis and code blocks. Code retains indentation, blank lines and

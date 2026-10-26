@@ -3878,5 +3878,7 @@ body.code-mode .code-composer-document :is(h1,h2,h3,h4,h5,h6) { font-size: 1.12e
 body.code-mode .code-composer-document :is(ul,ol) { margin: .3em 0; padding-inline-start: 1.5em; }
 body.code-mode .code-composer-document blockquote { margin: .4em 0; padding-inline: 1em; color: var(--code-text-muted); }
 body.code-mode .code-composer-document a { color: inherit; text-decoration: underline; }
-body.code-mode .code-rich-input .code-composer-document:has(> p:only-child > br:only-child)::before { content: attr(data-placeholder); color: var(--code-text-muted); position: absolute; pointer-events: none; }
-body.code-mode .code-rich-input { cursor: text; }
+body.code-mode .code-rich-input .code-composer-document[data-empty="true"]::before { content: attr(data-placeholder); color: var(--code-text-muted); position: absolute; pointer-events: none; }
+/* Rich documents have an intrinsic content height; textarea-style collapse and
+   measurement would disturb the browser-owned selection viewport on each edit. */
+body.code-mode .code-rich-input { cursor: text; overflow-y: auto; }

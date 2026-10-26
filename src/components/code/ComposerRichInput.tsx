@@ -24,6 +24,7 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
     const host = mount.current
     if (!host) return
     let external = false
+    let revealFrame = 0
     const editor = new Editor({
       element: host,
       content: (current.current.document || literalComposerDocument(current.current.value)).doc,
@@ -36,7 +37,13 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       })],
       enableInputRules: false, enablePasteRules: false,
       editorProps: {
-        attributes: { 'data-testid': testId, role: 'textbox', 'aria-multiline': 'true', 'data-placeholder': current.current.placeholder, class: 'code-composer-document', spellcheck: 'false', 'aria-label': current.current.placeholder },
+        attributes: state => ({
+          'data-testid': testId, role: 'textbox', 'aria-multiline': 'true',
+          'data-placeholder': current.current.placeholder,
+          // CSS child selectors ignore text nodes beside ProseMirror's breaks.
+          'data-empty': String(state.doc.childCount === 1 && state.doc.firstChild?.type.name === 'paragraph' && state.doc.firstChild.content.size === 0),
+          class: 'code-composer-document', spellcheck: 'false', 'aria-label': current.current.placeholder,
+        }),
         handlePaste(view, event) {
           try { const handled = pasteComposerDocument(view, event); setError(''); return handled }
           catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); return true }
@@ -72,16 +79,24 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
     host.select = () => range(0, host.value.length)
     host.focus = options => editor.view.dom.focus(options)
     inputRef.current = host
-    // Used only for owner-driven recovery, never for local editor transactions.
+    // Local echoes retain document/selection. Reveal after native input and
+    // React layout settle; WebKit can scroll again after the input transaction.
+    // Only an owner-driven replacement resets editor content.
     const restore = () => {
       const source = current.current.document || literalComposerDocument(current.current.value)
       const snapshot = composerDocumentText(source) === current.current.value ? source : replaceComposerText(source, current.current.value)
-      if (editor.state.doc.eq(editor.schema.nodeFromJSON(snapshot.doc))) return
+      if (editor.state.doc.eq(editor.schema.nodeFromJSON(snapshot.doc))) {
+        cancelAnimationFrame(revealFrame)
+        revealFrame = requestAnimationFrame(() => {
+          if (editor.view.hasFocus()) editor.commands.scrollIntoView()
+        })
+        return
+      }
       external = true
       try { editor.commands.setContent(snapshot.doc, { emitUpdate: false }) } finally { external = false }
     }
     restoreRef.current = restore
-    return () => { if (inputRef.current === host) inputRef.current = null; restoreRef.current = null; editorRef.current = null; editor.destroy() }
+    return () => { cancelAnimationFrame(revealFrame); if (inputRef.current === host) inputRef.current = null; restoreRef.current = null; editorRef.current = null; editor.destroy() }
   }, [inputRef, testId])
   const restoreRef = useRef<(() => void) | null>(null)
   useLayoutEffect(() => { restoreRef.current?.() }, [value, document])

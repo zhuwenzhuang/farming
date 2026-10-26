@@ -118,3 +118,20 @@ export function restoreTranscriptReadingAnchor(
   element.scrollTop += targetRect.top + targetOffset - scrollerRect.top
   return 'restored'
 }
+
+/** Ephemeral block anchor for a width change; never serialized as conversation state. */
+export interface TranscriptLayoutAnchor {
+  target: HTMLElement
+  offset: number
+}
+export function captureTranscriptLayoutAnchor(element: HTMLDivElement): TranscriptLayoutAnchor | null {
+  const top = element.getBoundingClientRect().top
+  const blocks = element.querySelectorAll<HTMLElement>('.code-agent-transcript-assistant :is(p, pre, h1, h2, h3, h4, h5, h6, tr, li)')
+  const target = Array.from(blocks).find(block => block.getClientRects().length > 0 && block.getBoundingClientRect().bottom > top)
+    || Array.from(element.querySelectorAll<HTMLElement>('[data-process-item-id]')).find(block => block.getClientRects().length > 0 && block.getBoundingClientRect().bottom > top)
+  return target ? { target, offset: target.getBoundingClientRect().top - top } : null
+}
+export function restoreTranscriptLayoutAnchor(element: HTMLDivElement, anchor: TranscriptLayoutAnchor) {
+  if (!element.contains(anchor.target)) return
+  element.scrollTop += anchor.target.getBoundingClientRect().top - element.getBoundingClientRect().top - anchor.offset
+}

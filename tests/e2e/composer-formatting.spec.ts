@@ -202,3 +202,70 @@ for (const mode of ['chat', 'terminal'] as const) {
     }
   })
 }
+
+for (const mode of ['chat', 'terminal', 'side'] as const) {
+  test(`${mode} typing keeps the caret visible and placeholder exclusive`, async ({ page, workspaceRoot, isMobile }, testInfo) => {
+    test.skip(isMobile && mode === 'side', 'Side pane coverage uses the desktop composition')
+    await page.request.post('/farming/api/settings', { data: { language: 'en' } })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: mode === 'terminal' ? 'terminal' : 'chat' },
+    })
+    const { agentId } = await response.json() as { agentId: string }
+    await openFarming(page)
+    if (isMobile) await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const main = page.locator('.code-composer-shell')
+    if (mode === 'side') {
+      await main.getByTestId('code-acp-composer-input').fill('/side')
+      await main.getByTestId('code-acp-composer-send').click()
+      await expect(page.getByTestId('code-subagent-panel')).toBeVisible()
+      await main.getByTestId('code-acp-composer-input').fill('Keep parent draft')
+    }
+    const surface = mode === 'side' ? page.getByTestId('code-subagent-panel') : main
+    const input = surface.getByTestId(mode === 'terminal' ? 'code-composer-input' : 'code-acp-composer-input')
+    const viewport = mode === 'terminal' ? input : input.locator('..')
+    const draft = 'https://example.com/logview?query=' + 'long-query-value'.repeat(60) + '\nTAIL'
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+      await input.fill('')
+      if (mode !== 'terminal') expect(await input.evaluate(element => getComputedStyle(element, '::before').content)).not.toBe('none')
+      await input.focus()
+      if (mode === 'terminal') await input.fill(draft)
+      else await input.evaluate((element, text) => {
+        const data = new DataTransfer()
+        data.setData('text/plain', text)
+        element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+      }, draft)
+      await expectValue(input, draft)
+      await selectText(input)
+      await viewport.evaluate(element => { element.scrollTop = element.scrollHeight })
+      const top = await viewport.evaluate(element => element.scrollTop)
+      expect(top).toBeGreaterThan(0)
+      await page.keyboard.type('tail', { delay: 40 })
+      await page.keyboard.insertText('继续检查')
+      await expectValue(input, draft + 'tail继续检查')
+      expect(await selection(input)).toEqual([draft.length + 8, draft.length + 8])
+      // Browsers may align the caret above bottom padding by up to one line.
+      const lineHeight = await input.evaluate(element => parseFloat(getComputedStyle(element).lineHeight))
+      expect(await viewport.evaluate(element => element.scrollTop)).toBeGreaterThanOrEqual(top - lineHeight)
+      if (mode !== 'terminal') {
+        await expect.poll(() => input.evaluate(element => {
+          const caret = window.getSelection()!.getRangeAt(0).getBoundingClientRect()
+          const box = element.parentElement!.getBoundingClientRect()
+          return caret.top >= box.top - 1 && caret.bottom <= box.bottom + 1
+        })).toBe(true)
+        expect(await input.evaluate(element => getComputedStyle(element, '::before').content)).toBe('none')
+      }
+      const shot = await surface.locator('.code-composer').screenshot({ path: testInfo.outputPath(`${mode}-typing-${appearance}.png`), animations: 'disabled' })
+      expect(shot.readUInt32BE(16)).toBeGreaterThan(100)
+      expect(shot.readUInt32BE(20)).toBeGreaterThan(50)
+      await selectText(input, 0, 0)
+      await viewport.evaluate(element => { element.scrollTop = 0 })
+      await page.keyboard.type('start', { delay: 40 })
+      await expectValue(input, 'start' + draft + 'tail继续检查')
+      expect(await selection(input)).toEqual([5, 5])
+      if (mode !== 'terminal') expect(await input.evaluate(element => getComputedStyle(element, '::before').content)).toBe('none')
+      await surface.locator('.code-composer').screenshot({ path: testInfo.outputPath(`${mode}-typing-start-${appearance}.png`), animations: 'disabled' })
+    }
+  })
+}

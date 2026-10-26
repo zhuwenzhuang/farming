@@ -120,6 +120,9 @@ import {
 } from '@/lib/transcript-file-links'
 import {
   captureTranscriptReadingAnchor,
+  captureTranscriptLayoutAnchor,
+  restoreTranscriptLayoutAnchor,
+  type TranscriptLayoutAnchor,
   hasTranscriptContentBelow,
   isTranscriptAtBottom,
   isTranscriptNearBottom,
@@ -196,6 +199,7 @@ import {
   workingCopyTranscriptGitDiffTarget,
   type TranscriptGitDiffTarget,
 } from './transcript-git-diff'
+import { useChatWideLayout } from './useChatWideLayout'
 import 'katex/dist/katex.min.css'
 
 const TranscriptMermaidBlock = lazy(() => import('@/components/files/FileEditorMarkdownPreview').then(module => ({
@@ -465,9 +469,14 @@ function agentTranscriptUrlTransform(value: string, key: string) {
   return defaultUrlTransform(value)
 }
 
+const TranscriptMarkdownTable: Components['table'] = ({ children }) => (
+  <div className="code-transcript-table-scroll"><table>{children}</table></div>
+)
+
 function useCompactTranscriptMarkdownComponents(copy: CodeCopy): Components {
   const { agentId, workspaceRoot } = useContext(TranscriptFileOpenContext)
   return useMemo(() => ({
+    table: TranscriptMarkdownTable,
     img: ({ src, alt }) => {
       const source = typeof src === 'string' ? src : ''
       const url = transcriptLocalImageUrl(source, workspaceRoot, agentId) || source
@@ -2898,6 +2907,7 @@ function AgentTranscriptTurnView({
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
   const markdownComponents = useMemo<Components>(() => ({
+    table: TranscriptMarkdownTable,
     img: ({ src, alt }) => {
       const source = typeof src === 'string' ? src : ''
       const url = transcriptLocalImageUrl(source, workspaceRoot, agentId) || source
@@ -3585,6 +3595,18 @@ export function AgentTranscriptPane({
     setFocusRunwayTurnId('')
     scrollRef.current?.style.removeProperty('--code-transcript-runway-height')
   }, [active])
+  const widthChangeAnchorRef = useRef<{ follow: boolean; anchor: TranscriptLayoutAnchor | null } | null>(null)
+  const captureWidthChange = useCallback(() => {
+    const element = scrollRef.current
+    if (!active || !element || isCompactViewport()) return
+    cancelRunwayPushAnimations()
+    stickyJumpAnchorRef.current = null
+    widthChangeAnchorRef.current = {
+      follow: followBottomRef.current && !hasTextSelectionWithin(element),
+      anchor: captureTranscriptLayoutAnchor(element),
+    }
+  }, [active, cancelRunwayPushAnimations])
+  const wideLayout = useChatWideLayout(captureWidthChange)
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
   // Restore saved anchors on navigation; live updates retain the stationary
   // viewport while the user is reading away from the bottom.
@@ -4455,6 +4477,20 @@ export function AgentTranscriptPane({
     syncStickyTurnPrompt(scrollRef.current)
   }, [active, openProcessTurnIds, syncStickyTurnPrompt, transcript, viewportLayoutKey])
 
+  useLayoutEffect(() => {
+    const saved = widthChangeAnchorRef.current
+    widthChangeAnchorRef.current = null
+    const element = scrollRef.current
+    if (!saved || !element || !active) return
+    if (saved.follow) element.scrollTop = element.scrollHeight
+    else if (saved.anchor) restoreTranscriptLayoutAnchor(element, saved.anchor)
+    stationaryScrollTopRef.current = element.scrollTop
+    scrollTopBeforeCommitRef.current = element.scrollTop
+    scheduleReadingAnchorSave(readingAnchorAgentId, element)
+    setShowJumpToBottom(hasTranscriptContentBelow(element))
+    syncStickyTurnPrompt(element)
+  }, [wideLayout, active, readingAnchorAgentId, scheduleReadingAnchorSave, syncStickyTurnPrompt])
+
   const hasObservedTurns = turns.length > 0
   useLayoutEffect(() => {
     if (!active || !transcript?.available || !hasObservedTurns || typeof ResizeObserver === 'undefined') {
@@ -4916,7 +4952,7 @@ export function AgentTranscriptPane({
       <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
       <AcpQuestionContext.Provider value={{ agentId, requests: pendingElicitations || [] }}>
       <div
-        className={`code-agent-transcript ${stickyTurnPromptEnabled ? 'sticky-turn-enabled' : ''} ${showStickyTurnPrompt ? 'has-sticky-turn' : ''}`}
+        className={`code-agent-transcript ${wideLayout ? 'wide-layout' : ''} ${stickyTurnPromptEnabled ? 'sticky-turn-enabled' : ''} ${showStickyTurnPrompt ? 'has-sticky-turn' : ''}`}
         data-testid="code-agent-transcript"
       >
       {error ? (

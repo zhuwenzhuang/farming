@@ -29,7 +29,6 @@ import type { SlashCommandOption } from '../capabilities'
 import { ComposerMicIcon, formatContextTokens } from '../composer-presentation'
 import type { CodeCopy } from '../copy'
 import { useMobileComposerHeight } from '../useMobileComposerHeight'
-import { useComposerTextareaAutoSize } from '../useComposerTextareaAutoSize'
 import { useComposerExpandedEditor } from '../useComposerExpandedEditor'
 import { ComposerEditorHeader } from '../ComposerEditorHeader'
 import type { ComposerMode } from '../types'
@@ -520,7 +519,6 @@ export function AcpComposer({
     agentId, textareaRef, composerRef, stageLocally: true,
     enabled: compactComposerViewport && active && !hasAcpRequest && !speechListening,
   })
-  useComposerTextareaAutoSize(textareaRef, draft, editor.expanded)
   useMobileComposerHeight(composerRef, `${draft}:${editor.expanded}`)
   const transferError = useComposerTransfer({ active, agentId, workspace, textareaRef, composerRef, onAddReference: onAddContextReference })
   const hasQuotes = contextReferences.some(reference => (reference.kind === 'quote' || reference.kind === 'pasted-text' || reference.kind === 'document'))

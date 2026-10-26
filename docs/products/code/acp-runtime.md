@@ -440,6 +440,22 @@ Unsubscribe alone is not proof that a provider released its writer.
 
 ## Presentation And Acceptance
 
+Desktop Chat offers a horizontal-expand icon immediately before Chat and Terminal
+in the existing view controls. It toggles the centered reading column to the
+current pane's available width, retaining 24px side padding and the sidebar.
+This browser-local preference defaults to standard width and survives Agent
+switches and reloads; it applies to main and related Chat panes, independently of
+provider or runtime work. Compact layouts hide the control and retain their
+normal geometry without discarding the preference. The horizontal arrows remain
+distinct from the existing four-corner fullscreen control.
+
+Width changes capture visible reading blocks before reflow and restore their
+viewport offsets afterward; readers following latest remain at the tail. They
+preserve drafts and editor/session identity. Storage failure retains
+the in-memory choice without blocking the control. Chat tables size columns to
+their content, keep code identifiers and numeric tokens intact, and scroll
+horizontally within the table when necessary instead of widening the page.
+
 Chat shares [Composer](composer-input.md), [UI design](../../development/ui-design-protocol.md)
 and [interaction](../../development/ui-interaction-protocol.md) contracts. Keep
 conversation progress readable, detailed evidence reversible and live activity

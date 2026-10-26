@@ -68,6 +68,8 @@ export interface CodeCopy {
   askInSubagent: string
   terminalView: string
   transcriptView: string
+  chatWideWidth: string
+  chatStandardWidth: string
   switchToTerminal: string
   switchToChat: string
   collapseComposer: string
@@ -843,6 +845,8 @@ const EN_COPY: CodeCopy = {
   askInSubagent: 'Ask in subagent',
   terminalView: 'Terminal',
   transcriptView: 'Chat',
+  chatWideWidth: 'Wide chat layout',
+  chatStandardWidth: 'Restore standard chat width',
   switchToTerminal: 'Switch to Terminal',
   switchToChat: 'Switch to Chat',
   collapseComposer: 'Hide input',
@@ -1655,6 +1659,8 @@ const ZH_COPY: CodeCopy = {
   askInSubagent: '在子 Agent中提问',
   terminalView: '终端',
   transcriptView: '对话',
+  chatWideWidth: '宽屏展示',
+  chatStandardWidth: '恢复标准宽度',
   switchToTerminal: '切换到终端',
   switchToChat: '切换到对话',
   collapseComposer: '收起输入框',

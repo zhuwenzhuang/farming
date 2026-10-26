@@ -7,7 +7,7 @@ import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { AgentTerminalPane } from '../AgentTerminalPane'
-import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
+import { ChatBubblesGlyph, HorizontalExpandGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { canForkAgentConversation, canSwitchAgentRuntime, supportsAgentRuntimeSwitch } from './capabilities'
@@ -15,6 +15,7 @@ import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
 import type { ShareNoticeAnchor } from './share-notice'
 import { resumedAgentSessionSourceIdentity } from './session-display'
+import { toggleChatWideLayout, useChatWideLayout } from './useChatWideLayout'
 
 type TerminalFollowState = {
   following: boolean
@@ -103,6 +104,7 @@ export function AgentWorkPane({
   useLayoutEffect(() => {
     reviewAndCommitRef.current = onReviewAndCommit
   }, [onReviewAndCommit])
+  const wideLayout = useChatWideLayout()
   const acpChat = Boolean(acpRuntime)
   const chatMode = acpChat
   const showRuntimeSwitch = runtimeSwitchVisible && supportsAgentRuntimeSwitch(agent)
@@ -146,20 +148,25 @@ export function AgentWorkPane({
 
   return (
     <section
-      className={`code-agent-work-pane ${active ? 'active' : ''} ${showRuntimeSwitch ? 'runtime-switchable' : ''}`}
+      className={`code-agent-work-pane ${active ? 'active' : ''} ${showRuntimeSwitch || chatMode ? 'runtime-switchable' : ''} ${chatMode ? 'has-chat-width-toggle' : ''}`}
       data-testid="code-agent-work-pane"
       data-agent-id={agent.id}
       hidden={!active}
       aria-busy={switching}
     >
-      {showRuntimeSwitch ? (
-        <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" title={runtimeSwitchReason} onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
+      {showRuntimeSwitch || chatMode ? (
+        <div className={`code-terminal-mode-toggle ${!showRuntimeSwitch ? 'chat-width-only' : ''}`} data-testid="code-terminal-mode-toggle" title={runtimeSwitchReason} onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
+          {chatMode ? <button type="button" className={`code-chat-width-toggle ${wideLayout ? 'active' : ''}`} data-testid="code-chat-width-toggle" aria-pressed={wideLayout} aria-label={wideLayout ? copy.chatStandardWidth : copy.chatWideWidth} title={wideLayout ? copy.chatStandardWidth : copy.chatWideWidth} onClick={toggleChatWideLayout}>
+            <HorizontalExpandGlyph />
+          </button> : null}
+          {showRuntimeSwitch ? <>
           <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={runtimeSwitchReason || copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
             <ChatBubblesGlyph />
           </button>
           <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={runtimeSwitchReason || copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
             <TerminalSquareGlyph />
           </button>
+          </> : null}
         </div>
       ) : null}
       {!chatMode && mounted ? (

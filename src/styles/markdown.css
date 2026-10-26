@@ -14,6 +14,7 @@
 }
 
 .code-agent-transcript-assistant.code-markdown-preview {
+  width: var(--code-transcript-answer-width, min(100%, 860px));
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
@@ -207,12 +208,14 @@
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  display: table;
+  overflow: visible;
   border-collapse: separate;
   border-spacing: 0;
-  table-layout: fixed;
+  table-layout: auto;
   text-align: left;
   font-size: inherit;
-  overflow-wrap: break-word;
+  overflow-wrap: normal;
 }
 
 .code-agent-transcript-assistant.code-markdown-preview th,
@@ -222,8 +225,8 @@
   border: 0;
   border-bottom: 1px solid var(--code-border);
   background: transparent;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
   border-bottom-color: var(--code-border-subtle);
 }
 
@@ -878,4 +881,16 @@
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+.code-transcript-table-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.code-agent-transcript-assistant.code-markdown-preview .code-transcript-table-scroll code {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }

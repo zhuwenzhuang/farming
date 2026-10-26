@@ -628,3 +628,12 @@ export function RefreshGlyph(props: IconGlyphProps) {
     </svg>
   )
 }
+
+/** Horizontal width control, distinct from the four-corner fullscreen glyph. */
+export function HorizontalExpandGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <path d="M8 7 3 12l5 5M16 7l5 5-5 5M3 12h18" fill="none" />
+    </svg>
+  )
+}
