@@ -1,5 +1,6 @@
 import { expect, openFarming, test } from './fixtures'
 import type { Page } from '@playwright/test'
+import { expectValue, selection } from './composer-test-input'
 
 async function setup(page: Page, workspace: string, appearance = 'paper') {
   await page.request.post('/farming/api/settings', { data: { appearance, language: 'en' } })
@@ -21,6 +22,40 @@ async function selectAnswer(page: Page) {
   })
 }
 for (const appearance of ['light', 'dark', 'paper']) {
+  test(`quoting a side answer preserves the parent draft and focuses its end in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    await setup(page, workspaceRoot, appearance)
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    const main = page.locator('.code-composer-shell')
+    const input = main.getByTestId('code-acp-composer-input')
+    await input.fill('/side')
+    await main.getByTestId('code-acp-composer-send').click()
+    const side = page.getByTestId('code-subagent-panel')
+    await side.getByTestId('code-acp-composer-input').fill('markdown image response')
+    await side.getByTestId('code-acp-composer-send').click()
+    await side.getByRole('button', { name: 'Allow', exact: true }).click()
+    const answer = side.locator('.code-agent-transcript-assistant').last()
+    await expect(answer).toBeVisible()
+    await input.fill('Parent draft')
+    await answer.click()
+    const quote = await answer.evaluate(element => {
+      const range = document.createRange(); range.selectNodeContents(element)
+      const selection = getSelection(); selection?.removeAllRanges(); selection?.addRange(range)
+      document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      return selection?.toString().trim() || ''
+    })
+    expect(quote).not.toBe('')
+    await page.getByRole('button', { name: 'Quote in parent chat', exact: true }).click()
+    await expect(input).toBeFocused()
+    await expectValue(input, 'Parent draft')
+    expect(await selection(input)).toEqual([12, 12])
+    await expect(main.getByTestId('code-composer-quote')).toContainText(quote.split('\n')[0])
+    await page.keyboard.insertText(' + follow-up')
+    await expectValue(input, 'Parent draft + follow-up')
+    expect(errors).toEqual([])
+    await main.screenshot({ path: testInfo.outputPath(`quote-parent-${appearance}.png`), animations: 'disabled' })
+  })
+
   test(`quoted side preparation, history and Goal geometry in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     test.setTimeout(120_000)
     const parentId = await setup(page, workspaceRoot, appearance)

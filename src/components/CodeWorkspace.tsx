@@ -1986,7 +1986,7 @@ export function CodeWorkspace({
   const showMobileBackButton = Boolean(mobileBackAgentId)
   const autoSizeComposerTextarea = useCallback(() => {
     const textarea = composerTextareaRef.current
-    if (!textarea) return
+    if (!(textarea instanceof HTMLTextAreaElement)) return
 
     textarea.style.height = 'auto'
     const nextHeight = Math.min(textarea.scrollHeight, 132)

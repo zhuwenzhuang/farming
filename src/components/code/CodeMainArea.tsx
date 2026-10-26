@@ -1159,7 +1159,7 @@ export function CodeMainArea({
     setCompactRelatedActive(false)
     updateComposerCollapsed(false)
     window.requestAnimationFrame(() => {
-      const input = mainAreaRef.current?.querySelector<HTMLTextAreaElement>('.code-composer-shell [data-testid="code-acp-composer-input"]')
+      const input = mainAreaRef.current?.querySelector<ComposerInputElement>('.code-composer-shell [data-composer-rich-input]')
       if (input) {
         input.focus({ preventScroll: true })
         input.setSelectionRange(input.value.length, input.value.length)

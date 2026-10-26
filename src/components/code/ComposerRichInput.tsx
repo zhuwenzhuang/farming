@@ -2,7 +2,7 @@ import { Editor, Extension } from '@tiptap/core'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
 import { useLayoutEffect, useRef, useState, type HTMLAttributes, type RefObject } from 'react'
 import { composerDocumentText, literalComposerDocument, type ComposerDocument } from '../../../shared/composer-document.js'
-import { composerEditorExtensions, composerTextOffset, composerTextPositions, editorDocument, pasteComposerDocument, textSlice, replaceComposerText } from './composer-document-editor'
+import { composerEditorExtensions, composerTextOffset, composerTextPositions, editorDocument, guardComposerComposition, pasteComposerDocument, textSlice, replaceComposerText } from './composer-document-editor'
 import type { ComposerInputElement, StructuredComposerElement } from './composer-input-element'
 
 interface Props extends Omit<HTMLAttributes<StructuredComposerElement>, 'onChange'> {
@@ -55,6 +55,7 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
         setError(''); current.current.onValueChange(composerDocumentText(snapshot), snapshot)
       },
     })
+    guardComposerComposition(editor.view)
     editorRef.current = editor
     const range = (start: number, end: number, direction?: 'forward' | 'backward' | 'none') => {
       const positions = composerTextPositions(editor.state.doc)
@@ -77,7 +78,13 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       editor.view.dispatch(tr)
     }
     host.select = () => range(0, host.value.length)
-    host.focus = options => editor.view.dom.focus(options)
+    host.focus = options => {
+      if (editor.view.hasFocus()) return
+      editor.view.dom.focus(options)
+      // Native focus can put the DOM caret at the start while the editor still
+      // holds its previous selection. Synchronize both before the next keystroke.
+      editor.view.focus()
+    }
     inputRef.current = host
     // Local echoes retain document/selection. Reveal after native input and
     // React layout settle; WebKit can scroll again after the input transaction.

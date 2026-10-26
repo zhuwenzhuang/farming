@@ -75,6 +75,10 @@ persistence and submission handling retain the quote across recovery or failed
 sends and include it with the question on submission. Main and side conversations
 use the same presentation and retain independent drafts.
 
+Quoting a side answer into its parent preserves the parent's editable question,
+adds the reference and focuses the end of that question through the shared input
+adapter. The inner rich-text DOM is not a textarea API.
+
 Submitted quotations keep that same compact disclosure as a separate context block
 inside the input document. The question remains prominent; the complete quotation
 is available on expansion. Provider-facing context headers are never UI copy.
@@ -115,9 +119,17 @@ text in the existing Agent composer owner. The editor owns local transactions,
 selection, IME and undo; expanding keeps the same editor mounted. Terminal keeps
 its native plain-text textarea and submission contract.
 
+Native composition owns provisional text and selection until confirmation or
+cancellation. Editor keymaps must remain unhandled during composition, including
+keys synthesized internally while reconciling DOM changes. Even an unsuccessful
+shortcut must not dispatch a transaction that interrupts the pending IME edit.
+After composition ends, ordinary editing shortcuts resume.
+
 Local typing and draft resizing preserve selection and the input viewport.
 The rich editor grows with its content up to the shared height limit, then scrolls;
 typing must not collapse its height for textarea-style measurement.
+Programmatic focus synchronizes the browser caret with the editor selection
+before accepting more input; focusing an already focused editor leaves IME intact.
 Only an empty editor document shows the placeholder. Text beside a line break
 remains content, including during paste, undo and recovery.
 
@@ -271,6 +283,10 @@ submitted content. Verify literal Markdown, code indentation and table separator
 plus long-card restoration. Compare focused screenshots in Light, Dark and Paper
 on desktop Chromium and compact/expanded WebKit. Browser composition events test
 application arbitration; they do not certify a physical OS candidate window.
+Also exercise native Chromium composition updates: shorten unconfirmed pinyin,
+cancel to empty, compose again and confirm over selected text. Cover main and side
+Chat, formatted lists, code blocks and adjacent emoji; require exact draft text
+after every update, without duplicated spelling or lost surrounding content.
 
 `npm run release:fast-screen:mobile` checks draft shrinking, unfocused space
 reservation and image-preview hit targets before the complete mobile matrix.

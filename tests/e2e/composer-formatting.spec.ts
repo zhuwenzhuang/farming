@@ -176,7 +176,11 @@ for (const mode of ['chat', 'terminal'] as const) {
       await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
       await input.fill('ordinary prose')
       const before = await typography(input)
-      await input.fill(draft)
+      // Native Select All updates both editor and DOM selection. Back-to-back
+      // contenteditable fill() calls only select the DOM before inserting text.
+      await input.press('ControlOrMeta+a')
+      await page.keyboard.insertText(draft)
+      await expectValue(input, draft)
       expect(await typography(input)).toEqual(before)
       await expect(page.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
       await input.focus()
@@ -229,6 +233,7 @@ for (const mode of ['chat', 'terminal', 'side'] as const) {
       await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
       await input.fill('')
       if (mode !== 'terminal') expect(await input.evaluate(element => getComputedStyle(element, '::before').content)).not.toBe('none')
+      const emptyHeight = (await viewport.boundingBox())!.height
       await input.focus()
       if (mode === 'terminal') await input.fill(draft)
       else await input.evaluate((element, text) => {
@@ -237,6 +242,10 @@ for (const mode of ['chat', 'terminal', 'side'] as const) {
         element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
       }, draft)
       await expectValue(input, draft)
+      if (mode !== 'terminal') {
+        expect(await viewport.evaluate(element => (element as HTMLElement).style.height)).toBe('')
+        expect((await viewport.boundingBox())!.height).toBeGreaterThan(emptyHeight)
+      }
       await selectText(input)
       await viewport.evaluate(element => { element.scrollTop = element.scrollHeight })
       const top = await viewport.evaluate(element => element.scrollTop)
@@ -266,6 +275,10 @@ for (const mode of ['chat', 'terminal', 'side'] as const) {
       expect(await selection(input)).toEqual([5, 5])
       if (mode !== 'terminal') expect(await input.evaluate(element => getComputedStyle(element, '::before').content)).toBe('none')
       await surface.locator('.code-composer').screenshot({ path: testInfo.outputPath(`${mode}-typing-start-${appearance}.png`), animations: 'disabled' })
+      if (mode !== 'terminal') {
+        await input.fill('')
+        await expect.poll(async () => (await viewport.boundingBox())!.height).toBe(emptyHeight)
+      }
     }
   })
 }

@@ -11,6 +11,20 @@ export const composerEditorExtensions = [StarterKit.configure({
   link: { autolink: false, openOnClick: false, linkOnPaste: false, isAllowedUri: url => safeComposerLink(url) },
 })]
 export const composerEditorSchema = getSchema(composerEditorExtensions)
+/** Keep native composition in charge even when DOM reconciliation synthesizes a key. */
+export function guardComposerComposition(view: EditorView) {
+  for (const plugin of view.state.plugins) {
+    const handleKeyDown = plugin.props.handleKeyDown
+    if (!handleKeyDown) continue
+    // A DOM-level guard cannot see ProseMirror's synthetic Backspace. Tiptap
+    // commands can dispatch even when they return false; that empty transaction
+    // reconciles the pending IME DOM too early and splits the composition.
+    plugin.props.handleKeyDown = function (view, event) {
+      if (view.composing || event.isComposing) return false
+      return handleKeyDown.call(this, view, event)
+    }
+  }
+}
 export function editorDocument(node: ProseMirrorNode): ComposerDocument {
   const value = normalizeComposerDocument({ version: 1, doc: node.toJSON() })
   if (!value) throw new Error('Chat content exceeds the supported document limits.')
