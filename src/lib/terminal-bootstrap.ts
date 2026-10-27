@@ -1,10 +1,12 @@
 export interface SessionDataPayload {
   session?: {
+    status?: string
     runtimeEpoch?: string
     output?: string
     outputSeq?: number | null
     stateRevision?: number | null
     renderOutput?: string
+    previewText?: string
     renderedScrollback?: number
     scrollbackAvailable?: number
     previewCols?: number | null
@@ -12,11 +14,13 @@ export interface SessionDataPayload {
     cols?: number | null
     rows?: number | null
   } | string
+  status?: string
   output?: string
   runtimeEpoch?: string
   outputSeq?: number | null
   stateRevision?: number | null
   renderOutput?: string
+  previewText?: string
   renderedScrollback?: number
   scrollbackAvailable?: number
   previewCols?: number | null
@@ -26,6 +30,7 @@ export interface SessionDataPayload {
 }
 
 export interface SessionBootstrapState {
+  status?: string
   runtimeEpoch: string
   output: string
   outputSeq: number | null
@@ -36,25 +41,44 @@ export interface SessionBootstrapState {
   scrollbackAvailable?: number
 }
 
+function parseSessionStatus(data: SessionDataPayload) {
+  const raw = data.session && typeof data.session === 'object'
+    ? data.session.status
+    : data.status
+  return typeof raw === 'string' ? raw : ''
+}
+
 function parseSessionOutput(data: SessionDataPayload) {
+  const hasRetainedCheckpoint = Boolean(parseSessionRuntimeEpoch(data))
+    && parseSessionOutputSeq(data) !== null
+    && parseSessionStateRevision(data) !== null
   if (data.session && typeof data.session === 'object') {
-    return data.session.renderOutput ?? data.session.output ?? ''
+    const primary = data.session.renderOutput ?? data.session.output ?? ''
+    if (primary || hasRetainedCheckpoint) return primary
+    return data.session.previewText ?? ''
   }
   if (typeof data.session === 'string') {
     return data.session
   }
   if (typeof data.renderOutput === 'string') {
-    return data.renderOutput
+    if (data.renderOutput || hasRetainedCheckpoint) return data.renderOutput
   }
-  return data.output ?? ''
+  const fallback = data.output ?? ''
+  if (fallback || hasRetainedCheckpoint) return fallback
+  return data.previewText ?? ''
+}
+
+function nonNegativeSequence(raw: unknown) {
+  if (raw === null || raw === undefined || raw === '' || typeof raw === 'boolean') return null
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function parseSessionOutputSeq(data: SessionDataPayload) {
   const raw = data.session && typeof data.session === 'object'
     ? data.session.outputSeq
     : data.outputSeq
-  const seq = Number(raw)
-  return Number.isFinite(seq) && seq >= 0 ? seq : null
+  return nonNegativeSequence(raw)
 }
 
 function parseSessionRuntimeEpoch(data: SessionDataPayload) {
@@ -68,8 +92,7 @@ function parseSessionStateRevision(data: SessionDataPayload) {
   const raw = data.session && typeof data.session === 'object'
     ? data.session.stateRevision
     : data.stateRevision
-  const revision = Number(raw)
-  return Number.isFinite(revision) && revision >= 0 ? revision : null
+  return nonNegativeSequence(raw)
 }
 
 function positiveInteger(value: unknown) {
@@ -86,10 +109,12 @@ function parseSessionDimensions(data: SessionDataPayload) {
 }
 
 export function sessionBootstrapStateFromPayload(data: SessionDataPayload): SessionBootstrapState {
+  const status = parseSessionStatus(data)
   const rawOutput = parseSessionOutput(data)
   const dimensions = parseSessionDimensions(data)
   const session = data.session && typeof data.session === 'object' ? data.session : null
   return {
+    ...(status ? { status } : {}),
     runtimeEpoch: parseSessionRuntimeEpoch(data),
     // A checkpoint is opaque serialized xterm state. Trimming rows, rebuilding
     // it from text, or moving the cursor would invalidate its revision proof.

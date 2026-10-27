@@ -594,12 +594,97 @@ async function run() {
     'a syncing monitor snapshot must re-read the history client instead of staying cached for five minutes');
   assert.strictEqual(convergedHistory.daily.syncing, false,
     'the next summary refresh must expose a completed background history scan');
+  const syncingHistoryMonitor = new UsageMonitor({
+    codexQuotaReader: async () => ({ available: false, source: 'test', sampledAt: now, reason: 'No account quota' }),
+    configDir: root,
+    codexHome,
+    claudeHome,
+    usageHistoryClient: {
+      async collect() {
+        return {
+          schemaVersion: 13,
+          source: 'test syncing history',
+          sampledAt: now,
+          providers: {
+            codex: { events: [], quotaCandidates: [], available: true, partial: true, fileCount: 12 },
+            claude: { events: [], quotaCandidates: [], available: true, partial: true, fileCount: 4 },
+          },
+          cache: { scan_complete: false, errors: 0 },
+        };
+      },
+    },
+    async openCodeCommandRunner(args) {
+      if (args[0] === 'session' && args[1] === 'list') return { stdout: '[]' };
+      throw new Error(`Unexpected OpenCode command ${args.join(' ')}`);
+    },
+  });
+  const syncingSummary = await syncingHistoryMonitor.getUsageSummary({ now, fresh: true });
+  assert.strictEqual(syncingSummary.daily.syncing, true);
+  assert.strictEqual(syncingSummary.daily.partial, true,
+    'syncing local-history providers with withheld events must mark daily history partial');
+  const syncingCodexCoverage = syncingSummary.daily.coverage.find(entry => entry.provider === 'codex');
+  assert.strictEqual(syncingCodexCoverage.partial, true);
+  assert.match(String(syncingCodexCoverage.reason), /syncing/i);
+  const syncingCodexProvider = syncingSummary.providers.find(entry => entry.provider === 'codex');
+  assert.strictEqual(syncingCodexProvider.tokenUsage.available, false,
+    'withheld syncing events must not masquerade as an exact zero token rate');
+  assert.strictEqual(syncingCodexProvider.tokenUsage.partial, true);
+  assert.strictEqual(syncingCodexProvider.tokenUsage.totalTokens, null);
+  assert.strictEqual(syncingCodexProvider.tokenUsage.tokensPerMinute, null);
   const historicalDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: false });
   assert.notStrictEqual(historicalDay, refreshedLiveDay, 'non-live reads should stay on the heavy daily-history cache');
   const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });
   assert.strictEqual(cachedSummary.daily, monitor.dailyCache.value.daily, 'summary and detail use the same cached history');
   const refreshedSummary = await monitor.getUsageSummary({ now: now + 2_000, fresh: true });
   assert.notStrictEqual(refreshedSummary.daily, summary.daily, 'an explicit fresh read should rebuild daily history');
+
+  const healthyCodexOnlyMonitor = new UsageMonitor({
+    codexQuotaReader: async () => ({ available: false, source: 'test', sampledAt: now, reason: 'No account quota' }),
+    configDir: root,
+    codexHome,
+    claudeHome,
+    openCodeHome,
+    commandRunner,
+    async openCodeCommandRunner(args) {
+      if (args[0] === 'session' && args[1] === 'list') return { stdout: '[]', stderr: '' };
+      throw new Error(`Unexpected OpenCode command ${args.join(' ')}`);
+    },
+    usageHistoryClient: {
+      async collect() {
+        return {
+          schemaVersion: 13,
+          source: 'test codex only',
+          sampledAt: now,
+          cache: { scan_complete: true, errors: 0 },
+          providers: {
+            codex: {
+              available: true,
+              partial: false,
+              fileCount: 1,
+              quotaCandidates: [],
+              events: [{ timestamp: now - 1_000, totalTokens: 6_000, inputTokens: 6_000 }],
+            },
+            claude: {
+              available: false,
+              partial: false,
+              fileCount: 0,
+              quotaCandidates: [],
+              events: [],
+              reason: 'No local session files were found.',
+            },
+          },
+        };
+      },
+    },
+  });
+  const healthyCodexOnlySummary = await healthyCodexOnlyMonitor.getUsageSummary({ now, fresh: true });
+  assert.strictEqual(healthyCodexOnlySummary.daily.syncing, false);
+  assert.strictEqual(healthyCodexOnlySummary.daily.partial, false,
+    'unused local-history provider with zero files must not mark completed daily history partial');
+  assert.strictEqual(
+    healthyCodexOnlySummary.providers.find(entry => entry.provider === 'codex')?.tokenUsage.tokensPerMinute,
+    1_200,
+  );
   process.env.PATH = originalPath;
 
   for (const [, args] of calls) {

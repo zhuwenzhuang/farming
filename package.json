@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.93",
+  "version": "2.2.94",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -242,8 +242,8 @@
     "saxes"
   ],
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.94.0",
-    "@agentclientprotocol/codex-acp": "2.2.2",
+    "@agentclientprotocol/claude-agent-acp": "0.97.0",
+    "@agentclientprotocol/codex-acp": "2.3.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@tiptap/core": "3.32.0",
@@ -303,14 +303,14 @@
     "katex": "$katex"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.303",
-    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.303",
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.310",
     "@openai/codex-darwin-arm64": "npm:@openai/codex@0.164.0-darwin-arm64",
     "@openai/codex-darwin-x64": "npm:@openai/codex@0.164.0-darwin-x64",
     "@openai/codex-linux-arm64": "npm:@openai/codex@0.164.0-linux-arm64",

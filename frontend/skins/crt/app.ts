@@ -1262,10 +1262,99 @@ async function createTerminalInstance(options: { disableStdin?: boolean } = {}) 
   return null;
 }
 
-function showCrtTerminalFailure(titleText: string | null, error: unknown, detailText: string | null) {
+function isStoppedCrtSessionStatus(status: unknown): boolean {
+  return status === 'stopped' || status === 'dead';
+}
+
+function hasRetainedCrtTerminalCheckpoint(
+  sessionView: (Pick<CrtNormalizedSessionView, 'runtimeEpoch' | 'outputSeq' | 'stateRevision'> & {
+    previewCols?: number | null;
+    previewRows?: number | null;
+    cols?: number | null;
+    rows?: number | null;
+  }) | null | undefined,
+): boolean {
+  if (!sessionView) return false;
+  const cols = Number(sessionView.previewCols ?? sessionView.cols);
+  const rows = Number(sessionView.previewRows ?? sessionView.rows);
+  return Boolean(
+    typeof sessionView.runtimeEpoch === 'string'
+    && sessionView.runtimeEpoch.trim().length > 0
+    && typeof sessionView.outputSeq === 'number'
+    && Number.isFinite(sessionView.outputSeq)
+    && sessionView.outputSeq >= 0
+    && typeof sessionView.stateRevision === 'number'
+    && Number.isFinite(sessionView.stateRevision)
+    && sessionView.stateRevision >= 0
+    && Number.isFinite(cols)
+    && cols > 0
+    && Number.isFinite(rows)
+    && rows > 0
+  );
+}
+
+function classifyCrtTerminalCheckpointResponse(
+  sessionView: CrtNormalizedSessionView | CrtTerminalSessionView | null | undefined,
+  fallbackStatus?: unknown,
+): 'live-checkpoint' | 'stopped-checkpoint' | 'stopped-without-checkpoint' {
+  const fallback = typeof fallbackStatus === 'object' && fallbackStatus !== null && 'status' in fallbackStatus
+    ? (fallbackStatus as { status?: unknown }).status
+    : fallbackStatus;
+  const status = (sessionView && 'status' in sessionView ? sessionView.status : undefined) || fallback || 'running';
+  if (isStoppedCrtSessionStatus(status)) {
+    return hasRetainedCrtTerminalCheckpoint(sessionView as CrtNormalizedSessionView)
+      ? 'stopped-checkpoint'
+      : 'stopped-without-checkpoint';
+  }
+  return 'live-checkpoint';
+}
+
+function crtTerminalFailureDetail(
+  agentOrStatus: { status?: unknown } | string | null | undefined,
+  actionText = '',
+): string {
+  const status = typeof agentOrStatus === 'string'
+    ? agentOrStatus
+    : agentOrStatus?.status;
+  const running = status === 'running' || status === 'pending';
+  const prefix = running ? 'The Agent is still running.' : 'The Agent has stopped.';
+  return actionText ? `${prefix} ${actionText}` : prefix;
+}
+
+function clearCrtTerminalNotices() {
   const terminalContainer = document.getElementById('terminal-output');
   if (!terminalContainer) return;
   terminalContainer.querySelector('.crt-webgl-error')?.remove();
+  terminalContainer.querySelector('.crt-terminal-stopped')?.remove();
+}
+
+function showCrtTerminalStoppedNotice(
+  sessionView: Pick<CrtNormalizedSessionView, 'status'> | Pick<CrtTerminalSessionView, 'status'> | null | undefined,
+  options: { hasScreen?: boolean } = {},
+) {
+  const terminalContainer = document.getElementById('terminal-output');
+  if (!terminalContainer) return;
+  clearCrtTerminalNotices();
+  const hasScreen = options.hasScreen === true;
+  const panel = document.createElement('div');
+  panel.className = hasScreen ? 'crt-terminal-stopped has-screen' : 'crt-terminal-stopped';
+  panel.dataset.testid = 'crt-terminal-stopped';
+  const title = document.createElement('strong');
+  title.textContent = sessionView?.status === 'dead' ? 'AGENT SESSION ENDED' : 'AGENT SESSION STOPPED';
+  const message = document.createElement('span');
+  message.textContent = hasScreen
+    ? 'Showing retained terminal output in read-only mode.'
+    : 'This Agent has stopped and has no retained terminal screen.';
+  const detail = document.createElement('small');
+  detail.textContent = 'Terminal is read-only. Close this session or resume it from History.';
+  panel.append(title, message, detail);
+  terminalContainer.appendChild(panel);
+}
+
+function showCrtTerminalFailure(titleText: string | null, error: unknown, detailText: string | null) {
+  const terminalContainer = document.getElementById('terminal-output');
+  if (!terminalContainer) return;
+  clearCrtTerminalNotices();
   const panel = document.createElement('div');
   panel.className = 'crt-webgl-error';
   const title = document.createElement('strong');
@@ -1281,10 +1370,11 @@ function showCrtTerminalFailure(titleText: string | null, error: unknown, detail
 }
 
 function showCrtWebglFailure(error: unknown) {
+  const agent = state?.agents.find((candidate) => candidate.id === focusedAgentId);
   showCrtTerminalFailure(
     'CRT WEBGL ERROR',
     error,
-    'The Agent is still running. Close and reopen this terminal after WebGL is available.'
+    crtTerminalFailureDetail(agent, 'Close and reopen this terminal after WebGL is available.')
   );
 }
 
@@ -2783,10 +2873,11 @@ function stopCrtTerminalReplay(replication: CrtTerminalReplication, error: unkno
   replication.attachment.clearQueuedTransitions();
   document.getElementById('terminal-output')?.classList.add('crt-terminal-checkpoint-installing');
   console.error('Terminal replay failed:', error);
+  const agent = state?.agents.find((candidate) => candidate.id === replication.agentId);
   showCrtTerminalFailure(
     'CRT TERMINAL SYNC ERROR',
     error,
-    'The Agent is still running. Close and reopen this terminal to retry recovery.'
+    crtTerminalFailureDetail(agent, 'Close and reopen this terminal to retry recovery.')
   );
 }
 
@@ -2826,6 +2917,7 @@ function applyCrtTerminalTransition(event: FarmingTerminalTransition) {
   terminalInstance.write(transitionData, () => {
     if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
     replication.attachment.commitTransition(event);
+    clearCrtTerminalNotices();
     if (event.kind === 'clear') terminalInstance.clearSelection();
     replication.writeInProgress = false;
     refreshSessionTerminalUi({ preserveSearchIndex: true });
@@ -2910,6 +3002,16 @@ function performCrtTerminalCheckpointInstall(
       requestCrtTerminalReplay();
       return;
     }
+    clearCrtTerminalNotices();
+    const currentAgent = state?.agents.find((candidate) => candidate.id === replication.agentId);
+    const stoppedStatus = isStoppedCrtSessionStatus(sessionView.status)
+      ? sessionView.status
+      : currentAgent && isStoppedCrtSessionStatus(currentAgent.status)
+        ? currentAgent.status
+        : undefined;
+    if (stoppedStatus) {
+      showCrtTerminalStoppedNotice({ status: stoppedStatus }, { hasScreen: true });
+    }
     refreshSessionTerminalUi({ preserveSearchIndex: true });
     replication.checkpointScrollbackInstalled = Math.max(
       Number(terminal?.buffer?.active?.baseY) || 0,
@@ -2960,12 +3062,159 @@ function drainCrtTerminalCheckpointInstall(replication = crtTerminalReplication)
   return performCrtTerminalCheckpointInstall(replication, sessionView);
 }
 
+function settleStoppedCrtTerminalWithoutCheckpoint(
+  replication: CrtTerminalReplication,
+  sessionView: CrtNormalizedSessionView,
+  operation: TerminalAttachmentOperation,
+) {
+  if (
+    !crtTerminalReplication ||
+    crtTerminalReplication !== replication ||
+    !terminal ||
+    replication.disposed ||
+    !replication.attachment.isCurrentOperation(operation)
+  ) return false;
+  if (
+    replication.attachment.isReplayTargetPending() ||
+    replication.attachment.queuedTransitionCount > 0
+  ) {
+    const ordering = typeof replication.attachment.snapshot === 'function'
+      ? replication.attachment.snapshot()
+      : null;
+    const epochPattern = /^farming-runtime-v1:(\d{20}):/;
+    const stateEpochMatch = epochPattern.exec(String(sessionView.runtimeEpoch || ''));
+    const targetEpochMatch = epochPattern.exec(String(ordering?.replayTargetEpoch || ''));
+    const supersedesReplayTarget = Boolean(
+      stateEpochMatch
+      && targetEpochMatch
+      && Number(stateEpochMatch[1]) > Number(targetEpochMatch[1]),
+    );
+    if (!supersedesReplayTarget) {
+      const failure = replication.attachment.recordInvariantFailure(
+        `stopped-without-checkpoint:${sessionView.runtimeEpoch || 'none'}:${ordering?.replayTargetEpoch || 'none'}`,
+        'Terminal replay returned a stopped state without a checkpoint while newer runtime output is pending',
+      );
+      if (typeof retryCrtTerminalReplayAfterFailure === 'function') {
+        retryCrtTerminalReplayAfterFailure(replication, failure);
+        return false;
+      }
+      replication.checkpointInFlight = false;
+      if (failure.halted) {
+        if (typeof stopCrtTerminalReplay === 'function') {
+          stopCrtTerminalReplay(replication, failure.message);
+        }
+        return false;
+      }
+      if (typeof setTimeout === 'function' && !replication.checkpointRetryTimer) {
+        replication.checkpointRetryTimer = setTimeout(() => {
+          replication.checkpointRetryTimer = null;
+          if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+          if (typeof requestCrtTerminalReplay === 'function') requestCrtTerminalReplay();
+        }, failure.delay);
+      }
+      return false;
+    }
+  }
+
+  if (replication.checkpointRetryTimer) {
+    clearTimeout(replication.checkpointRetryTimer);
+    replication.checkpointRetryTimer = null;
+  }
+  clearPendingCrtTerminalFitResize(replication);
+  const hadCommittedCheckpoint = Boolean(replication.attachment.runtimeEpoch);
+  replication.checkpointInFlight = false;
+  replication.pendingCheckpoint = null;
+  if (!hadCommittedCheckpoint) {
+    replication.checkpointScrollbackInstalled = 0;
+    replication.checkpointScrollbackAvailable = 0;
+    replication.checkpointScrollbackDesired = CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS[0];
+  }
+  replication.attachment.resetRecovery({ keepCursor: hadCommittedCheckpoint });
+
+  const currentAgent = state?.agents.find((candidate) => candidate.id === replication.agentId);
+  if (
+    currentAgent
+    && isStoppedCrtSessionStatus(sessionView.status)
+    && currentAgent.status !== 'running'
+    && currentAgent.status !== 'pending'
+  ) {
+    currentAgent.status = sessionView.status;
+  }
+  updateCrtTerminalInputState(currentAgent || (sessionView as unknown as CrtAgent));
+
+  if (hadCommittedCheckpoint) {
+    replication.installInProgress = false;
+    document.getElementById('terminal-output')?.classList.remove('crt-terminal-checkpoint-installing');
+    showCrtTerminalStoppedNotice(sessionView, { hasScreen: true });
+    refreshSessionTerminalUi({ preserveSearchIndex: true });
+    return true;
+  }
+
+  const fallbackText = sessionView.renderOutput || sessionView.output || sessionView.previewText || '';
+  replication.installInProgress = Boolean(fallbackText);
+  terminal.reset();
+  const completeStoppedInstall = () => {
+    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+    replication.installInProgress = false;
+    if (typeof drainCrtTerminalCheckpointInstall === 'function' && drainCrtTerminalCheckpointInstall(replication)) {
+      return;
+    }
+    if (
+      !replication.attachment.isCurrentOperation(operation) ||
+      replication.attachment.isReplayTargetPending() ||
+      replication.attachment.queuedTransitionCount > 0 ||
+      replication.attachment.recovering
+    ) {
+      if (typeof requestCrtTerminalReplay === 'function') {
+        requestCrtTerminalReplay();
+      }
+      return;
+    }
+    document.getElementById('terminal-output')?.classList.remove('crt-terminal-checkpoint-installing');
+    showCrtTerminalStoppedNotice(sessionView, { hasScreen: Boolean(fallbackText) });
+    refreshSessionTerminalUi({ preserveSearchIndex: true });
+    const runtime = getSessionRuntime();
+    if (runtime) {
+      runtime.markHydrated(fallbackText.length);
+      syncSessionRuntimeState();
+    }
+  };
+  if (fallbackText) {
+    terminal.write(fallbackText, completeStoppedInstall);
+  } else {
+    completeStoppedInstall();
+  }
+  return true;
+}
+
 function installCrtTerminalCheckpoint(
   sessionView: CrtTerminalSessionView | CrtNormalizedSessionView,
   operation = crtTerminalReplication?.attachment.beginCheckpointOperation() || null,
 ) {
   const replication = crtTerminalReplication;
   if (!replication || !terminal || replication.disposed || !operation) return false;
+  if (!replication.attachment.isCurrentOperation(operation)) return false;
+  const currentAgent = state?.agents.find((candidate) => candidate.id === replication.agentId);
+  const classification = classifyCrtTerminalCheckpointResponse(sessionView, currentAgent?.status);
+  if (classification === 'stopped-without-checkpoint') {
+    return settleStoppedCrtTerminalWithoutCheckpoint(
+      replication,
+      sessionView as CrtNormalizedSessionView,
+      operation,
+    );
+  }
+  if (
+    currentAgent
+    && 'status' in sessionView
+    && isStoppedCrtSessionStatus(sessionView.status)
+    && !replication.attachment.isReplayTargetPending()
+    && replication.attachment.queuedTransitionCount === 0
+    && currentAgent.status !== 'running'
+    && currentAgent.status !== 'pending'
+  ) {
+    currentAgent.status = sessionView.status;
+    updateCrtTerminalInputState(currentAgent);
+  }
   const checkpoint = {
     runtimeEpoch: sessionView.runtimeEpoch,
     outputSeq: sessionView.outputSeq,
@@ -2973,7 +3222,6 @@ function installCrtTerminalCheckpoint(
     cols: sessionView.previewCols,
     rows: sessionView.previewRows
   };
-  if (!replication.attachment.isCurrentOperation(operation)) return false;
   const decision = replication.attachment.evaluateCheckpoint(checkpoint);
   if (decision.action === 'reject') {
     retryCrtTerminalReplayAfterFailure(
@@ -2988,6 +3236,7 @@ function installCrtTerminalCheckpoint(
   const validatedCheckpoint = checkpoint as FarmingTerminalCheckpoint;
   const validatedSessionView: CrtTerminalSessionView = {
     agentId: sessionView.agentId || undefined,
+    status: 'status' in sessionView ? sessionView.status : undefined,
     renderOutput: sessionView.renderOutput,
     renderedScrollback: Number(sessionView.renderedScrollback || 0),
     previewCols: validatedCheckpoint.cols,
@@ -3009,6 +3258,15 @@ function installCrtTerminalCheckpoint(
       replication.attachment.beginRecovery();
       finishCrtTerminalReplay(replication);
       return false;
+    }
+    clearCrtTerminalNotices();
+    const stoppedStatus = isStoppedCrtSessionStatus(validatedSessionView.status)
+      ? validatedSessionView.status
+      : currentAgent && isStoppedCrtSessionStatus(currentAgent.status)
+        ? currentAgent.status
+        : undefined;
+    if (stoppedStatus) {
+      showCrtTerminalStoppedNotice({ status: stoppedStatus }, { hasScreen: true });
     }
     replication.checkpointScrollbackInstalled = Math.max(
       replication.checkpointScrollbackInstalled,
@@ -5244,6 +5502,7 @@ function checkMainAgentStatus() {
     mainView: crtMainView,
     dialogActive: Boolean(inputDialog && inputDialog.classList.contains('active')),
     pendingMainAgent: pendingMainAgentLaunch,
+    sessionOpen: isCrtSessionOpen(),
   });
   if (action === 'hide') {
     hideInputDialog();
@@ -5257,19 +5516,21 @@ function getCrtMainAgentDialogAction({
   mainView = 'agents',
   dialogActive = false,
   pendingMainAgent = false,
+  sessionOpen = false,
 }: {
   currentState?: CrtWorkspaceState | null;
   mainView?: string;
   dialogActive?: boolean;
   pendingMainAgent?: boolean;
+  sessionOpen?: boolean;
 } = {}) {
   if (!needsMainAgent(currentState)) {
     return dialogActive && pendingMainAgent ? 'hide' : 'none';
   }
-  // A live regular Agent is already a valid supervision surface. Do not let
-  // the optional Main Agent onboarding dialog re-open over its session or the
-  // surrounding search/billing controls after an asynchronous state refresh.
-  if (getCrtLiveAgents(currentState).length > 0 || getCrtRegularAgents(currentState).length > 0) {
+  // A live regular Agent or an already-open session view owns the foreground.
+  // Do not let the optional Main Agent onboarding dialog re-open over its
+  // session or the surrounding search/billing controls after a state refresh.
+  if (sessionOpen || getCrtLiveAgents(currentState).length > 0 || getCrtRegularAgents(currentState).length > 0) {
     return dialogActive && pendingMainAgent ? 'hide' : 'none';
   }
   if (mainView !== 'agents' || dialogActive) return 'none';
@@ -5355,14 +5616,11 @@ function isCrtLiveAgent(agent: CrtAgent | null | undefined): agent is CrtAgent {
 }
 
 function isCrtViewableAgent(agent: CrtAgent | null | undefined): agent is CrtAgent {
-  return Boolean(
-    agent
-    && agent.isMain !== true
-    && agent.archived !== true
-    && (agent.status === 'stopped' || agent.status === 'dead')
-    && agent.providerSessionProvider
-    && agent.providerSessionTemporary === true
-  ) || isCrtLiveAgent(agent);
+  if (!agent || agent.archived === true) return false;
+  const status = agent.status;
+  return isCrtLiveAgent(agent)
+    || status === 'stopped'
+    || status === 'dead';
 }
 
 function getCrtLiveAgents(currentState = state) {
@@ -5372,7 +5630,7 @@ function getCrtLiveAgents(currentState = state) {
 
 function getCrtRegularAgents(currentState = state) {
   if (!currentState || !Array.isArray(currentState.agents)) return [];
-  return currentState.agents.filter(isCrtViewableAgent).filter((agent) => (
+  return currentState.agents.filter(isCrtLiveAgent).filter((agent) => (
     agent.id !== currentState.mainAgentId && agent.isMain !== true
   ));
 }
@@ -5450,7 +5708,7 @@ function renderState() {
   lastCrtDashboardSignature = crtDashboardStateSignature(state);
 
   // 更新吊顶的 Agent 数量
-  const visibleAgents = state.agents.filter(isCrtViewableAgent);
+  const visibleAgents = getCrtLiveAgents(state);
   updateCrtAgentInventoryStatus(state);
   updateCrtBrandState(state);
 
@@ -5474,7 +5732,9 @@ function renderState() {
   if (visibleAgents.length === 0) {
     mainAgentPanel.style.display = 'none';
     updateCrtAgentPageStatus(getCrtAgentPage([], 0, 1));
-    showInputDialog();
+    if (crtMainView === 'agents' && !isCrtSessionOpen()) {
+      showInputDialog();
+    }
     return;
   }
 
@@ -7772,6 +8032,12 @@ function commitCrtTerminalResize(
       replication.applyingLocalResize = false;
     }
   }
+  const agent = state?.agents.find((candidate) => candidate.id === agentId);
+  if (!isCrtAgentInteractive(agent) || agent.archived === true) {
+    replication.lastResizeCols = normalizedDimensions.cols;
+    replication.lastResizeRows = normalizedDimensions.rows;
+    return;
+  }
   const delivered = getSessionClient()?.resizeAgent(
     agentId,
     normalizedDimensions.cols,
@@ -8403,6 +8669,10 @@ if (typeof module !== 'undefined' && module.exports) {
     getCrtTerminalFontSize,
     isCrtAgentWorking,
     isCrtLiveAgent,
+    isCrtViewableAgent,
+    hasRetainedCrtTerminalCheckpoint,
+    classifyCrtTerminalCheckpointResponse,
+    crtTerminalFailureDetail,
     getCrtAgentReadPatch,
     crtRuntimeView,
     canSwitchCrtAgentRuntime,

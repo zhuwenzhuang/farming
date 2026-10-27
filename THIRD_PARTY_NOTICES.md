@@ -84,12 +84,12 @@ files under `dist/acp/`:
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/codex-acp` | 2.2.2 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
+| `@agentclientprotocol/codex-acp` | 2.3.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
 | `@openai/codex` | 0.164.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
-| `@agentclientprotocol/claude-agent-acp` | 0.94.0 | Apache-2.0 | Claude Code ACP adapter |
-| `@agentclientprotocol/sdk` | 1.9.0 | Apache-2.0 | Protocol runtime bundled inside the Codex and Claude ACP adapters |
+| `@agentclientprotocol/claude-agent-acp` | 0.97.0 | Apache-2.0 | Claude Code ACP adapter |
+| `@agentclientprotocol/sdk` | 2.0.2 | Apache-2.0 | Protocol runtime bundled inside the Codex and Claude ACP adapters |
 | `diff` | 9.0.0 | BSD-3-Clause | Exact patch generation bundled inside the Claude ACP adapter |
-| `@anthropic-ai/claude-agent-sdk` | 0.3.303 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
+| `@anthropic-ai/claude-agent-sdk` | 0.3.310 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
 | `pi-acp` | 0.0.34 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
 | `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
 | `zod` | 4.6.7 | MIT | Schema validation bundled inside the Pi ACP adapter |
@@ -99,7 +99,7 @@ Files search. ripgrep is dual-licensed under MIT or the Unlicense; Farming uses
 it under the Unlicense.
 
 The npm distribution declares the exact Codex CLI 0.164.0 and Claude Agent SDK
-CLI package 0.3.303 platform carriers as optional dependencies and embeds the
+CLI package 0.3.310 platform carriers as optional dependencies and embeds the
 reviewed `agent-browser` 0.32.3-farming.1 platform artifacts, built from upstream
 0.32.3 with the Chrome stderr-drain fix from upstream PR #1527 and a launch-path
 regression test. This is a Farming-built revision, not an upstream release.

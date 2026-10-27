@@ -972,9 +972,167 @@ async function run() {
   assert(tables.includes('usage_provider_hourly'));
   assert(tables.includes('cache_stats'));
   assert(tables.includes('codex_quota_candidates'));
+  assert(tables.includes('codex_source_probes'));
+  assert(tables.includes('codex_parent_baselines'));
   assert(tables.includes('claude_messages'));
   assert(tables.includes('discovery_directories'));
   assert(tables.includes('discovery_source_queue'));
+
+  // Regression: forked child with earlier mtime than queued parent resolves parent
+  // baseline via codex_source_probes and prefers active sessions/ over archived_sessions/.
+  const forkOrderRoot = path.join(root, 'fork-order');
+  const activeParentFile = path.join(forkOrderRoot, 'sessions', '2026', '07', '23', 'parent.jsonl');
+  const archivedParentFile = path.join(forkOrderRoot, 'archived_sessions', 'parent-archived.jsonl');
+  const earlyChildFile = path.join(forkOrderRoot, 'sessions', '2026', '07', '23', 'child.jsonl');
+  const orphanChildFile = path.join(forkOrderRoot, 'sessions', '2026', '07', '23', 'orphan-child.jsonl');
+  writeJsonl(archivedParentFile, [
+    meta('2026-07-23T09:00:00.000Z', 'fork-order-parent'),
+    token(
+      '2026-07-23T09:01:00.000Z',
+      { input_tokens: 50, output_tokens: 10 },
+      { input_tokens: 50, output_tokens: 10 },
+    ),
+  ]);
+  writeJsonl(activeParentFile, [
+    meta('2026-07-23T09:00:00.000Z', 'fork-order-parent'),
+    token(
+      '2026-07-23T09:01:00.000Z',
+      { input_tokens: 100, output_tokens: 20 },
+      { input_tokens: 100, output_tokens: 20 },
+    ),
+  ]);
+  writeJsonl(earlyChildFile, [
+    meta('2026-07-23T09:02:00.000Z', 'fork-order-child', {
+      forked_from_id: 'fork-order-parent',
+    }),
+    token(
+      '2026-07-23T09:03:00.000Z',
+      { input_tokens: 130, output_tokens: 25 },
+      { input_tokens: 30, output_tokens: 5 },
+    ),
+  ]);
+  writeJsonl(orphanChildFile, [
+    meta('2026-07-23T09:02:30.000Z', 'fork-order-orphan', {
+      forked_from_id: 'missing-parent-session-id',
+    }),
+    token(
+      '2026-07-23T09:03:30.000Z',
+      { input_tokens: 500, output_tokens: 100 },
+      { input_tokens: 40, output_tokens: 10 },
+    ),
+  ]);
+  // Give children older mtime than parents so children sit at the head of the upsert queue.
+  const childMtime = new Date('2026-07-23T09:05:00.000Z');
+  const parentMtime = new Date('2026-07-23T09:10:00.000Z');
+  fs.utimesSync(earlyChildFile, childMtime, childMtime);
+  fs.utimesSync(orphanChildFile, childMtime, childMtime);
+  fs.utimesSync(activeParentFile, parentMtime, parentMtime);
+  fs.utimesSync(archivedParentFile, parentMtime, parentMtime);
+  const forkOrderResult = await runUsageWorker({
+    cacheFile: path.join(root, 'fork-order.sqlite3'),
+    nowMs: now,
+    scanBudgetMs: 30_000,
+    roots: { codex: [forkOrderRoot], claude: [] },
+  });
+  assert.strictEqual(forkOrderResult.cache.scan_complete, true);
+  assert.strictEqual(forkOrderResult.cache.errors, 0);
+  // Active parent (120) + child delta against active parent (35) + orphan child last delta (50) = 205.
+  assert.strictEqual(sum(forkOrderResult.providers.codex.events), 205,
+    'child queued ahead of parent must subtract active parent baseline without double counting archived copy');
+
+  // Regression: ENOENT on a parent candidate during child preparation must remove
+  // only the missing parent and never delete the child as ENOENT.
+  const parentEnoentRoot = path.join(root, 'parent-enoent');
+  const vanishingParentFile = path.join(parentEnoentRoot, 'vanishing-parent.jsonl');
+  const survivingChildFile = path.join(parentEnoentRoot, 'surviving-child.jsonl');
+  writeJsonl(vanishingParentFile, [
+    meta('2026-07-23T09:10:00.000Z', 'vanishing-parent'),
+    token(
+      '2026-07-23T09:11:00.000Z',
+      { input_tokens: 100, output_tokens: 10 },
+      { input_tokens: 100, output_tokens: 10 },
+    ),
+  ]);
+  writeJsonl(survivingChildFile, [
+    meta('2026-07-23T09:12:00.000Z', 'surviving-child', {
+      forked_from_id: 'vanishing-parent',
+    }),
+    token(
+      '2026-07-23T09:13:00.000Z',
+      { input_tokens: 120, output_tokens: 15 },
+      { input_tokens: 20, output_tokens: 5 },
+    ),
+  ]);
+  const parentEnoentCache = path.join(root, 'parent-enoent.sqlite3');
+  await runUsageWorker({
+    cacheFile: parentEnoentCache,
+    nowMs: now,
+    scanBudgetMs: 30_000,
+    roots: { codex: [parentEnoentRoot], claude: [] },
+  });
+  // Force child to be re-queued as a fresh source while vanishingParentFile disappears from disk
+  // before its removal is audited.
+  fs.unlinkSync(vanishingParentFile);
+  const parentEnoentDb = new DatabaseSync(parentEnoentCache);
+  parentEnoentDb.prepare('DELETE FROM source_files WHERE path = ?').run(survivingChildFile);
+  parentEnoentDb.prepare('DELETE FROM usage_hourly WHERE source_path = ?').run(survivingChildFile);
+  parentEnoentDb.prepare(
+    "INSERT OR REPLACE INTO discovery_source_queue(path, provider, action, priority, queued_at_ms) VALUES(?, 'codex', 'upsert', 1, ?)",
+  ).run(survivingChildFile, now);
+  parentEnoentDb.close();
+  const afterParentVanished = await runUsageWorker({
+    cacheFile: parentEnoentCache,
+    nowMs: now + 1,
+    scanBudgetMs: 30_000,
+    roots: { codex: [parentEnoentRoot], claude: [] },
+  });
+  assert.strictEqual(afterParentVanished.cache.errors, 0);
+  assert.strictEqual(afterParentVanished.cache.discovered_files, 1,
+    'missing parent must be cleaned up while surviving child is scanned into source_files');
+  assert.strictEqual(sum(afterParentVanished.providers.codex.events), 25);
+
+  // Regression: probe/baseline progress in background scan must reset stall counter.
+  let probeProgressCalls = 0;
+  const probeProgressClient = new UsageHistoryClient({
+    configDir: path.join(root, 'probe-progress-config'),
+    backgroundDelayMs: 1,
+    runner: async requestData => {
+      probeProgressCalls += 1;
+      const done = probeProgressCalls >= 5;
+      return {
+        schemaVersion: 13,
+        source: 'test',
+        sampledAt: requestData.nowMs,
+        providers: {
+          codex: { events: [], available: true, fileCount: 1, partial: !done },
+          claude: { events: [], available: false, fileCount: 0, partial: false },
+        },
+        cache: {
+          scan_complete: done,
+          errors: 0,
+          pending_directories: 0,
+          pending_files: done ? 0 : 2,
+          discovered_files: done ? 2 : 0,
+          committed_bytes: 0,
+          enumerated_entries: 0,
+          probed_sources: Math.min(2, probeProgressCalls),
+          baseline_bytes: probeProgressCalls * 1024,
+        },
+      };
+    },
+  });
+  await probeProgressClient.collect({
+    now,
+    codexRoots: [codexRoot],
+    claudeRoots: [],
+    fresh: true,
+  });
+  const probeProgressDeadline = Date.now() + 1_000;
+  while (probeProgressCalls < 5 && Date.now() < probeProgressDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.strictEqual(probeProgressCalls, 5,
+    'background passes advancing probed_sources or baseline_bytes must continue until scan_complete');
   const planDb = new DatabaseSync(usageHistoryCacheFile(configDir), { readOnly: true });
   const sourceGenerationPlan = planDb.prepare(`
     EXPLAIN QUERY PLAN
@@ -1029,6 +1187,126 @@ async function run() {
   await new Promise(resolve => setTimeout(resolve, 50));
   assert.strictEqual(persistentErrorCalls, 3,
     'a persistent scanner error must stop automatic retries after a bounded audit');
+
+  // Regression: unterminated final parent line defers child without dropping parent baseline,
+  // in-place rewrite at same size invalidates cached baseline via prefix/suffix hash, and
+  // expired deadline before parent baseline read performs 0 disk I/O.
+  const scannerModulePath = path.resolve(__dirname, '../usage-history-scanner.ts');
+  const { transformSync } = require('esbuild');
+  const Module = require('node:module');
+  const loadedScanner = new Module(scannerModulePath, module);
+  loadedScanner.filename = scannerModulePath;
+  loadedScanner.paths = module.paths;
+  loadedScanner._compile(
+    transformSync(
+      fs.readFileSync(scannerModulePath, 'utf8') + '\nexport { openDatabase, readCodexParentBaselineAt };',
+      { loader: 'ts', format: 'cjs' },
+    ).code,
+    scannerModulePath,
+  );
+  const { openDatabase, readCodexParentBaselineAt } = loadedScanner.exports;
+  const partialParentRoot = path.join(root, 'partial-parent-sessions');
+  fs.mkdirSync(partialParentRoot, { recursive: true });
+  const partialParentPath = path.join(partialParentRoot, 'parent.jsonl');
+  const partialChildPath = path.join(partialParentRoot, 'child.jsonl');
+  const partialLastLine = JSON.stringify(token(
+    '2026-07-23T12:01:00.000Z',
+    { input_tokens: 200, output_tokens: 0 },
+    null,
+  ));
+  const partialCut = partialLastLine.length - 12;
+  fs.writeFileSync(
+    partialParentPath,
+    [
+      meta('2026-07-23T12:00:00.000Z', 'partial-parent'),
+      token('2026-07-23T12:00:30.000Z', { input_tokens: 100, output_tokens: 0 }, null),
+    ].map(line => JSON.stringify(line)).join('\n') + '\n' + partialLastLine.slice(0, partialCut),
+  );
+  writeJsonl(partialChildPath, [
+    meta('2026-07-23T12:02:00.000Z', 'partial-child', { forked_from_id: 'partial-parent' }),
+    token('2026-07-23T12:03:00.000Z', { input_tokens: 230, output_tokens: 0 }, null),
+  ]);
+  fs.utimesSync(partialChildPath, new Date(1e12), new Date(1e12));
+  const partialParentCache = path.join(root, 'partial-parent-usage.sqlite3');
+  const firstPartialPass = await runUsageWorker({
+    cacheFile: partialParentCache,
+    nowMs: Date.parse('2026-07-23T12:10:00.000Z'),
+    scanBudgetMs: 5_000,
+    roots: { codex: [partialParentRoot], claude: [] },
+  });
+  assert.strictEqual(firstPartialPass.cache.scan_complete, false,
+    'child must defer while parent rollout has an unterminated final JSON line');
+  fs.appendFileSync(partialParentPath, partialLastLine.slice(partialCut) + '\n');
+  const secondPartialPass = await runUsageWorker({
+    cacheFile: partialParentCache,
+    nowMs: Date.parse('2026-07-23T12:10:01.000Z'),
+    scanBudgetMs: 5_000,
+    roots: { codex: [partialParentRoot], claude: [] },
+  });
+  assert.strictEqual(secondPartialPass.cache.scan_complete, true);
+  assert.strictEqual(sum(secondPartialPass.providers.codex.events), 230,
+    'completed parent final line must be included in parent baseline before scanning child');
+
+  const baselineDb = openDatabase(path.join(root, 'baseline-direct.sqlite3')).database;
+  try {
+    const rewrittenPath = path.join(root, 'rewritten-parent.jsonl');
+    const cutoffMs = Date.parse('2026-07-23T12:02:00.000Z');
+    const rewrittenContent = (amount: number) => [
+      token('2026-07-23T12:01:00.000Z', { input_tokens: amount, output_tokens: 0 }, null),
+      token('2026-07-23T12:03:00.000Z', { input_tokens: 999, output_tokens: 0 }, null),
+    ].map(line => JSON.stringify(line)).join('\n') + '\n';
+    fs.writeFileSync(rewrittenPath, rewrittenContent(100));
+    readCodexParentBaselineAt(baselineDb, rewrittenPath, fs.statSync(rewrittenPath), cutoffMs, Date.now() + 10_000, { bytes_read: 0 });
+    fs.writeFileSync(rewrittenPath, rewrittenContent(200));
+    fs.utimesSync(rewrittenPath, new Date(), new Date(Date.now() + 1_000));
+    const afterRewrite = readCodexParentBaselineAt(baselineDb, rewrittenPath, fs.statSync(rewrittenPath), cutoffMs, Date.now() + 10_000, { bytes_read: 0 });
+    assert.strictEqual(afterRewrite.status, 'ready');
+    assert.strictEqual(afterRewrite.baseline.input, 200,
+      'same-inode in-place rewrite at identical size must invalidate cached parent baseline');
+
+    const largeParentPath = path.join(root, 'large-parent.jsonl');
+    fs.writeFileSync(largeParentPath, JSON.stringify({
+      type: 'response_item',
+      payload: { text: 'x'.repeat(2 * 1024 * 1024) },
+    }));
+    const expiredMetrics = { bytes_read: 0 };
+    const expiredBudget = readCodexParentBaselineAt(
+      baselineDb,
+      largeParentPath,
+      fs.statSync(largeParentPath),
+      cutoffMs,
+      Date.now() - 1,
+      expiredMetrics,
+    );
+    assert.strictEqual(expiredBudget.status, 'budget');
+    assert.strictEqual(expiredMetrics.bytes_read, 0,
+      'expired deadline before parent baseline read must not perform disk I/O');
+
+    const largeStat = fs.statSync(largeParentPath);
+    const realDateNow = Date.now;
+    let finishedLargePasses = false;
+    for (let pass = 1; pass <= 8; pass += 1) {
+      let ticks = 0;
+      const passMetrics = { bytes_read: 0 };
+      let passResult: { status: string };
+      try {
+        Date.now = () => ticks++;
+        passResult = readCodexParentBaselineAt(baselineDb, largeParentPath, largeStat, cutoffMs, 1, passMetrics);
+      } finally {
+        Date.now = realDateNow;
+      }
+      assert(Number(passMetrics.bytes_read) <= 1024 * 1024,
+        'oversized parent final line without newline must stay bounded per pass without rereading from line start');
+      if (passResult.status === 'ready') {
+        finishedLargePasses = true;
+        break;
+      }
+    }
+    assert.strictEqual(finishedLargePasses, true,
+      'oversized parent final line without newline must converge to ready across bounded passes');
+  } finally {
+    baselineDb.close();
+  }
 
   console.log('✓ TypeScript usage history is incremental, fork-safe, and Python-free');
   } finally {

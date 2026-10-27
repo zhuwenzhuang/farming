@@ -140,6 +140,44 @@
     color: #b98282;
 }
 
+#farming-crt .crt-terminal-stopped {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 20;
+    transform: translate(-50%, -50%);
+    display: grid;
+    gap: 8px;
+    max-width: min(460px, calc(100% - 48px));
+    padding: 18px 22px;
+    border: 1px solid rgba(12, 204, 104, 0.35);
+    background: rgba(0, 13, 6, 0.94);
+    color: var(--crt-primary, #0ccc68);
+    text-align: center;
+    pointer-events: none;
+}
+
+#farming-crt .crt-terminal-stopped.has-screen {
+    left: auto;
+    top: 12px;
+    right: 16px;
+    transform: none;
+    gap: 4px;
+    max-width: min(360px, calc(100% - 32px));
+    padding: 8px 12px;
+    text-align: right;
+}
+
+#farming-crt .crt-terminal-stopped strong,
+#farming-crt .crt-terminal-stopped span,
+#farming-crt .crt-terminal-stopped small {
+    display: block;
+}
+
+#farming-crt .crt-terminal-stopped small {
+    color: rgba(135, 238, 177, 0.72);
+}
+
 #farming-crt .crt-protocol-notice {
     position: fixed;
     top: 16px;

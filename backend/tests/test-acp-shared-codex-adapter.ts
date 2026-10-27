@@ -1,5 +1,6 @@
 const assert = require('assert');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 
@@ -292,71 +293,82 @@ async function run() {
     await assert.rejects(runtime.cancelSubagent('shared-codex-a', 'reusable-child'), /controlled by its parent/);
     await updateChild({ state: { state: 'idle', stopReason: 'end_turn' } });
 
-    const firstProviderUpdate = firstBinding.connection.request('providers/set', {
-      providerId: 'openai',
-      apiType: 'openai',
-      baseUrl: 'https://provider-one.invalid/v1',
-      headers: {},
+    const gatewayServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'gpt-4.1' }] }));
     });
-    const firstBlockedResume = await waitFor(
-      () => readRequests(requestLog).find(request => request.method === 'thread/resume'),
-      'replacement app-server thread/resume',
-    );
-    const forkRequestCount = readRequests(requestLog)
-      .filter(request => request.method === 'thread/fork').length;
-    const forkPromise = runtime.forkSession('shared-codex-a', { sessionId: first.sessionId });
-    await new Promise(resolve => setTimeout(resolve, 100));
-    assert.strictEqual(
-      readRequests(requestLog).filter(request => request.method === 'thread/fork').length,
-      forkRequestCount,
-      'session/fork must not reach app-server before the provider update settles',
-    );
-    fs.writeFileSync(`${providerResumeGatePrefix}.${firstBlockedResume.pid}`, 'resume');
-    await firstProviderUpdate;
-    const forked = await forkPromise;
-    assert.notStrictEqual(forked.sessionId, first.sessionId);
-
-    const child = await prepare('shared-codex-fork', { sessionId: forked.sessionId, historyMode: 'load' });
-    const grandchildFork = await runtime.forkSession('shared-codex-fork');
-    const grandchild = await prepare('shared-codex-grandchild', {
-      sessionId: grandchildFork.sessionId, historyMode: 'load',
-    });
-    const forkRequests = readRequests(requestLog);
-    for (const [session, owner] of [
-      [first, 'shared-codex-a'], [second, 'shared-codex-b'],
-      [child, 'shared-codex-fork'], [grandchild, 'shared-codex-grandchild'],
-    ]) {
-      const effective = forkRequests.filter(request => request.method === 'fixture/session-environment'
-        && request.params.threadId === session.sessionId).at(-1);
-      assert.strictEqual(effective?.params.environment.FARMING_AGENT_ID, owner,
-        'the loaded runtime must use its own Agent identity, not merely receive a new config request');
-    }
-    for (const session of [child, grandchild]) {
-      const released = forkRequests.findIndex(request => request.method === 'thread/unsubscribe'
-        && request.params.threadId === session.sessionId);
-      const loaded = forkRequests.findIndex(request => request.method === 'thread/resume'
-        && request.params.threadId === session.sessionId);
-      assert(released >= 0 && released < loaded, 'release the fork before loading its new owner');
-    }
-    assert(!forkRequests.some(request => request.method === 'thread/unsubscribe'
-      && [first.sessionId, second.sessionId].includes(request.params.threadId)),
-    'fork ownership transfer must leave the source and its peer subscribed');
-
-    fs.writeFileSync(unsubscribeFailureFile, 'fail');
+    await new Promise(resolve => gatewayServer.listen(0, '127.0.0.1', resolve));
+    const gatewayPort = gatewayServer.address().port;
+    let firstProviderUpdate;
     try {
-      await assert.rejects(runtime.forkSession('shared-codex-fork'), error => {
-        assert.match(`${error.message} ${JSON.stringify(error.data)}`, /fork ownership release failure/);
-        return true;
-      },
-        'a fork that has not released its old environment must not be reported ready');
+      firstProviderUpdate = firstBinding.connection.request('providers/set', {
+        providerId: 'openai',
+        apiType: 'openai',
+        baseUrl: `http://127.0.0.1:${gatewayPort}/v1`,
+        headers: {},
+      });
+      const firstBlockedResume = await waitFor(
+        () => readRequests(requestLog).find(request => request.method === 'thread/resume'),
+        'replacement app-server thread/resume',
+      );
+      const forkRequestCount = readRequests(requestLog)
+        .filter(request => request.method === 'thread/fork').length;
+      const forkPromise = runtime.forkSession('shared-codex-a', { sessionId: first.sessionId });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.strictEqual(
+        readRequests(requestLog).filter(request => request.method === 'thread/fork').length,
+        forkRequestCount,
+        'session/fork must not reach app-server before the provider update settles',
+      );
+      fs.writeFileSync(`${providerResumeGatePrefix}.${firstBlockedResume.pid}`, 'resume');
+      await firstProviderUpdate;
+      const forked = await forkPromise;
+      assert.notStrictEqual(forked.sessionId, first.sessionId);
+
+      const child = await prepare('shared-codex-fork', { sessionId: forked.sessionId, historyMode: 'load' });
+      const grandchildFork = await runtime.forkSession('shared-codex-fork');
+      const grandchild = await prepare('shared-codex-grandchild', {
+        sessionId: grandchildFork.sessionId, historyMode: 'load',
+      });
+      const forkRequests = readRequests(requestLog);
+      for (const [session, owner] of [
+        [first, 'shared-codex-a'], [second, 'shared-codex-b'],
+        [child, 'shared-codex-fork'], [grandchild, 'shared-codex-grandchild'],
+      ]) {
+        const effective = forkRequests.filter(request => request.method === 'fixture/session-environment'
+          && request.params.threadId === session.sessionId).at(-1);
+        assert.strictEqual(effective?.params.environment.FARMING_AGENT_ID, owner,
+          'the loaded runtime must use its own Agent identity, not merely receive a new config request');
+      }
+      for (const session of [child, grandchild]) {
+        const released = forkRequests.findIndex(request => request.method === 'thread/unsubscribe'
+          && request.params.threadId === session.sessionId);
+        const loaded = forkRequests.findIndex(request => request.method === 'thread/resume'
+          && request.params.threadId === session.sessionId);
+        assert(released >= 0 && released < loaded, 'release the fork before loading its new owner');
+      }
+      assert(!forkRequests.some(request => request.method === 'thread/unsubscribe'
+        && [first.sessionId, second.sessionId].includes(request.params.threadId)),
+      'fork ownership transfer must leave the source and its peer subscribed');
+
+      fs.writeFileSync(unsubscribeFailureFile, 'fail');
+      try {
+        await assert.rejects(runtime.forkSession('shared-codex-fork'), error => {
+          assert.match(`${error.message} ${JSON.stringify(error.data)}`, /fork ownership release failure/);
+          return true;
+        },
+          'a fork that has not released its old environment must not be reported ready');
+      } finally {
+        fs.rmSync(unsubscribeFailureFile, { force: true });
+      }
+      const afterFailedRelease = readRequests(requestLog).slice(forkRequests.length);
+      assert.strictEqual(afterFailedRelease.filter(request => request.method === 'thread/fork').length, 1,
+        'an uncertain fork must not be replayed');
+      assert(!afterFailedRelease.some(request => request.method === 'thread/delete'),
+        'an uncertain fork must remain available for reconciliation');
     } finally {
-      fs.rmSync(unsubscribeFailureFile, { force: true });
+      await new Promise<void>(resolve => gatewayServer.close(() => resolve()));
     }
-    const afterFailedRelease = readRequests(requestLog).slice(forkRequests.length);
-    assert.strictEqual(afterFailedRelease.filter(request => request.method === 'thread/fork').length, 1,
-      'an uncertain fork must not be replayed');
-    assert(!afterFailedRelease.some(request => request.method === 'thread/delete'),
-      'an uncertain fork must remain available for reconciliation');
 
     const firstResume = readRequests(requestLog).find(request => (
       request.method === 'thread/resume' && request.params.threadId === first.sessionId

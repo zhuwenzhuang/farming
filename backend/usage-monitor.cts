@@ -145,10 +145,11 @@ interface TokenUsageSummary {
   available: boolean;
   windowMs: number;
   source: string;
-  totalTokens: number;
-  tokensPerMinute: number;
+  totalTokens: number | null;
+  tokensPerMinute: number | null;
   eventCount: number;
   sampledAt: number;
+  partial?: boolean;
   reason?: string;
 }
 
@@ -949,18 +950,22 @@ function providerUsageCoverage(
   if (policy.collection.kind === 'local-history') {
     const providers = context.localHistory.providers as Record<string, UsageHistoryProvider | undefined>;
     const provider = providers[adapter.id];
+    const partial = provider?.partial === true;
     return {
       provider: adapter.id,
       providerName: policy.coverageName || adapter.displayName,
       available: provider?.available === true,
       homeCount,
       fileCount: provider?.fileCount || 0,
+      partial,
       source: provider?.source || context.localHistory.source || policy.source,
       ...(provider?.reason
         ? { reason: provider.reason }
-        : !provider
-          ? { reason: `${adapter.displayName} local history parser is unavailable.` }
-          : {}),
+        : partial
+          ? { reason: `${adapter.displayName} local usage history is still syncing.` }
+          : !provider
+            ? { reason: `${adapter.displayName} local history parser is unavailable.` }
+            : {}),
     };
   }
   if (policy.collection.kind === 'session-export') {
@@ -1035,17 +1040,22 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
     sessionExports,
   }));
   const coverageByProvider = new Map(coverage.map(entry => [entry.provider, entry]));
-  const partial = Number(ccStatistics.result.cache?.errors) > 0 || listProviderAdapters().some(adapter => {
+  const syncing = ccStatistics.result.cache?.scan_complete === false;
+  const partial = syncing || Number(ccStatistics.result.cache?.errors) > 0 || listProviderAdapters().some(adapter => {
     const providerCoverage = coverageByProvider.get(adapter.id);
-    return adapter.usage.collection.kind === 'local-history'
-      ? providerCoverage?.available !== true
-      : adapter.usage.collection.kind === 'session-export' && providerCoverage?.partial === true;
+    if (adapter.usage.collection.kind === 'local-history') {
+      const rawProvider = (ccStatistics.result.providers as Record<string, UsageHistoryProvider | undefined>)?.[adapter.id];
+      return !rawProvider
+        || providerCoverage?.partial === true
+        || (providerCoverage?.available !== true && Number(providerCoverage?.fileCount) > 0);
+    }
+    return adapter.usage.collection.kind === 'session-export' && providerCoverage?.partial === true;
   });
   return {
     daily: {
       ...buildDailyUsage(providerEvents, { now, days }),
       partial,
-      syncing: ccStatistics.result.cache?.scan_complete === false,
+      syncing,
       coverage,
       ccStatisticsCache: ccStatistics.result.cache,
     },
@@ -1077,9 +1087,14 @@ async function collectCodexUsage(options: CollectionOptions = {}) {
     historyWindowMs,
     source: providerSource,
   });
-  if (provider.available !== true) {
+  if (provider.available !== true || provider.partial === true) {
     usage.tokenUsage.available = false;
-    usage.tokenUsage.reason = provider.reason || 'Local usage history is unavailable.';
+    usage.tokenUsage.partial = provider.partial === true;
+    usage.tokenUsage.totalTokens = null;
+    usage.tokenUsage.tokensPerMinute = null;
+    usage.tokenUsage.reason = provider.reason || (provider.partial === true
+      ? 'Local usage history is still syncing.'
+      : 'Local usage history is unavailable.');
   }
 
   return {
@@ -1106,9 +1121,14 @@ async function collectClaudeUsage(options: CollectionOptions = {}) {
     historyWindowMs,
     source: providerSource,
   });
-  if (provider.available !== true) {
+  if (provider.available !== true || provider.partial === true) {
     usage.tokenUsage.available = false;
-    usage.tokenUsage.reason = provider.reason || 'Local usage history is unavailable.';
+    usage.tokenUsage.partial = provider.partial === true;
+    usage.tokenUsage.totalTokens = null;
+    usage.tokenUsage.tokensPerMinute = null;
+    usage.tokenUsage.reason = provider.reason || (provider.partial === true
+      ? 'Local usage history is still syncing.'
+      : 'Local usage history is unavailable.');
   }
 
   return {
@@ -1438,8 +1458,22 @@ class UsageMonitor {
     const observations = new Map<string, ProviderUsageObservation>(observationEntries.map(([id, observation]) => {
       const usage = providerUsageFromEvents(history.providerEvents[id], { now, windowMs, historyWindowMs });
       const coverage = history.coverage.find(entry => entry.provider === id);
-      return [id, { ...observation, tokenUsage: { ...usage.tokenUsage, available: coverage?.available === true,
-        ...(coverage?.available !== true ? { reason: coverage?.reason || 'Local usage history is unavailable.' } : {}) } }];
+      const tokenAvailable = coverage?.available === true && coverage?.partial !== true;
+      return [id, {
+        ...observation,
+        tokenUsage: tokenAvailable
+          ? { ...usage.tokenUsage, available: true, partial: false }
+          : {
+              ...usage.tokenUsage,
+              available: false,
+              partial: coverage?.partial === true,
+              totalTokens: null,
+              tokensPerMinute: null,
+              reason: coverage?.reason || (coverage?.partial === true
+                ? 'Local usage history is still syncing.'
+                : 'Local usage history is unavailable.'),
+            },
+      }];
     }));
     const coverageByProvider = new Map(
       history.coverage.map(entry => [entry.provider, entry]),

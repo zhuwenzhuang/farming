@@ -892,6 +892,156 @@ async function testIncompleteHourlyAfterPreviousDetailRetries() {
   console.log('  PASS: incomplete hourly 200 after previous detail retries and adopts complete detail');
 }
 
+async function testSyncingIncompleteAndDeadlineErrorCopy() {
+  resetState();
+  fetchResponses = [
+    {
+      status: 200,
+      body: {
+        usage: {
+          daily: {
+            points: [{ date: '2026-01-01', totalTokens: 0 }],
+            endDate: '2026-01-01',
+            syncing: true,
+            partial: true,
+            coverage: [{ available: true, partial: true }],
+          },
+          providers: [
+            {
+              provider: 'codex',
+              providerName: 'Codex',
+              tokenUsage: {
+                available: false,
+                partial: true,
+                reason: 'Codex local usage history is still syncing.',
+                tokensPerMinute: null,
+              },
+            },
+            {
+              provider: 'opencode',
+              providerName: 'OpenCode',
+              tokenUsage: {
+                available: true,
+                tokensPerMinute: 0,
+              },
+            },
+          ],
+          liveTimeline: {
+            windowMs: 3600000,
+            totalTokens: 0,
+            peakTokensPerMinute: 0,
+            activeBucketCount: 0,
+            bucketCount: 60,
+            points: [],
+          },
+        },
+      },
+    },
+    {
+      status: 200,
+      body: {
+        detail: {
+          date: '2026-01-01',
+          hours: Array.from({ length: 24 }, (_, hour) => ({ hour, totalTokens: 0 })),
+          total: { totalTokens: 0 },
+          syncing: true,
+          partial: true,
+          available: true,
+        },
+      },
+    },
+  ];
+  CrtBilling.show();
+  await flush();
+  assert.strictEqual(controller.crtBillingCurrentRate(), null, 'partial provider suppresses aggregate 0 rate');
+  assert.strictEqual(fakeGetElementById('tokens-per-minute').textContent, '--', 'topbar rate renders -- while partial');
+  assert.strictEqual(fakeGetElementById('billing-status').textContent, 'SYNCING HISTORY', 'days mode shows SYNCING HISTORY while scanner is syncing');
+  assert.strictEqual(fakeGetElementById('billing-day-insight-state').textContent, 'SYNCING HISTORY');
+  assert.strictEqual(fakeGetElementById('billing-scope-empty').textContent, 'SYNCING HISTORY');
+  assert.ok(
+    fakeGetElementById('billing-day-hour-readout').textContent.includes('TOTAL --  //  CACHE --  //  SYNCING HISTORY'),
+    'hourly readout qualifies zero bucket while syncing',
+  );
+  assert.doesNotMatch(fakeGetElementById('billing-day-hour-readout').textContent, /NO ACTIVITY/);
+
+  fetchResponses = [
+    {
+      status: 200,
+      body: {
+        usage: {
+          sampledAt: nowMs,
+          daily: {
+            points: [{ date: '2026-01-01', totalTokens: 0 }],
+            endDate: '2026-01-01',
+            syncing: true,
+            partial: true,
+          },
+          providers: [
+            { provider: 'codex', tokenUsage: { available: false, partial: true, tokensPerMinute: null } },
+            { provider: 'opencode', tokenUsage: { available: true, tokensPerMinute: 0 } },
+          ],
+          liveTimeline: {
+            windowMs: 3600000,
+            totalTokens: 0,
+            peakTokensPerMinute: 0,
+            activeBucketCount: 0,
+            bucketCount: 60,
+            points: [],
+          },
+        },
+      },
+    },
+  ];
+  CrtBilling.selectMode('live');
+  await flush();
+  assert.strictEqual(fakeGetElementById('billing-current-rate').textContent, '--', 'live rate renders -- while partial');
+  assert.strictEqual(fakeGetElementById('billing-window-total').textContent, '--', 'live window total renders -- while partial and zero');
+  assert.strictEqual(fakeGetElementById('billing-status').textContent, 'SYNCING HISTORY', 'live status surfaces SYNCING HISTORY when telemetry is syncing');
+
+  // Deadline timeout on summary sets TELEMETRY ERROR
+  resetState();
+  fetchResponses = [{ neverSettle: true }];
+  CrtBilling.show();
+  await flush();
+  advanceTime(12001);
+  await flush();
+  assert.strictEqual(fakeGetElementById('billing-status').textContent, 'TELEMETRY ERROR', 'summary deadline timeout surfaces TELEMETRY ERROR');
+
+  // Deadline timeout on day detail with cached detail surfaces STALE, and without cached detail surfaces DAY SIGNAL LOST
+  resetState();
+  fetchResponses = [
+    {
+      status: 200,
+      body: {
+        usage: {
+          daily: {
+            points: [
+              { date: '2026-01-01', totalTokens: 100 },
+              { date: '2026-01-03', totalTokens: 100 },
+            ],
+            endDate: '2026-01-03',
+          },
+        },
+      },
+    },
+    { neverSettle: true },
+  ];
+  nowMs += 60000;
+  CrtBilling.show();
+  await flush();
+  advanceTime(10001);
+  await flush();
+  assert.strictEqual(fakeGetElementById('billing-day-insight-state').textContent, '24 HOURLY BINS READY · STALE', 'cached day detail deadline timeout surfaces STALE');
+
+  fetchResponses = [{ neverSettle: true }];
+  CrtBilling.selectDay('2026-01-03');
+  await flush();
+  advanceTime(10001);
+  await flush();
+  assert.strictEqual(fakeGetElementById('billing-day-insight-state').textContent, 'DAY SIGNAL LOST', 'uncached day detail deadline timeout surfaces DAY SIGNAL LOST');
+  console.log('  PASS: syncing, incomplete, and deadline error copy are distinct and truthful');
+}
+
 async function main() {
   console.log('test-crt-billing-controller:');
   await testModeRaceDaysPendingSwitchLive();
@@ -920,6 +1070,7 @@ async function main() {
   await testDayDeadlineThenSuspendLateJsonNoop();
   await testDayDeadlinePruneThenLateDetailCannotRepopulate();
   await testIncompleteHourlyAfterPreviousDetailRetries();
+  await testSyncingIncompleteAndDeadlineErrorCopy();
   console.log('test-crt-billing-controller passed');
 }
 

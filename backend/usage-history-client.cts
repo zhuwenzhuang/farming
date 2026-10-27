@@ -8,12 +8,14 @@ interface UsageWorkerRequest extends Record<string, unknown> {
 }
 
 export interface UsageHistoryCache extends Record<string, unknown> {
+  baseline_bytes?: unknown;
   committed_bytes?: unknown;
   discovered_files?: unknown;
   enumerated_entries?: unknown;
   errors?: unknown;
   pending_directories?: unknown;
   pending_files?: unknown;
+  probed_sources?: unknown;
   scan_complete?: boolean;
 }
 
@@ -29,6 +31,7 @@ export interface UsageHistoryProvider extends Record<string, unknown> {
   available: boolean;
   events: UsageHistoryEvent[];
   fileCount: number;
+  partial?: boolean;
   quotaCandidates: Array<Record<string, unknown>>;
   reason?: string;
   source?: string;
@@ -356,6 +359,8 @@ class UsageHistoryClient {
       result?.cache?.pending_files,
       result?.cache?.discovered_files,
       result?.cache?.committed_bytes,
+      Number(result?.cache?.probed_sources || 0),
+      Number(result?.cache?.baseline_bytes || 0),
     ].join(':');
     if (Number(result?.cache?.enumerated_entries) > 0) {
       this.backgroundProgressSignature = progressSignature;

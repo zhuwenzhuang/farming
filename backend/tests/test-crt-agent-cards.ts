@@ -35,6 +35,10 @@ const {
   getCrtRegularAgents,
   getCrtMainAgentDialogAction,
   isCrtLiveAgent,
+  isCrtViewableAgent,
+  hasRetainedCrtTerminalCheckpoint,
+  classifyCrtTerminalCheckpointResponse,
+  crtTerminalFailureDetail,
   requestedCrtAgentId,
   createSessionModalState,
 } = require('../../frontend/skins/crt/app.js');
@@ -83,14 +87,52 @@ function run() {
         providerSessionProvider: provider, providerSessionTemporary: true,
       };
       const exitedState = { mainAgentId: null, agents: [exited] };
-      assert.deepStrictEqual(getCrtRegularAgents(exitedState).map(agent => agent.id), ['exited-launch'],
-        'CRT retains the exact exited launch when no Provider history row can replace it');
+      assert.deepStrictEqual(getCrtRegularAgents(exitedState).map(agent => agent.id), [],
+        'CRT dashboard hides stopped or dead temporary Provider launches');
       assert.strictEqual(isCrtLiveAgent(exited), false, 'viewable stopped records do not become live runtimes');
-      assert.strictEqual(getCrtMainAgentDialogAction({ currentState: exitedState }), 'none');
+      assert.strictEqual(isCrtViewableAgent(exited), true, 'unarchived exited launches remain inspectable when already open or targeted via ?agent=');
+      assert.strictEqual(isCrtViewableAgent({ ...exited, archived: true }), false);
+      assert.strictEqual(getCrtMainAgentDialogAction({ currentState: exitedState }), 'show',
+        'when only stopped or dead records exist and no session is open, CRT should still onboard the Main Agent');
+      assert.strictEqual(getCrtMainAgentDialogAction({ currentState: exitedState, sessionOpen: true }), 'none',
+        'an open session modal must not be covered by Main Agent onboarding');
       assert.deepStrictEqual(getCrtRegularAgents({ ...exitedState, agents: [{ ...exited, archived: true }] }), []);
       assert.deepStrictEqual(getCrtRegularAgents({ ...exitedState, agents: [{ ...exited, isMain: true }] }), []);
     }
   }
+  assert.strictEqual(hasRetainedCrtTerminalCheckpoint({
+    runtimeEpoch: 'epoch-1',
+    outputSeq: 0,
+    stateRevision: 1,
+    cols: 80,
+    rows: 24,
+  }), true);
+  assert.strictEqual(hasRetainedCrtTerminalCheckpoint({
+    runtimeEpoch: 'epoch-1',
+    outputSeq: null,
+    stateRevision: null,
+    cols: 80,
+    rows: 24,
+  }), false);
+  assert.strictEqual(classifyCrtTerminalCheckpointResponse(
+    { runtimeEpoch: 'epoch-1', outputSeq: 3, stateRevision: 2, cols: 80, rows: 24 },
+    { status: 'running' },
+    { runtimeEpoch: 'epoch-1', outputSeq: 3, stateRevision: 2, cols: 80, rows: 24 },
+  ), 'live-checkpoint');
+  assert.strictEqual(classifyCrtTerminalCheckpointResponse(
+    { status: 'dead', runtimeEpoch: 'epoch-1', outputSeq: 3, stateRevision: 2, cols: 80, rows: 24 },
+    { status: 'dead' },
+    { runtimeEpoch: 'epoch-1', outputSeq: 3, stateRevision: 2, cols: 80, rows: 24 },
+  ), 'stopped-checkpoint');
+  assert.strictEqual(classifyCrtTerminalCheckpointResponse(
+    { status: 'dead', runtimeEpoch: 'epoch-1', outputSeq: null, stateRevision: null, cols: 80, rows: 24 },
+    { status: 'dead' },
+    { runtimeEpoch: 'epoch-1', outputSeq: null, stateRevision: null, cols: 80, rows: 24 },
+  ), 'stopped-without-checkpoint');
+  assert.strictEqual(crtTerminalFailureDetail({ status: 'running' }, 'Press R to retry.'), 'The Agent is still running. Press R to retry.');
+  assert.strictEqual(crtTerminalFailureDetail({ status: 'stopped' }, 'Press R to retry.'), 'The Agent has stopped. Press R to retry.');
+  assert.strictEqual(crtTerminalFailureDetail({ status: 'dead' }, 'Press R to retry.'), 'The Agent has stopped. Press R to retry.');
+  assert.strictEqual(crtTerminalFailureDetail('stopped', 'Press R to retry.'), 'The Agent has stopped. Press R to retry.');
   assert.deepStrictEqual(crtAgentInventoryCounts(liveDashboardState), {
     running: 2,
     total: 3,
@@ -555,6 +597,177 @@ function run() {
     longTitle,
     'an open CRT session should let the responsive header display the full title',
   );
+
+  // Regression: CRT & Code terminal stopped-without-checkpoint races and retained-checkpoint stopped notice
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const ts = require('typescript');
+  const vm = require('node:vm');
+  const root = path.resolve(__dirname, '../..');
+  const Replay = require(path.join(root, 'frontend/terminal-replay.js'));
+  const Coordinator = require(path.join(root, 'frontend/terminal-attachment-coordinator.js'));
+  const extractFunctions = (file: string, names: string[]) => {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    const nodes = ast.statements.filter((node: { kind: number; name?: { text?: string } }) => (
+      ts.isFunctionDeclaration(node) && Boolean(node.name?.text && names.includes(node.name.text))
+    ));
+    assert.strictEqual(nodes.length, names.length, `Expected product functions in ${file}`);
+    return ts.transpileModule(nodes.map((node: { getText: (sourceFile: unknown) => string }) => node.getText(ast)).join('\n'), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    }).outputText;
+  };
+  const makeCoordinator = () => {
+    const attachment = new Coordinator(Replay);
+    attachment.beginAttachment();
+    return attachment;
+  };
+  const newEpoch = 'farming-runtime-v1:00000000000000000002:adversarial';
+  const nextOutput = { kind: 'output', runtimeEpoch: newEpoch, outputSeq: 1, stateRevision: 1, data: 'new runtime output' };
+  const attachment = makeCoordinator();
+  const replication: Record<string, unknown> = { agentId: 'a', attachment, disposed: false, checkpointRetryTimer: null, installInProgress: false, queuedCheckpointInstall: null };
+  let pendingWrite: (() => void) | null = null;
+  let notices = 0;
+  let checkpointRequests = 0;
+  let drainedCheckpoint: unknown = null;
+  const crtContext: Record<string, unknown> = {
+    crtTerminalReplication: replication,
+    terminal: { reset() {}, write(_text: string, callback: () => void) { pendingWrite = callback; } },
+    state: { agents: [{ id: 'a', status: 'stopped' }] },
+    document: { getElementById() { return { classList: { remove() {} } }; } },
+    CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS: [200],
+    clearPendingCrtTerminalFitResize() {},
+    updateCrtTerminalInputState() {},
+    clearCrtTerminalNotices() {},
+    refreshSessionTerminalUi() {},
+    showCrtTerminalStoppedNotice() { notices += 1; },
+    requestCrtTerminalReplay() { checkpointRequests += 1; },
+    performCrtTerminalCheckpointInstall(_rep: unknown, queued: unknown) { drainedCheckpoint = queued; return true; },
+    getSessionRuntime() { return null; },
+    clearTimeout,
+  };
+  vm.createContext(crtContext);
+  vm.runInContext(extractFunctions('frontend/skins/crt/app.ts', [
+    'drainCrtTerminalCheckpointInstall', 'settleStoppedCrtTerminalWithoutCheckpoint', 'isStoppedCrtSessionStatus',
+  ]), crtContext);
+  const oldOperation = attachment.beginCheckpointOperation();
+  (crtContext.settleStoppedCrtTerminalWithoutCheckpoint as (...args: unknown[]) => void)(
+    replication,
+    { status: 'stopped', output: 'old stopped output' },
+    oldOperation,
+  );
+  assert.strictEqual(replication.installInProgress, true, 'fallback write keeps installInProgress true until callback settles');
+  assert.strictEqual(typeof pendingWrite, 'function');
+  const newOperation = attachment.beginCheckpointOperation();
+  assert(attachment.commitCheckpoint(newOperation, { runtimeEpoch: newEpoch, outputSeq: 1, stateRevision: 1, cols: 80, rows: 24 }));
+  (crtContext.state as { agents: Array<{ status: string }> }).agents[0].status = 'running';
+  replication.pendingCheckpoint = { checkpoint: 'queued-live', operation: newOperation };
+  pendingWrite!();
+  assert.strictEqual(notices, 0, 'superseded fallback write callback must not show stopped notice');
+  assert.deepStrictEqual(drainedCheckpoint, { checkpoint: 'queued-live', operation: newOperation }, 'superseded fallback write drains pendingCheckpoint install');
+
+  const second = makeCoordinator();
+  const secondReplication: Record<string, unknown> = { agentId: 'a', attachment: second, disposed: false, checkpointRetryTimer: null };
+  crtContext.crtTerminalReplication = secondReplication;
+  crtContext.setTimeout = () => 99;
+  (crtContext.state as { agents: Array<{ status: string }> }).agents[0].status = 'running';
+  checkpointRequests = 0;
+  const requestOperation = second.beginCheckpointOperation();
+  second.beginRecovery(nextOutput);
+  second.queueTransition(nextOutput);
+  (crtContext.settleStoppedCrtTerminalWithoutCheckpoint as (...args: unknown[]) => void)(
+    secondReplication,
+    { status: 'stopped', output: '' },
+    requestOperation,
+  );
+  assert.strictEqual(second.queuedTransitionCount, 1, 'stale stopped response must not clear queued transitions');
+  assert.strictEqual(second.isReplayTargetPending(), true, 'stale stopped response must preserve replay target');
+  assert.strictEqual((crtContext.state as { agents: Array<{ status: string }> }).agents[0].status, 'running', 'stale stopped response must not overwrite running status');
+  assert.strictEqual(second.failureCount, 1, 'stale stopped response records an invariant failure with backoff');
+  assert.strictEqual(secondReplication.checkpointRetryTimer, 99, 'stale stopped response schedules bounded retry instead of synchronous infinite loop');
+  assert.strictEqual(checkpointRequests, 0, 'stale stopped response must not loop synchronously');
+
+  // CRT fallback write callback when new output arrives mid-write must advance recovery instead of showing stopped notice
+  const crtMidWrite = makeCoordinator();
+  const crtMidWriteRep: Record<string, unknown> = { agentId: 'a', attachment: crtMidWrite, disposed: false, checkpointRetryTimer: null, installInProgress: false };
+  crtContext.crtTerminalReplication = crtMidWriteRep;
+  (crtContext.state as { agents: Array<{ status: string }> }).agents[0].status = 'stopped';
+  notices = 0;
+  checkpointRequests = 0;
+  const crtMidWriteOp = crtMidWrite.beginCheckpointOperation();
+  (crtContext.settleStoppedCrtTerminalWithoutCheckpoint as (...args: unknown[]) => void)(
+    crtMidWriteRep,
+    { status: 'stopped', output: 'old history' },
+    crtMidWriteOp,
+  );
+  crtMidWrite.queueTransition(nextOutput);
+  pendingWrite!();
+  assert.strictEqual(notices, 0, 'CRT fallback callback must not show stopped notice when new output arrived mid-write');
+  assert.strictEqual(checkpointRequests, 1, 'CRT fallback callback triggers replay recovery when new output arrived mid-write');
+
+  const third = makeCoordinator();
+  const thirdOperation = third.beginCheckpointOperation();
+  third.beginRecovery(nextOutput);
+  third.queueTransition(nextOutput);
+  const phases: string[] = [];
+  let codeCheckpointRequests = 0;
+  const record = {
+    attachment: third,
+    disposed: false,
+    replication: { needsReconnectOutputSync: true, bootstrappingSnapshot: true, stoppedWithoutCheckpoint: false, checkpointRetryTimer: null as number | null },
+    hostEl: { classList: { add() {}, remove() {} } },
+    replicationPorts: { isAttached: () => true, publishStatus: (phase: string) => phases.push(phase), notifyReady() {} },
+  };
+  let codeCompleteReplace: (() => void) | null = null;
+  const codeContext: Record<string, unknown> = {
+    window: { setTimeout: () => 77 },
+    clearTerminalCheckpointRetry() {},
+    requestTerminalReplay() { codeCheckpointRequests += 1; },
+    replaceTerminalOutput(_rec: unknown, _out: string, done: () => void, options: { beforeReplace: () => boolean }) {
+      assert(options.beforeReplace());
+      codeCompleteReplace = done;
+    },
+  };
+  vm.createContext(codeContext);
+  vm.runInContext(extractFunctions('src/lib/terminal-session-replication.ts', [
+    'settleStoppedTerminalWithoutCheckpoint', 'isCurrentReplicationAttachment',
+  ]), codeContext);
+  (codeContext.settleStoppedTerminalWithoutCheckpoint as (...args: unknown[]) => void)(
+    record,
+    { status: 'stopped', output: '' },
+    third.generation,
+    thirdOperation,
+  );
+  assert.strictEqual(third.queuedTransitionCount, 1, 'Code stale stopped response must not clear queued transitions');
+  assert.strictEqual(third.isReplayTargetPending(), true, 'Code stale stopped response must preserve replay target');
+  assert.strictEqual(record.replication.stoppedWithoutCheckpoint, false, 'Code stale stopped response must not set stoppedWithoutCheckpoint');
+  assert.deepStrictEqual(phases, ['retrying'], 'Code stale stopped response publishes retrying instead of ready');
+  assert.strictEqual(third.failureCount, 1, 'Code stale stopped response increments failureCount');
+  assert.strictEqual(record.replication.checkpointRetryTimer, 77, 'Code stale stopped response schedules bounded retry timer');
+  assert.strictEqual(codeCheckpointRequests, 0, 'Code stale stopped response must not recurse synchronously');
+
+  // Code fallback write callback when new output arrives mid-write must advance recovery instead of publishing ready/stopped
+  const fourth = makeCoordinator();
+  const fourthPhases: string[] = [];
+  const fourthRecord = {
+    attachment: fourth,
+    disposed: false,
+    replication: { needsReconnectOutputSync: true, bootstrappingSnapshot: true, stoppedWithoutCheckpoint: false, replayInProgress: false, checkpointRetryTimer: null as number | null },
+    hostEl: { classList: { add() {}, remove() {} } },
+    replicationPorts: { isAttached: () => true, publishStatus: (phase: string) => fourthPhases.push(phase), notifyReady() {} },
+  };
+  codeCheckpointRequests = 0;
+  (codeContext.settleStoppedTerminalWithoutCheckpoint as (...args: unknown[]) => void)(
+    fourthRecord,
+    { status: 'stopped', output: 'old history' },
+    fourth.generation,
+    fourth.beginCheckpointOperation(),
+  );
+  fourth.queueTransition(nextOutput);
+  codeCompleteReplace!();
+  assert.strictEqual(fourthRecord.replication.stoppedWithoutCheckpoint, false, 'Code fallback callback must not set stoppedWithoutCheckpoint when new output arrived mid-write');
+  assert.deepStrictEqual(fourthPhases, [], 'Code fallback callback must not publish ready when new output arrived mid-write');
+  assert.strictEqual(codeCheckpointRequests, 1, 'Code fallback callback triggers replay recovery when new output arrived mid-write');
 
   console.log('✓ CRT cards use meaningful titles and working-state blink');
 }

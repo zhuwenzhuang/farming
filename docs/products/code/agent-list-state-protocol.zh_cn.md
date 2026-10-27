@@ -56,8 +56,8 @@ Stopped 或 Pending 占位行。Provider Session 仍保留 Stopped 行，尚未�
 
 
 Provider Terminal 在 Provider Session 身份尚未落实时退出，仍保留未归档 Agent 记录。
-Code 的 Project 和 Pinned 列表隐藏已停止或死亡的 Agent，刷新和恢复后也不重新显示；
-已打开的 Terminal 保留检查能力，CRT 维持现有停止行展示。退出不会归档 Agent 或删除
+Code 的 Project 和 Pinned 列表以及 CRT 的总览网格隐藏已停止或死亡的 Agent，刷新和恢复后也不重新显示；
+已打开或直接通过链接打开的 Terminal 在 Code 和 CRT 中都保留检查能力。退出不会归档 Agent 或删除
 所属 Project。后端 inventory 与持久记录在刷新和重启后仍保留该记录。当前选中的 Terminal
 保持打开以供查看，并明确提示已经停止；退出后禁用
 Terminal 和 Composer 输入。临时身份不能认领历史行或授权 Resume；查看 Terminal 不会启动替代 Agent 或重放

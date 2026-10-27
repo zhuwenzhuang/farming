@@ -8,6 +8,9 @@ async function run() {
     setTerminalSessionTransportReady,
     settleTerminalSessionCheckpoint,
   } = importTsModule('src/lib/terminal-session-client.ts');
+  const {
+    sessionBootstrapStateFromPayload,
+  } = importTsModule('src/lib/terminal-bootstrap.ts');
 
   const sent = [];
   setTerminalSessionTransport(message => {
@@ -69,6 +72,53 @@ async function run() {
   const timedOut = requestTerminalSessionCheckpoint('agent-timeout', timedOutController.signal);
   timedOutController.abort(new DOMException('checkpoint deadline', 'TimeoutError'));
   await assert.rejects(timedOut, error => error?.name === 'TimeoutError');
+
+  assert.deepStrictEqual(sessionBootstrapStateFromPayload({
+    session: {
+      status: 'running',
+      runtimeEpoch: 'runtime-1',
+      outputSeq: 0,
+      stateRevision: 1,
+      renderOutput: '',
+      previewText: 'should not replace empty live checkpoint',
+      previewCols: 80,
+      previewRows: 24,
+    },
+  }), {
+    status: 'running',
+    runtimeEpoch: 'runtime-1',
+    output: '',
+    outputSeq: 0,
+    stateRevision: 1,
+    cols: 80,
+    rows: 24,
+    renderedScrollback: 0,
+    scrollbackAvailable: 0,
+  });
+
+  assert.deepStrictEqual(sessionBootstrapStateFromPayload({
+    session: {
+      status: 'dead',
+      runtimeEpoch: 'runtime-dead',
+      outputSeq: null,
+      stateRevision: null,
+      renderOutput: '',
+      output: '',
+      previewText: 'last visible line before exit',
+      previewCols: 80,
+      previewRows: 24,
+    },
+  }), {
+    status: 'dead',
+    runtimeEpoch: 'runtime-dead',
+    output: 'last visible line before exit',
+    outputSeq: null,
+    stateRevision: null,
+    cols: 80,
+    rows: 24,
+    renderedScrollback: 0,
+    scrollbackAvailable: 0,
+  });
 
   setTerminalSessionTransportReady(false);
   setTerminalSessionTransport(null);

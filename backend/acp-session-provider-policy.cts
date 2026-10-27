@@ -6,6 +6,7 @@ import {
   isCodexInjectedContextMessage,
   parseHeartbeatEnvelope,
   stripCodexInternalContextBlocks,
+  stripCodexInternalContextBlocksFromFragments,
 } from './codex-transcript-sanitizer.cjs';
 import type { AcpEntry, AcpUpdate } from './acp-session-state.cjs';
 
@@ -168,19 +169,124 @@ function isCodexMirroredUserMessage(
   }) === '';
 }
 
+function isContinuousCodexAssistantEntry(entry: AcpEntry | null | undefined): boolean {
+  return Boolean(
+    entry
+    && entry.role === 'assistant'
+    && (entry.type === 'message' || entry.type === 'thought')
+    && String(entry.messageId || '').trim().length > 0
+    && entry.sessionMessage !== true,
+  );
+}
+
+function sameContinuousCodexAssistantGroup(left: AcpEntry, right: AcpEntry): boolean {
+  return left.messageId === right.messageId
+    && left.type === right.type
+    && left.internal === right.internal
+    && left.internalScope === right.internalScope
+    && codexMessagePhase(left) === codexMessagePhase(right);
+}
+
+function sanitizeContinuousCodexAssistantGroup(group: AcpEntry[]): void {
+  if (group.length === 0) return;
+  const textRuns: Array<Array<{ type?: unknown; text?: unknown }>> = [];
+  for (let entryIndex = 0; entryIndex < group.length; entryIndex += 1) {
+    const blocks = Array.isArray(group[entryIndex].content) ? group[entryIndex].content! : [];
+    for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+      const block = blocks[blockIndex];
+      if (block?.type !== 'text') continue;
+      const previousBlock = blockIndex === 0 && entryIndex > 0
+        ? (group[entryIndex - 1].content || []).at(-1)
+        : blocks[blockIndex - 1];
+      if (previousBlock?.type === 'text' && textRuns.length > 0) {
+        textRuns[textRuns.length - 1].push(block);
+      } else {
+        textRuns.push([block]);
+      }
+    }
+  }
+  for (const run of textRuns) {
+    const sanitized = stripCodexInternalContextBlocksFromFragments(
+      run.map(block => String(block.text || '')),
+    );
+    for (let index = 0; index < run.length; index += 1) {
+      run[index].text = sanitized[index] ?? '';
+    }
+  }
+}
+
+function sanitizeSingleCodexEntryText(entry: AcpEntry): void {
+  if (!['message', 'thought'].includes(entry.type as string)) return;
+  const renderedAttachmentKinds = [];
+  if (
+    entry.type === 'message'
+    && entry.role === 'user'
+    && (entry.content || []).some(content => content?.type === 'image')
+  ) {
+    renderedAttachmentKinds.push('image');
+  }
+  for (const content of entry.content || []) {
+    if (content.type !== 'text') continue;
+    // Admitted editor documents own their exact projection, including code
+    // whitespace and literal context-like text. Provider presentation cleanup
+    // must not invalidate that projection before the shared renderer sees it.
+    if (entry.type === 'message' && entry.role === 'user'
+      && composerDocumentFromContent([content])) continue;
+    content.text = entry.type === 'message' && entry.role === 'user' && entry.internal !== true
+      ? visibleUserMessageText(content.text, { renderedAttachmentKinds })
+      : stripCodexInternalContextBlocks(content.text, {
+          preserveWhitespace: entry.role === 'assistant' && Boolean(entry.messageId),
+        });
+  }
+}
+
 function sanitizeCodexEntries(
   entries: AcpEntry[],
   sourceEntries: AcpEntry[],
   safeStart: number,
 ): AcpEntry[] {
   let internalTurn = false;
+  let assistantGroup: AcpEntry[] = [];
+  const flushPreStartGroup = () => {
+    assistantGroup = [];
+  };
   for (let index = 0; index < safeStart; index += 1) {
-    const entry = sourceEntries[index];
-    if (entry?.type !== 'message' || entry.role !== 'user') continue;
-    const scope = codexInternalUserScope(entry);
-    if (scope === 'turn') internalTurn = true;
-    else if (scope === null) internalTurn = false;
+    const raw = sourceEntries[index];
+    if (!raw) continue;
+    const entry: AcpEntry = {
+      ...raw,
+      content: Array.isArray(raw.content)
+        ? raw.content.map(block => (block && typeof block === 'object' ? { ...block } : block))
+        : raw.content,
+    };
+    delete entry.internalScope;
+    if (entry.type === 'message' && entry.role === 'user') {
+      const scope = codexInternalUserScope(entry);
+      if (scope === 'turn') internalTurn = true;
+      else if (scope === null) internalTurn = false;
+      entry.internal = scope === 'entry' || internalTurn;
+      if (scope) entry.internalScope = scope;
+    } else {
+      entry.internal = internalTurn;
+      if (internalTurn) entry.internalScope = 'turn';
+    }
+    if (isSteerMessage(entry)) continue;
+    if (isContinuousCodexAssistantEntry(entry)) {
+      if (assistantGroup.length > 0 && sameContinuousCodexAssistantGroup(assistantGroup[0], entry)) {
+        assistantGroup.push(entry);
+      } else {
+        flushPreStartGroup();
+        assistantGroup = [entry];
+      }
+      continue;
+    }
+    flushPreStartGroup();
   }
+  const flushAssistantGroup = () => {
+    if (assistantGroup.length === 0) return;
+    sanitizeContinuousCodexAssistantGroup(assistantGroup);
+    assistantGroup = [];
+  };
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index] = normalizeCodexToolMetadata(entries[index]);
     delete entry.internalScope;
@@ -194,29 +300,57 @@ function sanitizeCodexEntries(
       entry.internal = internalTurn;
       if (internalTurn) entry.internalScope = 'turn';
     }
-    if (!['message', 'thought'].includes(entry.type as string)) continue;
-    const renderedAttachmentKinds = [];
-    if (
-      entry.type === 'message'
-      && entry.role === 'user'
-      && (entry.content || []).some(content => content?.type === 'image')
-    ) {
-      renderedAttachmentKinds.push('image');
+    if (isSteerMessage(entry)) {
+      sanitizeSingleCodexEntryText(entry);
+      continue;
     }
-    for (const content of entry.content || []) {
-      if (content.type !== 'text') continue;
-      // Admitted editor documents own their exact projection, including code
-      // whitespace and literal context-like text. Provider presentation cleanup
-      // must not invalidate that projection before the shared renderer sees it.
-      if (entry.type === 'message' && entry.role === 'user'
-        && composerDocumentFromContent([content])) continue;
-      content.text = entry.type === 'message' && entry.role === 'user' && entry.internal !== true
-        ? visibleUserMessageText(content.text, { renderedAttachmentKinds })
-        // Identified assistant fragments may rejoin across accepted Steers.
-        // Whitespace at a fragment edge is still part of the native message.
-        : stripCodexInternalContextBlocks(content.text, { preserveWhitespace: entry.role === 'assistant' && Boolean(entry.messageId) });
+    if (isContinuousCodexAssistantEntry(entry)) {
+      if (assistantGroup.length > 0 && sameContinuousCodexAssistantGroup(assistantGroup[0], entry)) {
+        assistantGroup.push(entry);
+      } else {
+        flushAssistantGroup();
+        assistantGroup = [entry];
+      }
+      continue;
     }
+    flushAssistantGroup();
+    sanitizeSingleCodexEntryText(entry);
   }
+  for (
+    let tailIndex = safeStart + entries.length;
+    tailIndex < sourceEntries.length && assistantGroup.length > 0;
+    tailIndex += 1
+  ) {
+    const raw = sourceEntries[tailIndex];
+    if (!raw) continue;
+    const entry: AcpEntry = {
+      ...raw,
+      content: Array.isArray(raw.content)
+        ? raw.content.map(block => (block && typeof block === 'object' ? { ...block } : block))
+        : raw.content,
+    };
+    delete entry.internalScope;
+    if (entry.type === 'message' && entry.role === 'user') {
+      const scope = codexInternalUserScope(entry);
+      if (scope === 'turn') internalTurn = true;
+      else if (scope === null) internalTurn = false;
+      entry.internal = scope === 'entry' || internalTurn;
+      if (scope) entry.internalScope = scope;
+    } else {
+      entry.internal = internalTurn;
+      if (internalTurn) entry.internalScope = 'turn';
+    }
+    if (isSteerMessage(entry)) continue;
+    if (
+      isContinuousCodexAssistantEntry(entry)
+      && sameContinuousCodexAssistantGroup(assistantGroup[0], entry)
+    ) {
+      assistantGroup.push(entry);
+      continue;
+    }
+    break;
+  }
+  flushAssistantGroup();
   return entries;
 }
 

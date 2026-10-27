@@ -212,8 +212,9 @@ guessing.
 
 A Provider Terminal that exits before its Provider Session identity materializes
 retains its unarchived Agent record. Code hides stopped or dead Agent rows from
-Project and Pinned lists, including after refresh and recovery. The already-open
-Terminal remains inspectable; CRT retains its existing stopped-row presentation.
+Project and Pinned lists, and CRT hides stopped or dead Agent cards from its
+dashboard grid, including after refresh and recovery. The already-open or
+directly targeted Terminal remains inspectable in both Code and CRT.
 Exit changes runtime state to stopped or failed; it does not archive the Agent or remove its Project. The
 backend inventory and durable record retain it through refresh and restart.
 The selected Terminal stays open for inspection with an explicit stopped notice. Terminal

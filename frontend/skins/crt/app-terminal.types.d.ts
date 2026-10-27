@@ -161,6 +161,7 @@ interface CrtTerminalSessionViewResponse {
 interface CrtTerminalSessionView {
   agentId?: string;
   available?: boolean;
+  status?: string;
   renderOutput: string;
   renderedScrollback: number;
   previewCols: number;

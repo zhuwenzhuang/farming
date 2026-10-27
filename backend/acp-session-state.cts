@@ -1172,10 +1172,81 @@ class AcpSessionState {
       // The bounded entry order is authoritative only for its covered suffix.
       // A changed entry before that suffix requires a replacement checkpoint;
       // otherwise a browser retaining older pages would keep stale content.
-      const changedBeforeWindow = delta && this.entries.slice(0, startIndex)
+      let changedBeforeWindow = delta && this.entries.slice(0, startIndex)
         .some(entry => Number(entry._revision || 0) > requestedRevision);
+      let changedIds = delta && !changedBeforeWindow
+        ? new Set(this.entries.filter(entry => Number(entry._revision || 0) > requestedRevision).map(entry => entry.id))
+        : null;
+      if (changedIds) {
+        const changedMessageIds = new Set(
+          page
+            .filter(entry => (
+              changedIds!.has(entry.id)
+              && entry.role === 'assistant'
+              && (entry.type === 'message' || entry.type === 'thought')
+              && String(entry.messageId || '').trim().length > 0
+              && entry.sessionMessage !== true
+            ))
+            .map(entry => String(entry.messageId)),
+        );
+        if (changedMessageIds.size > 0) {
+          for (const entry of page) {
+            if (
+              entry.role === 'assistant'
+              && (entry.type === 'message' || entry.type === 'thought')
+              && entry.sessionMessage !== true
+              && changedMessageIds.has(String(entry.messageId))
+            ) {
+              changedIds.add(entry.id);
+            }
+          }
+          const hasPreWindowPeer = startIndex > 0
+            && this.entries.slice(0, startIndex).some(entry => (
+              entry.role === 'assistant'
+              && (entry.type === 'message' || entry.type === 'thought')
+              && entry.sessionMessage !== true
+              && changedMessageIds.has(String(entry.messageId))
+            ));
+          if (hasPreWindowPeer) {
+            const fullCurrent = this.sanitizedEntries(0, { forTranscript: true, endIndex });
+            const invalidatedPreWindow: AcpEntry[] = [];
+            for (let index = 0; index < startIndex; index += 1) {
+              if (index === anchor && anchor < startIndex && providerPolicy.transcriptTurnStart(this.entries[anchor])) {
+                continue;
+              }
+              const candidate = fullCurrent[index];
+              if (
+                candidate
+                && candidate.role === 'assistant'
+                && (candidate.type === 'message' || candidate.type === 'thought')
+                && candidate.sessionMessage !== true
+                && changedMessageIds.has(String(candidate.messageId))
+              ) {
+                invalidatedPreWindow.push(candidate);
+              }
+            }
+            const anchorPrefixCount = anchor < startIndex && providerPolicy.transcriptTurnStart(this.entries[anchor]) ? 1 : 0;
+            const overflow = Math.max(0, page.length + invalidatedPreWindow.length - 257);
+            const canAdvanceWindow = overflow === 0 || page
+              .slice(anchorPrefixCount, anchorPrefixCount + overflow)
+              .every(entry => !changedIds!.has(entry.id));
+            if (invalidatedPreWindow.length > 64 || !canAdvanceWindow) {
+              changedBeforeWindow = true;
+              changedIds = null;
+            } else if (invalidatedPreWindow.length > 0) {
+              if (overflow > 0) {
+                page.splice(anchorPrefixCount, overflow);
+                startIndex += overflow;
+              }
+              page.splice(anchorPrefixCount, 0, ...invalidatedPreWindow);
+              for (const entry of invalidatedPreWindow) {
+                changedIds.add(entry.id);
+              }
+            }
+          }
+        }
+      }
       const boundedDelta = delta && !changedBeforeWindow;
-      const changedIds = boundedDelta ? new Set(this.entries.filter(entry => Number(entry._revision || 0) > requestedRevision).map(entry => entry.id)) : null;
       return {
         entries: changedIds ? page.filter(entry => changedIds.has(entry.id)) : page,
         includesLatest: !options.cursor,

@@ -66,6 +66,7 @@ export interface TerminalReplicationState {
   pageOutputSuspended: boolean
   pendingSnapshotReplay: boolean
   bootstrappingSnapshot: boolean
+  stoppedWithoutCheckpoint?: boolean
   fixtureOverrideActive: boolean
   suppressOutputUntil: number
 }
@@ -132,6 +133,7 @@ export function createTerminalReplicationState(
     pageOutputSuspended: false,
     pendingSnapshotReplay: false,
     bootstrappingSnapshot: true,
+    stoppedWithoutCheckpoint: false,
     fixtureOverrideActive: false,
     suppressOutputUntil: 0,
     ...initial,
@@ -340,6 +342,135 @@ function finishTerminalReplay(record: TerminalReplicationRecord, generation: num
   })
 }
 
+function isStoppedSessionBootstrapState(state: SessionBootstrapState) {
+  return state.status === 'stopped' || state.status === 'dead'
+}
+
+function hasRetainedCheckpointState(state: SessionBootstrapState) {
+  return Boolean(state.runtimeEpoch)
+    && Number.isFinite(state.outputSeq) && state.outputSeq! >= 0
+    && Number.isFinite(state.stateRevision) && state.stateRevision! >= 0
+    && Number.isFinite(state.cols) && state.cols! > 0
+    && Number.isFinite(state.rows) && state.rows! > 0
+}
+
+function settleStoppedTerminalWithoutCheckpoint(
+  record: TerminalReplicationRecord,
+  state: SessionBootstrapState,
+  generation: number,
+  operation: ReturnType<TerminalAttachmentCoordinator['beginCheckpointOperation']>,
+) {
+  if (
+    record.attachment.isReplayTargetPending()
+    || record.attachment.queuedTransitionCount > 0
+  ) {
+    const ordering = typeof record.attachment.snapshot === 'function'
+      ? record.attachment.snapshot()
+      : null
+    const epochPattern = /^farming-runtime-v1:(\d{20}):/
+    const stateEpochMatch = epochPattern.exec(String(state.runtimeEpoch || ''))
+    const targetEpochMatch = epochPattern.exec(String(ordering?.replayTargetEpoch || ''))
+    const supersedesReplayTarget = Boolean(
+      stateEpochMatch
+      && targetEpochMatch
+      && Number(stateEpochMatch[1]) > Number(targetEpochMatch[1]),
+    )
+    if (!supersedesReplayTarget) {
+      const failure = record.attachment.recordInvariantFailure(
+        `stopped-without-checkpoint:${state.runtimeEpoch || 'none'}:${ordering?.replayTargetEpoch || 'none'}`,
+        'Terminal replay returned a stopped state without a checkpoint while newer runtime output is pending',
+      )
+      if (typeof retryTerminalReplayAfterFailure === 'function') {
+        retryTerminalReplayAfterFailure(record, failure, generation)
+        return false
+      }
+      record.replication.checkpointRequestInFlight = false
+      record.replication.needsReconnectOutputSync = true
+      record.replication.bootstrappingSnapshot = true
+      if (failure.halted) {
+        record.attachment.clearQueuedTransitions()
+        record.replicationPorts.publishStatus('failed')
+        record.replicationPorts.reportError?.(failure.message)
+        return false
+      }
+      record.replicationPorts.publishStatus('retrying', {
+        attempt: record.attachment.failureCount,
+        retryDelayMs: failure.delay,
+      })
+      if (
+        typeof window !== 'undefined'
+        && typeof window.setTimeout === 'function'
+        && record.replication.checkpointRetryTimer === null
+      ) {
+        record.replication.checkpointRetryTimer = window.setTimeout(() => {
+          record.replication.checkpointRetryTimer = null
+          if (record.disposed || !isCurrentReplicationAttachment(record, generation)) return
+          if (typeof requestTerminalReplay === 'function') requestTerminalReplay(record, generation)
+        }, failure.delay)
+      }
+      return false
+    }
+  }
+  clearTerminalCheckpointRetry(record)
+  record.replication.checkpointRequestInFlight = false
+  record.replication.pendingSnapshotReplay = false
+  record.replication.needsReconnectOutputSync = false
+  record.attachment.clearQueuedTransitions()
+
+  const finishSettled = () => {
+    if (
+      record.disposed
+      || !isCurrentReplicationAttachment(record, generation)
+    ) return
+    record.replication.replayInProgress = false
+    if (
+      (operation && !record.attachment.isCurrentOperation(operation))
+      || record.attachment.isReplayTargetPending()
+      || record.attachment.queuedTransitionCount > 0
+      || record.attachment.recovering
+    ) {
+      record.replication.stoppedWithoutCheckpoint = false
+      record.replication.needsReconnectOutputSync = true
+      record.replication.bootstrappingSnapshot = true
+      if (typeof requestTerminalReplay === 'function') {
+        requestTerminalReplay(record, record.attachment.generation)
+      }
+      return
+    }
+    record.replication.bootstrappingSnapshot = false
+    record.replication.stoppedWithoutCheckpoint = true
+    record.hostEl.classList.remove('terminal-checkpoint-installing')
+    record.replicationPorts.publishStatus('ready')
+    record.replicationPorts.notifyReady(generation)
+  }
+
+  if (record.attachment.runtimeEpoch) {
+    record.attachment.resetRecovery({ keepCursor: true })
+    finishSettled()
+    return true
+  }
+
+  record.attachment.resetRecovery({ keepCursor: false })
+  if (state.output) {
+    record.replication.replayInProgress = true
+    record.replication.bootstrappingSnapshot = true
+    record.hostEl.classList.add('terminal-checkpoint-installing')
+    replaceTerminalOutput(record, state.output, () => {
+      finishSettled()
+    }, {
+      beforeReplace: () => (
+        !record.disposed
+        && isCurrentReplicationAttachment(record, generation)
+        && (!operation || record.attachment.isCurrentOperation(operation))
+      ),
+    })
+    return true
+  }
+
+  finishSettled()
+  return true
+}
+
 function installTerminalCheckpoint(
   record: TerminalReplicationRecord,
   state: SessionBootstrapState,
@@ -355,6 +486,10 @@ function installTerminalCheckpoint(
   record.resizeEffects.beginRecovery()
   const operation = record.attachment.beginCheckpointOperation(generation)
   if (!operation) return false
+  if (isStoppedSessionBootstrapState(state) && !hasRetainedCheckpointState(state)) {
+    return settleStoppedTerminalWithoutCheckpoint(record, state, generation, operation)
+  }
+  record.replication.stoppedWithoutCheckpoint = false
   record.replicationPorts.publishStatus('installing', {
     attempt: record.attachment.failureCount + 1,
   })
@@ -932,6 +1067,7 @@ export function resyncTerminalReplication(
   record: TerminalReplicationRecord,
   options: { forceResizeAfterRecovery?: boolean; resetLastNotifiedResize?: boolean } = {},
 ) {
+  record.replication.stoppedWithoutCheckpoint = false
   record.resizeEffects.beginRecovery({
     forceAfterRecovery: options.forceResizeAfterRecovery === true,
     resetLastNotified: options.resetLastNotifiedResize === true,
@@ -962,6 +1098,7 @@ export function setTerminalReplicationPageSuspended(
 
 export function beginTerminalAttachmentReplication(record: TerminalReplicationRecord) {
   invalidateTerminalReplication(record)
+  record.replication.stoppedWithoutCheckpoint = false
   record.attachment.resetRecovery()
   record.attachment.beginRecovery()
   record.replication.needsReconnectOutputSync = true
@@ -970,6 +1107,7 @@ export function beginTerminalAttachmentReplication(record: TerminalReplicationRe
 
 export function retryTerminalReplication(record: TerminalReplicationRecord) {
   invalidateTerminalReplication(record)
+  record.replication.stoppedWithoutCheckpoint = false
   record.resizeEffects.beginRecovery({ forceAfterRecovery: true })
   record.replication.pendingSnapshotReplay = false
   record.attachment.resetRecovery()
@@ -984,6 +1122,7 @@ export function terminalReplicationCanMutateResize(record: TerminalReplicationRe
     && record.replicationPorts.isAttached()
     && !record.replication.replayInProgress
     && !record.replication.bootstrappingSnapshot
+    && !record.replication.stoppedWithoutCheckpoint
     && !record.replication.pageOutputSuspended
 }
 
@@ -998,9 +1137,14 @@ export function terminalReplicationReady(record: TerminalReplicationRecord) {
     && !record.replication.replayInProgress
     && !record.replication.liveWriteInProgress
     && record.attachment.queuedTransitionCount === 0
-    && Boolean(record.attachment.runtimeEpoch)
-    && record.attachment.outputSeq !== null
-    && record.attachment.stateRevision !== null
+    && (
+      record.replication.stoppedWithoutCheckpoint
+      || (
+        Boolean(record.attachment.runtimeEpoch)
+        && record.attachment.outputSeq !== null
+        && record.attachment.stateRevision !== null
+      )
+    )
 }
 
 export function finishTerminalAttachmentReplication(
@@ -1054,6 +1198,7 @@ export async function writeTerminalReplicationFixture(record: TerminalReplicatio
   record.replication.liveWriteInProgress = false
   record.replication.pendingSnapshotReplay = false
   record.replication.bootstrappingSnapshot = false
+  record.replication.stoppedWithoutCheckpoint = false
   record.replication.needsReconnectOutputSync = false
   record.replication.fixtureOverrideActive = true
   record.replication.suppressOutputUntil = Date.now() + 1500
@@ -1070,6 +1215,7 @@ export async function writeTerminalReplicationFixture(record: TerminalReplicatio
 
 export function resumeLiveTerminalReplication(record: TerminalReplicationRecord) {
   record.replication.fixtureOverrideActive = false
+  record.replication.stoppedWithoutCheckpoint = false
   record.replication.suppressOutputUntil = 0
   invalidateTerminalReplication(record)
   record.attachment.resetRecovery()

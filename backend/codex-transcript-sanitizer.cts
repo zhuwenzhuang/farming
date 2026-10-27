@@ -45,9 +45,154 @@ function escapeRegExp(value: unknown): string {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function stripXmlishBlock(text: string, tagName: string): string {
-  const escapedTag = escapeRegExp(tagName);
-  return text.replace(new RegExp(`\\s*<${escapedTag}(?:\\s+[^>]*)?>[\\s\\S]*?<\\/${escapedTag}>\\s*`, 'gi'), '\n');
+const CODEX_INTERNAL_CONTEXT_TAGS = [
+  'codex_internal_context',
+  'goal_context',
+  'environment_context',
+  'farming-agent-context',
+  'app_specific_instructions',
+  'app-context',
+  'collaboration_mode',
+  'apps_instructions',
+  'skills_instructions',
+  'plugins_instructions',
+  'recommended_plugins',
+  'oai-mem-citation',
+  'permissions instructions',
+  'turn_aborted',
+  'system-reminder',
+  'when_to_save',
+  'how_to_use',
+  'body_structure',
+  'tool_call',
+  'tool_response',
+  'trajectory',
+  'previous-summary',
+  'conversation',
+  'heartbeat',
+];
+
+interface InternalTextSpan {
+  start: number;
+  end: number;
+}
+
+function findCodexInternalBlockRuns(text: string): InternalTextSpan[] {
+  const spans: InternalTextSpan[] = [];
+  for (const tagName of CODEX_INTERNAL_CONTEXT_TAGS) {
+    const escapedTag = escapeRegExp(tagName);
+    const pattern = new RegExp(`<${escapedTag}(?:\\s+[^>]*)?>[\\s\\S]*?<\\/${escapedTag}>`, 'gi');
+    for (const match of text.matchAll(pattern)) {
+      if (typeof match.index === 'number') {
+        spans.push({ start: match.index, end: match.index + match[0].length });
+      }
+    }
+  }
+  const instructionsPattern = /(^|\n)([ \t]*# AGENTS\.md instructions for[^\n]*\n[\s\S]*?<\/INSTRUCTIONS>)(?=[ \t]*(?:\n|$))/gi;
+  for (const match of text.matchAll(instructionsPattern)) {
+    if (typeof match.index === 'number') {
+      const start = match.index + match[1].length;
+      spans.push({ start, end: start + match[2].length });
+    }
+  }
+  if (spans.length === 0) return [];
+  spans.sort((a, b) => a.start - b.start || b.end - a.end);
+
+  const runs: InternalTextSpan[] = [];
+  for (const span of spans) {
+    const previous = runs[runs.length - 1];
+    if (!previous) {
+      runs.push({ ...span });
+      continue;
+    }
+    if (span.start <= previous.end || /^\s*$/.test(text.slice(previous.end, span.start))) {
+      previous.end = Math.max(previous.end, span.end);
+      continue;
+    }
+    runs.push({ ...span });
+  }
+  return runs;
+}
+
+function splitLeftEnvelopeWhitespace(segment: string): { rest: string; envelope: string } {
+  const match = segment.match(/[ \t\n]+$/);
+  if (!match) return { rest: segment, envelope: '' };
+  return {
+    rest: segment.slice(0, segment.length - match[0].length),
+    envelope: match[0],
+  };
+}
+
+function splitRightEnvelopeWhitespace(segment: string): { envelope: string; rest: string } {
+  const newlineMatch = segment.match(/^[ \t]*(?:\n[ \t]*)*\n/);
+  if (newlineMatch) {
+    return {
+      envelope: newlineMatch[0],
+      rest: segment.slice(newlineMatch[0].length),
+    };
+  }
+  const spaceMatch = segment.match(/^[ \t]+/);
+  if (spaceMatch) {
+    return {
+      envelope: spaceMatch[0],
+      rest: segment.slice(spaceMatch[0].length),
+    };
+  }
+  return { envelope: '', rest: segment };
+}
+
+function joinInternalEnvelopeGap(leftEnvelope: string, rightEnvelope: string): string {
+  if (/\n[ \t]*\n/.test(leftEnvelope) || /\n[ \t]*\n/.test(rightEnvelope)) {
+    return '\n\n';
+  }
+  if (leftEnvelope.includes('\n') || rightEnvelope.includes('\n')) {
+    return '\n';
+  }
+  if (leftEnvelope.length > 0 && rightEnvelope.length > 0) {
+    return ' ';
+  }
+  return leftEnvelope || rightEnvelope;
+}
+
+function stripCodexInternalBlockEnvelopes(text: string): string {
+  const runs = findCodexInternalBlockRuns(text);
+  if (runs.length === 0) return text;
+
+  const segments: string[] = [];
+  let cursor = 0;
+  for (const run of runs) {
+    segments.push(text.slice(cursor, run.start));
+    cursor = run.end;
+  }
+  segments.push(text.slice(cursor));
+
+  const firstVisible = segments.findIndex(segment => /\S/.test(segment));
+  if (firstVisible < 0) return '';
+  let lastVisible = segments.length - 1;
+  while (lastVisible > firstVisible && !/\S/.test(segments[lastVisible])) {
+    lastVisible -= 1;
+  }
+
+  let output = '';
+  for (let index = firstVisible; index <= lastVisible; index += 1) {
+    let current = segments[index];
+    let rightEnvelope = '';
+    if (index > 0) {
+      const splitRight = splitRightEnvelopeWhitespace(current);
+      rightEnvelope = splitRight.envelope;
+      current = splitRight.rest;
+    }
+    if (index > firstVisible) {
+      const previousLeft = splitLeftEnvelopeWhitespace(output);
+      output = previousLeft.rest + joinInternalEnvelopeGap(previousLeft.envelope, rightEnvelope) + current;
+    } else {
+      output = current;
+    }
+  }
+  if (lastVisible < segments.length - 1) {
+    output = splitLeftEnvelopeWhitespace(output).rest;
+  }
+  return output;
 }
 
 function xmlishTagValue(text: unknown, tagName: string): string {
@@ -287,36 +432,7 @@ function stripCodexInternalContextBlocks(value: unknown, options: { preserveWhit
     : normalizeCodexTranscriptText(value);
   if (!text) return '';
 
-  [
-    'codex_internal_context',
-    'goal_context',
-    'environment_context',
-    'farming-agent-context',
-    'app_specific_instructions',
-    'app-context',
-    'collaboration_mode',
-    'apps_instructions',
-    'skills_instructions',
-    'plugins_instructions',
-    'recommended_plugins',
-    'oai-mem-citation',
-    'permissions instructions',
-    'turn_aborted',
-    'system-reminder',
-    'when_to_save',
-    'how_to_use',
-    'body_structure',
-    'tool_call',
-    'tool_response',
-    'trajectory',
-    'previous-summary',
-    'conversation',
-    'heartbeat',
-  ].forEach(tagName => {
-    text = stripXmlishBlock(text, tagName);
-  });
-
-  text = text.replace(/(^|\n)\s*# AGENTS\.md instructions for[^\n]*\n[\s\S]*?<\/INSTRUCTIONS>\s*(?=\n|$)/gi, '$1');
+  text = stripCodexInternalBlockEnvelopes(text);
   text = stripCodexAppDirectives(text);
 
   if (options.preserveWhitespace) return text;
@@ -324,6 +440,151 @@ function stripCodexInternalContextBlocks(value: unknown, options: { preserveWhit
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function stripCodexAppDirectivesFromFragments(fragments: string[]): string[] {
+  const joined = fragments.join('');
+  if (!joined) return fragments;
+
+  const keep = new Uint8Array(joined.length);
+  keep.fill(1);
+
+  const mutationRegex = /::(?:code-comment|created-thread|git-(?:stage|commit|create-branch|push|create-pr))\{[^\r\n]*\}/gi;
+  let match: RegExpExecArray | null;
+  while ((match = mutationRegex.exec(joined)) !== null) {
+    keep.fill(0, match.index, match.index + match[0].length);
+  }
+
+  let afterMutation = '';
+  const originIndex: number[] = [];
+  for (let index = 0; index < joined.length; index += 1) {
+    if (keep[index]) {
+      afterMutation += joined[index]!;
+      originIndex.push(index);
+    }
+  }
+
+  let fenceCharacter = '';
+  let fenceLength = 0;
+  let lineStart = 0;
+  for (let index = 0; index <= afterMutation.length; index += 1) {
+    if (index < afterMutation.length && afterMutation[index] !== '\n') continue;
+    const line = afterMutation.slice(lineStart, index);
+    const marker = fenceMarker(line);
+    if (fenceCharacter) {
+      if (
+        marker
+        && marker.character === fenceCharacter
+        && marker.length >= fenceLength
+        && marker.tail.trim() === ''
+      ) {
+        fenceCharacter = '';
+        fenceLength = 0;
+      }
+    } else if (marker) {
+      fenceCharacter = marker.character;
+      fenceLength = marker.length;
+    } else if (!/^(?: {4}|\t)/.test(line) && startsWithVisualizationDirective(line.trim())) {
+      for (let pos = lineStart; pos < index; pos += 1) {
+        keep[originIndex[pos]!] = 0;
+      }
+    }
+    lineStart = index + 1;
+  }
+
+  const out: string[] = [];
+  let cursor = 0;
+  for (const part of fragments) {
+    const end = cursor + part.length;
+    let slice = '';
+    for (let index = cursor; index < end; index += 1) {
+      if (keep[index]) slice += joined[index]!;
+    }
+    out.push(slice);
+    cursor = end;
+  }
+  return out;
+}
+
+function stripCodexInternalContextBlocksFromFragments(fragments: string[]): string[] {
+  const normalized = fragments.map(item => String(item || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
+  const joined = normalized.join('');
+  if (!joined) return normalized;
+
+  const runs = findCodexInternalBlockRuns(joined);
+  if (runs.length === 0) {
+    return stripCodexAppDirectivesFromFragments(normalized);
+  }
+
+  const startOffsets: number[] = [];
+  const endOffsets: number[] = [];
+  let offset = 0;
+  for (const part of normalized) {
+    startOffsets.push(offset);
+    offset += part.length;
+    endOffsets.push(offset);
+  }
+  const fragmentIndexForOffset = (pos: number): number => {
+    for (let index = 0; index < normalized.length; index += 1) {
+      if (pos >= startOffsets[index]! && pos < endOffsets[index]!) return index;
+    }
+    return normalized.length - 1;
+  };
+
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let cursor = 0;
+  for (const run of runs) {
+    segments.push({ start: cursor, end: run.start, text: joined.slice(cursor, run.start) });
+    cursor = run.end;
+  }
+  segments.push({ start: cursor, end: joined.length, text: joined.slice(cursor) });
+
+  const firstVisible = segments.findIndex(segment => /\S/.test(segment.text));
+  if (firstVisible < 0) return normalized.map(() => '');
+  let lastVisible = segments.length - 1;
+  while (lastVisible > firstVisible && !/\S/.test(segments[lastVisible]!.text)) {
+    lastVisible -= 1;
+  }
+
+  const result = normalized.map(() => '');
+  let previousLeftEnvelope = '';
+  let previousKeepEnd = 0;
+  for (let index = firstVisible; index <= lastVisible; index += 1) {
+    const seg = segments[index]!;
+    let current = seg.text;
+    let rightEnvelope = '';
+    if (index > 0) {
+      const splitRight = splitRightEnvelopeWhitespace(current);
+      rightEnvelope = splitRight.envelope;
+      current = splitRight.rest;
+    }
+    const keepStart = seg.start + rightEnvelope.length;
+    let leftEnvelope = '';
+    let keepEnd = seg.end;
+    if (index < segments.length - 1) {
+      const splitLeft = splitLeftEnvelopeWhitespace(current);
+      leftEnvelope = splitLeft.envelope;
+      keepEnd = keepStart + splitLeft.rest.length;
+    }
+    if (index > firstVisible) {
+      const gap = joinInternalEnvelopeGap(previousLeftEnvelope, rightEnvelope);
+      if (gap) {
+        const ownerIndex = previousKeepEnd > 0 ? fragmentIndexForOffset(previousKeepEnd - 1) : 0;
+        result[ownerIndex] += gap;
+      }
+    }
+    for (let fragIndex = 0; fragIndex < normalized.length; fragIndex += 1) {
+      const sliceStart = Math.max(startOffsets[fragIndex]!, keepStart);
+      const sliceEnd = Math.min(endOffsets[fragIndex]!, keepEnd);
+      if (sliceEnd > sliceStart) {
+        result[fragIndex] += joined.slice(sliceStart, sliceEnd);
+      }
+    }
+    previousLeftEnvelope = leftEnvelope;
+    previousKeepEnd = keepEnd;
+  }
+
+  return stripCodexAppDirectivesFromFragments(result);
 }
 
 function isCodexInjectedContextMessage(value: unknown): boolean {
@@ -351,4 +612,5 @@ export {
   createCodexInlineVisualizationStreamState,
   stripCodexAppDirectives,
   stripCodexInternalContextBlocks,
+  stripCodexInternalContextBlocksFromFragments,
 };

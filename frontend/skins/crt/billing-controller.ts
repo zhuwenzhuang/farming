@@ -63,9 +63,10 @@ type BillingProvider = {
   providerName?: string;
   tokenUsage?: {
     available?: boolean;
+    partial?: boolean;
     reason?: string;
     source?: string;
-    tokensPerMinute?: number;
+    tokensPerMinute?: number | null;
   };
   auth?: { available?: boolean; status?: string };
   quota?: BillingQuota;
@@ -89,7 +90,8 @@ type BillingDaily = {
   endDate?: string;
   timeZone?: string;
   partial?: boolean;
-  coverage?: Array<{ available?: boolean }>;
+  syncing?: boolean;
+  coverage?: Array<{ available?: boolean; partial?: boolean }>;
   summary?: {
     todayTokens?: number;
     sevenDayTokens?: number;
@@ -242,7 +244,18 @@ function crtBillingTimeline(summary = billingSummary) {
   return summary && summary.liveTimeline || summary && summary.timeline || null;
 }
 
+function crtBillingHasSyncingTelemetry(summary = billingSummary) {
+  return Boolean(summary && summary.daily && summary.daily.syncing);
+}
+
+function crtBillingHasPartialTelemetry(summary = billingSummary) {
+  if (summary && summary.daily && (summary.daily.syncing || summary.daily.partial)) return true;
+  const providers = summary && Array.isArray(summary.providers) ? summary.providers : [];
+  return providers.some((provider) => Boolean(provider && provider.tokenUsage && provider.tokenUsage.partial));
+}
+
 function crtBillingCurrentRate(summary = billingSummary) {
+  if (crtBillingHasPartialTelemetry(summary)) return null;
   const providers = summary && Array.isArray(summary.providers) ? summary.providers : [];
   let total = 0;
   let hasRate = false;
@@ -368,7 +381,11 @@ function formatCrtBillingReset(resetsAt: unknown, now = Date.now()) {
 }
 
 function crtBillingStatusText(summary = billingSummary) {
-  if (billingMode === 'days') return 'HISTORY READY';
+  if (crtBillingHasSyncingTelemetry(summary)) return 'SYNCING HISTORY';
+  if (crtBillingHasPartialTelemetry(summary)) return 'INCOMPLETE HISTORY';
+  if (billingMode === 'days') {
+    return 'HISTORY READY';
+  }
   const sampledAt = Number(summary && summary.sampledAt);
   if (!Number.isFinite(sampledAt) || sampledAt <= 0) return 'LIVE';
   const sampled = new Date(sampledAt);
@@ -701,9 +718,25 @@ function renderCrtBillingDayInsight() {
         const cache = Math.max(0, (Number(hour.cacheReadTokens) || 0) + (Number(hour.cacheWriteTokens) || 0));
         if (hourReadout) {
           const endHour = hourValue + 1;
-          const cacheShare = total > 0 ? `${(cache / total * 100).toFixed(1)}% CACHE` : 'NO ACTIVITY';
-          hourReadout.textContent = `[${String(hourValue).padStart(2, '0')}:00—${String(endHour).padStart(2, '0')}:00]  TOTAL ${formatCrtUsageValue(total)}  //  CACHE ${formatCrtUsageValue(cache)}  //  ${cacheShare}`;
-          hourReadout.title = `${String(hourValue).padStart(2, '0')}:00—${String(endHour).padStart(2, '0')}:00 · ${formatCrtExactUsageValue(total)} total tokens · ${formatCrtExactUsageValue(cache)} cache tokens`;
+          const syncing = Boolean(
+            (selectedDetail && selectedDetail.syncing)
+            || (billingSummary && billingSummary.daily && billingSummary.daily.syncing),
+          );
+          const partial = Boolean(
+            (selectedDetail && (selectedDetail.partial || selectedDetail.available === false))
+            || (billingSummary && billingSummary.daily && billingSummary.daily.partial),
+          );
+          const cacheShare = total > 0
+            ? `${(cache / total * 100).toFixed(1)}% CACHE`
+            : syncing
+              ? 'SYNCING HISTORY'
+              : partial
+                ? 'INCOMPLETE HISTORY'
+                : 'NO ACTIVITY';
+          const displayTotal = total > 0 || (!syncing && !partial) ? formatCrtUsageValue(total) : '--';
+          const displayCache = total > 0 || (!syncing && !partial) ? formatCrtUsageValue(cache) : '--';
+          hourReadout.textContent = `[${String(hourValue).padStart(2, '0')}:00—${String(endHour).padStart(2, '0')}:00]  TOTAL ${displayTotal}  //  CACHE ${displayCache}  //  ${cacheShare}`;
+          hourReadout.title = `${String(hourValue).padStart(2, '0')}:00—${String(endHour).padStart(2, '0')}:00 · ${total > 0 || (!syncing && !partial) ? `${formatCrtExactUsageValue(total)} total tokens · ${formatCrtExactUsageValue(cache)} cache tokens` : cacheShare}`;
         }
         if (focus) (hourStrip.children[index] as HTMLElement | undefined)?.focus();
       };
@@ -734,11 +767,29 @@ function renderCrtBillingDayInsight() {
       });
       selectHour(billingSelectedHour);
     } else if (hourReadout) {
-      hourReadout.textContent = billingDayDetailLoading ? 'READING HOURLY COORDINATES' : 'NO HOURLY ACTIVITY';
+      const syncing = Boolean(
+        (selectedDetail && selectedDetail.syncing)
+        || (billingSummary && billingSummary.daily && billingSummary.daily.syncing),
+      );
+      hourReadout.textContent = billingDayDetailError
+        ? 'DAY SIGNAL LOST'
+        : billingDayDetailLoading
+          ? 'READING HOURLY COORDINATES'
+          : syncing
+            ? 'SYNCING HOURLY COORDINATES'
+            : 'NO HOURLY ACTIVITY';
       hourReadout.removeAttribute('title');
     }
   }
   if (state) {
+    const syncing = Boolean(
+      (selectedDetail && selectedDetail.syncing)
+      || (billingSummary && billingSummary.daily && billingSummary.daily.syncing),
+    );
+    const partial = Boolean(
+      (selectedDetail && selectedDetail.partial)
+      || (billingSummary && billingSummary.daily && billingSummary.daily.partial),
+    );
     state.classList.toggle('is-error', Boolean(billingDayDetailError && !selectedDetail));
     state.textContent = billingDayDetailError && selectedDetail
       ? '24 HOURLY BINS READY · STALE'
@@ -746,13 +797,15 @@ function renderCrtBillingDayInsight() {
         ? 'DAY SIGNAL LOST'
         : billingDayDetailLoading && !selectedDetail
           ? 'READING 24 HOURLY BINS'
-          : selectedDetail && (selectedDetail.partial || selectedDetail.syncing)
-            ? selectedDetail.syncing ? 'SYNCING HISTORY' : 'INCOMPLETE HISTORY'
-            : selectedDetail && maximum > 0
-              ? '24 HOURLY BINS READY'
-              : selectedDetail
-                ? 'NO HOURLY ACTIVITY'
-                : 'SELECTED DAY DETAIL';
+          : syncing
+            ? 'SYNCING HISTORY'
+            : partial
+              ? 'INCOMPLETE HISTORY'
+              : selectedDetail && maximum > 0
+                ? '24 HOURLY BINS READY'
+                : selectedDetail
+                  ? 'NO HOURLY ACTIVITY'
+                  : 'SELECTED DAY DETAIL';
   }
 
   if (!shares) return;
@@ -766,9 +819,25 @@ function renderCrtBillingDayInsight() {
     .sort((left, right) => right.total - left.total);
   const providerTotal = providerRows.reduce((total, row) => total + row.total, 0);
   if (providerRows.length === 0) {
+    const syncing = Boolean(
+      (selectedDetail && selectedDetail.syncing)
+      || (billingSummary && billingSummary.daily && billingSummary.daily.syncing),
+    );
+    const partial = Boolean(
+      (selectedDetail && selectedDetail.partial)
+      || (billingSummary && billingSummary.daily && billingSummary.daily.partial),
+    );
     const empty = document.createElement('span');
     empty.className = 'billing-day-share-empty';
-    empty.textContent = billingDayDetailLoading ? 'READING AGENT TYPES' : 'NO ATTRIBUTED TOKEN DATA';
+    empty.textContent = billingDayDetailError && !selectedDetail
+      ? 'DAY SIGNAL LOST'
+      : billingDayDetailLoading
+        ? 'READING AGENT TYPES'
+        : syncing
+          ? 'SYNCING HISTORY'
+          : partial
+            ? 'INCOMPLETE HISTORY'
+            : 'NO ATTRIBUTED TOKEN DATA';
     shares.appendChild(empty);
     return;
   }
@@ -809,16 +878,26 @@ function renderCrtBillingSelectedDay({ preferSummary = false } = {}) {
   const date = document.getElementById('billing-day-date');
   const stateLabel = document.getElementById('billing-day-state');
   const providers = document.getElementById('billing-day-providers');
+  const incompleteDay = Boolean(
+    (daily && (daily.syncing || daily.partial))
+    || (displayDetail && (displayDetail.syncing || displayDetail.partial || displayDetail.available === false)),
+  );
+  const qualifyDayMetric = (value: unknown) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return null;
+    if (incompleteDay && numeric === 0) return null;
+    return numeric;
+  };
   if (date) date.textContent = crtBillingDayLabel(point && point.date);
-  updateCrtBillingTotalDisplay(displayPoint && displayPoint.totalTokens, {
+  updateCrtBillingTotalDisplay(qualifyDayMetric(displayPoint && displayPoint.totalTokens), {
     date: point && point.date || '',
     live: isToday,
   });
   const selectedDate = point && point.date || '';
-  updateCrtBillingExactMetric('billing-day-input', displayPoint && displayPoint.inputTokens, { date: selectedDate, live: isToday });
-  updateCrtBillingExactMetric('billing-day-output', displayPoint && displayPoint.outputTokens, { date: selectedDate, live: isToday });
-  updateCrtBillingExactMetric('billing-day-cache-read', displayPoint && displayPoint.cacheReadTokens, { date: selectedDate, live: isToday });
-  updateCrtBillingExactMetric('billing-day-cache-write', displayPoint && displayPoint.cacheWriteTokens, { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-input', qualifyDayMetric(displayPoint && displayPoint.inputTokens), { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-output', qualifyDayMetric(displayPoint && displayPoint.outputTokens), { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-cache-read', qualifyDayMetric(displayPoint && displayPoint.cacheReadTokens), { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-cache-write', qualifyDayMetric(displayPoint && displayPoint.cacheWriteTokens), { date: selectedDate, live: isToday });
   if (providers) {
     const providerTotals = displayProviders
       ? Object.entries(displayProviders).filter(([, usage]) => (
@@ -834,11 +913,12 @@ function renderCrtBillingSelectedDay({ preferSummary = false } = {}) {
   }
   if (stateLabel) {
     const notes = isToday ? ['LIVE 5S', 'PARTIAL DAY', 'INCL CACHE'] : ['COMPLETE DAY', 'INCL CACHE'];
-    if (daily && daily.partial) notes.push('PARTIAL SOURCE');
+    if (daily && daily.syncing) notes.push('SYNCING HISTORY');
+    else if (daily && daily.partial) notes.push('PARTIAL SOURCE');
     if (point && Number(point.unattributedTokens) > 0) {
       notes.push(`${formatCrtUsageValue(point.unattributedTokens)} UNCLASSIFIED`);
     }
-    stateLabel.textContent = point ? notes.join(' · ') : 'LOCAL HISTORY';
+    stateLabel.textContent = point ? notes.join(' · ') : (daily && daily.syncing ? 'SYNCING HISTORY' : 'LOCAL HISTORY');
   }
   document.querySelectorAll('#billing-calendar-grid .billing-calendar-day').forEach((cell) => {
     const selected = cell.dataset.date === billingSelectedDate;
@@ -864,12 +944,19 @@ function renderCrtBillingDaily(summary = billingSummary) {
   const daily = summary && summary.daily;
   const points = daily && Array.isArray(daily.points) ? daily.points : [];
   const totals = daily && daily.summary || {};
+  const incompleteDaily = Boolean(daily && (daily.syncing || daily.partial));
+  const qualifyDailyMetric = (value: unknown) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return null;
+    if (incompleteDaily && numeric === 0) return null;
+    return numeric;
+  };
   const setValue = (id: string, value: string | number | null | undefined) => {
     const element = document.getElementById(id);
-    if (element) element.textContent = formatCrtUsageValue(value);
+    if (element) element.textContent = formatCrtUsageValue(qualifyDailyMetric(value));
   };
   const todayDetail = daily?.endDate ? billingDayDetailCache.get(daily.endDate)?.detail : undefined;
-  const todayTokens = todayDetail && todayDetail.total ? todayDetail.total.totalTokens : totals.todayTokens;
+  const todayTokens = qualifyDailyMetric(todayDetail && todayDetail.total ? todayDetail.total.totalTokens : totals.todayTokens);
   updateCrtBillingAnimatedMetric('billing-today-total', todayTokens, {
     date: daily && daily.endDate || '',
     live: true,
@@ -895,9 +982,10 @@ function renderCrtBillingDaily(summary = billingSummary) {
   const range = document.getElementById('billing-daily-range');
   if (range) {
     const coverage = daily && Array.isArray(daily.coverage) ? daily.coverage : [];
-    const availableSources = coverage.filter((source) => source && source.available !== false).length;
+    const availableSources = coverage.filter((source) => source && source.available !== false && source.partial !== true).length;
+    const syncSuffix = daily && daily.syncing ? ' · SYNCING' : daily && daily.partial ? ' · PARTIAL' : '';
     range.textContent = daily
-      ? `${daily.startDate} — ${daily.endDate} · ${String(daily.timeZone || 'LOCAL').toUpperCase()}${coverage.length ? ` · ${availableSources}/${coverage.length} SOURCES` : ''}`
+      ? `${daily.startDate} — ${daily.endDate} · ${String(daily.timeZone || 'LOCAL').toUpperCase()}${coverage.length ? ` · ${availableSources}/${coverage.length} SOURCES` : ''}${syncSuffix}`
       : 'LOCAL TIME';
   }
 
@@ -1055,10 +1143,24 @@ function renderCrtBillingProviders(summary = billingSummary) {
     const name = document.createElement('strong');
     name.textContent = String(provider.providerName || provider.provider || 'PROVIDER').toUpperCase();
     const source = document.createElement('small');
-    const usageAvailable = provider.tokenUsage && provider.tokenUsage.available !== false;
+    const usageAvailable = Boolean(
+      provider.tokenUsage
+      && provider.tokenUsage.available !== false
+      && provider.tokenUsage.partial !== true,
+    );
+    const usageSyncing = Boolean(
+      (provider.tokenUsage && provider.tokenUsage.partial)
+      || (
+        summary
+        && summary.daily
+        && summary.daily.syncing
+        && provider.tokenUsage
+        && /syncing/i.test(String(provider.tokenUsage.reason || ''))
+      ),
+    );
     const authStatus = usageAvailable
       ? (provider.auth && provider.auth.available ? provider.auth.status : 'LOCAL TELEMETRY')
-      : (provider.tokenUsage && provider.tokenUsage.reason || 'NO TOKEN TELEMETRY');
+      : (provider.tokenUsage && provider.tokenUsage.reason || (usageSyncing ? 'SYNCING LOCAL HISTORY' : 'NO TOKEN TELEMETRY'));
     source.textContent = String(authStatus || 'AVAILABLE').toUpperCase();
     source.title = provider.tokenUsage && provider.tokenUsage.source || '';
     copy.append(name, source);
@@ -1066,7 +1168,9 @@ function renderCrtBillingProviders(summary = billingSummary) {
     rate.className = 'billing-provider-rate';
     rate.textContent = usageAvailable
       ? `${formatCrtUsageValue(provider.tokenUsage && provider.tokenUsage.tokensPerMinute)} TOK/MIN`
-      : 'NO TOKEN DATA';
+      : usageSyncing
+        ? 'SYNCING'
+        : 'NO TOKEN DATA';
     row.append(copy, rate);
     container.appendChild(row);
   });
@@ -1227,11 +1331,22 @@ function renderCrtBilling() {
   const scopeStart = document.getElementById('billing-scope-start');
   const scopeMidpoint = document.getElementById('billing-scope-midpoint');
   const timelineLabels = crtBillingTimelineLabels(timeline);
+  const incompleteTelemetry = crtBillingHasPartialTelemetry(billingSummary);
+  const timelineTotal = timeline && (!incompleteTelemetry || Number(timeline.totalTokens) > 0)
+    ? timeline.totalTokens
+    : null;
+  const timelinePeak = timeline && (!incompleteTelemetry || Number(timeline.peakTokensPerMinute) > 0)
+    ? timeline.peakTokensPerMinute
+    : null;
   if (currentRate) currentRate.textContent = formatCrtUsageValue(crtBillingCurrentRate());
-  if (windowTotal) windowTotal.textContent = formatCrtUsageValue(timeline && timeline.totalTokens);
-  if (peakRate) peakRate.textContent = formatCrtUsageValue(timeline && timeline.peakTokensPerMinute);
-  if (dutyCycle) dutyCycle.textContent = timeline ? `${timeline.activeBucketCount}/${timeline.bucketCount}` : '--';
-  if (scopeScale) scopeScale.textContent = `${formatCrtUsageValue(timeline && timeline.peakTokensPerMinute)} TOK/MIN PEAK`;
+  if (windowTotal) windowTotal.textContent = formatCrtUsageValue(timelineTotal);
+  if (peakRate) peakRate.textContent = formatCrtUsageValue(timelinePeak);
+  if (dutyCycle) {
+    dutyCycle.textContent = timeline && (!incompleteTelemetry || Number(timeline.activeBucketCount) > 0)
+      ? `${timeline.activeBucketCount}/${timeline.bucketCount}`
+      : '--';
+  }
+  if (scopeScale) scopeScale.textContent = `${formatCrtUsageValue(timelinePeak)} TOK/MIN PEAK`;
   if (windowLabel) windowLabel.textContent = timelineLabels.integral;
   if (peakLabel) peakLabel.textContent = timelineLabels.peak;
   if (scopeTitle) scopeTitle.textContent = timelineLabels.title;
@@ -1240,7 +1355,15 @@ function renderCrtBilling() {
   if (scopeMidpoint) scopeMidpoint.textContent = timelineLabels.midpoint;
   if (empty) {
     empty.classList.toggle('hidden', hasSignal);
-    empty.textContent = billingError ? 'SIGNAL LOST' : billingLoading ? 'ACQUIRING SIGNAL' : 'NO TOKEN SIGNAL';
+    empty.textContent = billingError
+      ? 'SIGNAL LOST'
+      : billingLoading
+        ? 'ACQUIRING SIGNAL'
+        : crtBillingHasSyncingTelemetry(billingSummary)
+          ? 'SYNCING HISTORY'
+          : crtBillingHasPartialTelemetry(billingSummary)
+            ? 'INCOMPLETE HISTORY'
+            : 'NO TOKEN SIGNAL';
   }
   setCrtBillingMode(billingMode);
   renderCrtBillingDaily();
@@ -1330,7 +1453,12 @@ async function loadCrtBilling({ fresh = false } = {}) {
   const token: BillingOperationToken = { valid: true, generation };
   const deadlineHandle = armBillingDeadline(
     billingSummaryDeadlineSlot, controller, CRT_BILLING_SUMMARY_DEADLINE_MS, token,
-    () => { billingLoading = false; billingAbortController = null; renderCrtBilling(); },
+    () => {
+      billingLoading = false;
+      billingAbortController = null;
+      billingError = 'Usage summary request timed out';
+      renderCrtBilling();
+    },
   );
   try {
     const query = fresh ? '?fresh=1' : billingMode === 'live' ? '?live=1' : '';
@@ -1396,7 +1524,14 @@ async function loadCrtBillingDayDetail(dateValue: string, { force = false, live 
   const token: BillingOperationToken = { valid: true, generation };
   const deadlineHandle = armBillingDeadline(
     billingDayDeadlineSlot, controller, CRT_BILLING_DAY_DEADLINE_MS, token,
-    () => { billingDayDetailLoading = false; billingDayDetailAbortController = null; },
+    () => {
+      billingDayDetailLoading = false;
+      billingDayDetailAbortController = null;
+      if (billingSelectedDate === date) {
+        billingDayDetailError = 'Usage day request timed out';
+        renderCrtBillingSelectedDay();
+      }
+    },
   );
   let shouldRetry = false;
   let failureStatus: number | undefined;

@@ -15,6 +15,48 @@ assert.strictEqual(stripCodexInternalContextBlocks(
   '<codex_internal_context>hidden</codex_internal_context>visible ::created-thread{threadId="private"}',
   { preserveWhitespace: true },
 ).trim(), 'visible');
+assert.strictEqual(
+  stripCodexInternalContextBlocks(
+    '<system-reminder>a</system-reminder><system-reminder>b</system-reminder>visible',
+    { preserveWhitespace: true },
+  ),
+  'visible',
+);
+assert.strictEqual(
+  stripCodexInternalContextBlocks(
+    '<environment_context>a</environment_context>\n<system-reminder>b</system-reminder>\n    const x = 1;',
+    { preserveWhitespace: true },
+  ),
+  '    const x = 1;',
+);
+assert.strictEqual(
+  stripCodexInternalContextBlocks(
+    '<system-reminder>a</system-reminder>\n    code',
+    { preserveWhitespace: true },
+  ),
+  '    code',
+);
+assert.strictEqual(
+  stripCodexInternalContextBlocks(
+    'before\n<system-reminder>a</system-reminder>\n<oai-mem-citation>b</oai-mem-citation>\n    code',
+    { preserveWhitespace: true },
+  ),
+  'before\n    code',
+);
+assert.strictEqual(
+  stripCodexInternalContextBlocks(
+    'paragraph 1\n\n<system-reminder>a</system-reminder>\n\n    indented code\n',
+    { preserveWhitespace: true },
+  ),
+  'paragraph 1\n\n    indented code\n',
+);
+assert.strictEqual(
+  stripCodexInternalContextBlocks(
+    'answer\n\n<oai-mem-citation>a</oai-mem-citation>\n<system-reminder>b</system-reminder>\n',
+    { preserveWhitespace: true },
+  ),
+  'answer',
+);
 
 const stream = createCodexInlineVisualizationStreamState();
 const prefix = '::codex-inline-vis{file="';

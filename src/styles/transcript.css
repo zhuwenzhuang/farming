@@ -3108,6 +3108,6 @@ body.code-mode:not(.code-compact-layout) .code-agent-transcript.wide-layout {
   --code-transcript-answer-max-width: 100%;
   --code-transcript-inline-padding: 24px;
 }
-body.code-mode:not(.code-compact-layout) .code-agent-work-pane.has-chat-width-toggle {
+body.code-mode:not(.code-compact-layout) .code-agent-work-pane.has-chat-width-toggle .code-agent-transcript {
   --code-transcript-controls-space: 98px;
 }

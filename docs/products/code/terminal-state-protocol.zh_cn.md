@@ -84,7 +84,10 @@ Renderer 处于 Detached 时收到的 Replacement Transition 不能静默丢弃�
 Recovery Target，并将该 Record 标记为下一次可见 Attach 前需要重新读取权威 Checkpoint。
 
 完整 Checkpoint 安装期间隐藏旧 Screen。用户只会看到上一个已证明 Screen、有界 Recovery
-Status 或新提交 Screen，不会观看历史重绘逐步回放。
+Status 或新提交 Screen，不会观看历史重绘逐步回放。当 Terminal Runtime 已经 Stopped 或 Dead 时，
+仍携带保留 Checkpoint 的读取会以只读方式渲染该 Screen 并显示明确的停止提示；没有保留 Checkpoint
+的 Stopped 或 Dead 响应会直接以只读停止提示收敛（保留已提交 Screen 或显示可用回退输出），不会进入
+不变量失败重试。
 
 ## Browser Attachment
 

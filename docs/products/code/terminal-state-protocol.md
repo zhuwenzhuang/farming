@@ -112,7 +112,13 @@ record as requiring a fresh checkpoint before the next visible attach.
 
 During a full checkpoint install, the previous screen stays hidden. The user
 sees either the last proven screen, a bounded recovery status, or the newly
-committed screen—never a visible replay of historical redraws.
+committed screen—never a visible replay of historical redraws. When a Terminal
+runtime has already stopped or died, a checkpoint read that still carries a
+retained checkpoint renders that screen read-only with an explicit stopped
+notice; a stopped or dead response without a retained checkpoint settles
+read-only with the stopped notice (retaining an already committed screen or
+rendering available fallback output) instead of entering invariant-failure
+retries.
 
 ## Browser Attachment
 

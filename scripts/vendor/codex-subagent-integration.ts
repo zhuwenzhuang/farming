@@ -11,13 +11,22 @@ export function integrateCodexSubagentTurns(source: string): string {
   };
   replace('  children = /* @__PURE__ */ new Map();', '  children = /* @__PURE__ */ new Map();\n  nativeChildTurns = new Map();');
   replace(`    if (notification.method === "turn/started") {
-      return this.isKnownChild(notification.params.threadId);
+      const childTurn = this.isKnownChild(notification.params.threadId);
+      if (childTurn) await this.reopen(notification.params.threadId);
+      return childTurn;
     }`, `    if (notification.method === "turn/started") {
       const { threadId, turn } = notification.params;
       if (!this.isKnownChild(threadId)) return false;
       if (this.nativeChildTurns.get(threadId) !== turn.id) {
+        const previousTurn = this.nativeChildTurns.get(threadId);
         this.nativeChildTurns.set(threadId, turn.id);
-        await this.reopen(threadId);
+        try {
+          await this.reopen(threadId);
+        } catch (error) {
+          if (previousTurn === undefined) this.nativeChildTurns.delete(threadId);
+          else this.nativeChildTurns.set(threadId, previousTurn);
+          throw error;
+        }
       }
       return true;
     }`);
@@ -30,7 +39,7 @@ export function integrateCodexSubagentTurns(source: string): string {
     const ignored = typeof threadId === "string" && (`);
   replace('sessionId: `${childThreadId}:generation:2`,', 'sessionId: childThreadId,');
   const reopenStart = router.indexOf('    const previousSessionId = child.sessionId;');
-  const reopenEnd = router.indexOf('\n  resolveMaterialization(', reopenStart);
+  const reopenEnd = router.indexOf('\n  /** Takes a model that Codex reports', reopenStart);
   if (reopenStart < 0 || reopenEnd < 0) throw new Error('Expected child reopen boundary');
   router = router.slice(0, reopenStart) + `    const previousState = child.terminalState;
     delete child.terminalState;
@@ -44,6 +53,7 @@ export function integrateCodexSubagentTurns(source: string): string {
       child.terminalState = previousState;
       throw error;
     }
+    await this.reportModel(childThreadId, child.sessionId);
   }` + router.slice(reopenEnd);
   router = router.replaceAll('capabilities: {}', 'capabilities: { history: {} }')
     .replaceAll('sessionUpdate: "subagent_state_update",', 'sessionUpdate: "subagent_state_update",\n        capabilities: { history: {} },');

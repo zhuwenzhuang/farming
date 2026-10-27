@@ -139,8 +139,8 @@ if [ ! -x "${RIPGREP_BIN}" ] || ! "${RIPGREP_BIN}" --version | grep -q '^ripgrep
   echo "npm package omitted or corrupted Farming managed ripgrep: ${RIPGREP_BIN}" >&2
   exit 1
 fi
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-2.2.2.mjs"
-CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.94.0.mjs"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-2.3.0.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.97.0.mjs"
 PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.34.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \
@@ -291,8 +291,8 @@ const path = require('path');
 
 const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-const expectedCodexVendor = '7fa29c543c6812e08c6206ba9c289872b5a48cbcab95d9d83f48100b20c57bf9';
-const expectedClaudeVendor = '9e5244bc490db9f28084030b1da7012064549e69a41bb3fe854831cd44680f56';
+const expectedCodexVendor = 'd604a28754a099df3ea9edaa866be74fe52266d9783d3ab63b0e19c7c41eb361';
+const expectedClaudeVendor = '1a4791c30de16b3adff5d826f6b2e1aa01956400aea289d6a49cc751e4cf6285';
 const expectedPiVendor = '7b56b4820d7739e877b8ad96b2a045e2b57ddaf45ec6c637412d37c43b3abd10';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');

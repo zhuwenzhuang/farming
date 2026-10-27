@@ -76,11 +76,20 @@ type ClaudeState = {
   sessionId: string;
   projectPath: string;
 };
+type JsonScanState = {
+  started: boolean;
+  finished: boolean;
+  inString: boolean;
+  escaped: boolean;
+  invalid: boolean;
+  stack: number[];
+};
 type LineCheckpoint = {
   lineBytes: number;
   lineStartOffset: number;
   firstBase64: string;
   tailBase64: string;
+  jsonState?: JsonScanState;
 };
 type ParserState = (CodexState | ClaudeState) & {
   lineCheckpoint?: LineCheckpoint;
@@ -105,7 +114,7 @@ type CollectRequest = {
   scanBudgetMs?: number;
   roots?: Partial<Record<Provider, string[]>>;
 };
-type QueuePreparation = 'defer' | 'ready' | 'skip';
+type QueuePreparation = 'budget' | 'defer' | 'ready' | 'skip';
 type ParentBaselineCache = Map<string, Totals | null>;
 type UsageScannerProvider = {
   id: Provider;
@@ -121,11 +130,16 @@ type UsageScannerProvider = {
     recentBoundary: number,
     metrics: Metrics,
   ): void;
-  candidateFromPath(database: DatabaseSync, filePath: string): SourceCandidate;
+  candidateFromPath(
+    database: DatabaseSync,
+    filePath: string,
+    metrics: Metrics,
+  ): SourceCandidate;
   prepareQueuedCandidate(
     database: DatabaseSync,
     candidate: SourceCandidate,
     parentCache: ParentBaselineCache,
+    deadline: number,
     metrics: Metrics,
   ): QueuePreparation;
   quotaCandidates(database: DatabaseSync): unknown[];
@@ -196,6 +210,35 @@ CREATE TABLE IF NOT EXISTS discovery_source_queue (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS discovery_source_queue_priority
   ON discovery_source_queue(action, priority, queued_at_ms);
+CREATE TABLE IF NOT EXISTS codex_source_probes (
+  path TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  parent_session_id TEXT,
+  fork_timestamp_ms INTEGER,
+  copied_prefix INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  mtime_ms REAL NOT NULL,
+  file_dev INTEGER NOT NULL,
+  file_ino INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS codex_source_probes_session
+  ON codex_source_probes(session_id);
+CREATE TABLE IF NOT EXISTS codex_parent_baselines (
+  path TEXT NOT NULL,
+  cutoff_ms INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  mtime_ms REAL NOT NULL,
+  file_dev INTEGER NOT NULL,
+  file_ino INTEGER NOT NULL,
+  prefix_sha256 TEXT NOT NULL,
+  suffix_sha256 TEXT NOT NULL,
+  committed_offset INTEGER NOT NULL,
+  latest_json TEXT,
+  accumulated_json TEXT,
+  line_checkpoint_json TEXT,
+  scan_complete INTEGER NOT NULL,
+  PRIMARY KEY(path, cutoff_ms)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS codex_quota_candidates (
   source_path TEXT NOT NULL,
   limit_id TEXT NOT NULL,
@@ -462,6 +505,8 @@ function databaseCompatible(filePath: string): boolean {
           'discovery_directories',
           'discovery_source_queue',
           'codex_quota_candidates',
+          'codex_source_probes',
+          'codex_parent_baselines',
           'cache_stats',
         ]
           .every(name => names.has(name))
@@ -503,6 +548,18 @@ function openDatabase(filePath: string): { database: DatabaseSync; rebuilt: bool
   database.exec('PRAGMA foreign_keys=ON');
   database.exec('PRAGMA busy_timeout=30000');
   database.exec(SCHEMA_SQL);
+  const baselineColumns = new Set(
+    (database.prepare('PRAGMA table_info(codex_parent_baselines)').all() as Array<{ name: string }>)
+      .map(column => column.name),
+  );
+  if (
+    !baselineColumns.has('prefix_sha256')
+    || !baselineColumns.has('suffix_sha256')
+    || !baselineColumns.has('line_checkpoint_json')
+  ) {
+    database.exec('DROP TABLE IF EXISTS codex_parent_baselines');
+    database.exec(SCHEMA_SQL);
+  }
   database.prepare(
     "INSERT OR REPLACE INTO metadata(key, value) VALUES('schema_version', ?)",
   ).run(String(SCHEMA_VERSION));
@@ -1268,6 +1325,8 @@ function deleteSource(database: DatabaseSync, filePath: string): void {
   ).run();
   database.prepare('DELETE FROM claude_messages WHERE source_path = ?').run(filePath);
   database.prepare('DELETE FROM codex_quota_candidates WHERE source_path = ?').run(filePath);
+  database.prepare('DELETE FROM codex_source_probes WHERE path = ?').run(filePath);
+  database.prepare('DELETE FROM codex_parent_baselines WHERE path = ?').run(filePath);
   database.prepare('DELETE FROM source_files WHERE path = ?').run(filePath);
 }
 
@@ -1396,83 +1455,72 @@ function processRecord(
   );
 }
 
-function isCompleteJsonValue(
-  filePath: string,
-  startOffset: number,
-  endOffset: number,
-): boolean {
-  const descriptor = fs.openSync(filePath, 'r');
-  let physicalOffset = startOffset;
-  let started = false;
-  let finished = false;
-  let inString = false;
-  let escaped = false;
-  let invalid = false;
-  const stack: number[] = [];
-  try {
-    const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-    while (physicalOffset < endOffset && !invalid) {
-      const length = fs.readSync(
-        descriptor,
-        buffer,
-        0,
-        Math.min(buffer.length, endOffset - physicalOffset),
-        physicalOffset,
-      );
-      if (length === 0) break;
-      physicalOffset += length;
-      for (const byte of buffer.subarray(0, length)) {
-        if (!started) {
-          if (byte === 0x20 || byte === 0x09 || byte === 0x0d || byte === 0x0a) continue;
-          if (byte !== 0x7b && byte !== 0x5b) {
-            invalid = true;
-            break;
-          }
-          started = true;
-          stack.push(byte);
-          continue;
-        }
-        if (finished) {
-          if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0d && byte !== 0x0a) {
-            invalid = true;
-            break;
-          }
-          continue;
-        }
-        if (inString) {
-          if (escaped) {
-            escaped = false;
-          } else if (byte === 0x5c) {
-            escaped = true;
-          } else if (byte === 0x22) {
-            inString = false;
-          }
-          continue;
-        }
-        if (byte === 0x22) {
-          inString = true;
-        } else if (byte === 0x7b || byte === 0x5b) {
-          stack.push(byte);
-        } else if (byte === 0x7d || byte === 0x5d) {
-          const expected = byte === 0x7d ? 0x7b : 0x5b;
-          if (stack.pop() !== expected) {
-            invalid = true;
-            break;
-          }
-          if (stack.length === 0) finished = true;
-        }
+function createJsonScanState(): JsonScanState {
+  return {
+    started: false,
+    finished: false,
+    inString: false,
+    escaped: false,
+    invalid: false,
+    stack: [],
+  };
+}
+
+function advanceJsonScanState(state: JsonScanState, part: Buffer): void {
+  if (state.invalid) return;
+  for (const byte of part) {
+    if (!state.started) {
+      if (byte === 0x20 || byte === 0x09 || byte === 0x0d || byte === 0x0a) continue;
+      if (byte !== 0x7b && byte !== 0x5b) {
+        state.invalid = true;
+        return;
       }
+      state.started = true;
+      state.stack.push(byte);
+      continue;
     }
-    return physicalOffset >= endOffset
-      && started
-      && finished
-      && !inString
-      && !escaped
-      && !invalid
-      && stack.length === 0;
-  } finally {
-    fs.closeSync(descriptor);
+    if (state.finished) {
+      if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0d && byte !== 0x0a) {
+        state.invalid = true;
+        return;
+      }
+      continue;
+    }
+    if (state.inString) {
+      if (state.escaped) {
+        state.escaped = false;
+      } else if (byte === 0x5c) {
+        state.escaped = true;
+      } else if (byte === 0x22) {
+        state.inString = false;
+      }
+      continue;
+    }
+    if (byte === 0x22) {
+      state.inString = true;
+    } else if (byte === 0x7b || byte === 0x5b) {
+      state.stack.push(byte);
+    } else if (byte === 0x7d || byte === 0x5d) {
+      const expected = byte === 0x7d ? 0x7b : 0x5b;
+      if (state.stack.pop() !== expected) {
+        state.invalid = true;
+        return;
+      }
+      if (state.stack.length === 0) state.finished = true;
+    }
   }
+}
+
+function isJsonScanStateComplete(state: JsonScanState | null | undefined): boolean {
+  return Boolean(
+    state
+    && state.started
+    && state.finished
+    && !state.inString
+    && !state.escaped
+    && !state.invalid
+    && state.stack.length === 0,
+  );
 }
 
 function scanFile(
@@ -1555,6 +1603,7 @@ function scanFile(
     ? Buffer.from(lineCheckpoint.tailBase64, 'base64')
     : Buffer.alloc(0);
   let truncated = Boolean(lineCheckpoint);
+  let jsonState: JsonScanState | null = lineCheckpoint?.jsonState ?? (truncated ? createJsonScanState() : null);
   let stoppedForBudget = false;
 
   const checkpointLine = () => {
@@ -1563,6 +1612,7 @@ function scanFile(
       lineStartOffset,
       firstBase64: first.toString('base64'),
       tailBase64: tail.toString('base64'),
+      ...(jsonState ? { jsonState } : {}),
     };
     committedOffset = physicalOffset;
   };
@@ -1574,6 +1624,7 @@ function scanFile(
     first = Buffer.alloc(0);
     tail = Buffer.alloc(0);
     truncated = false;
+    jsonState = null;
   };
   const appendPart = (part: Buffer) => {
     lineBytes += part.length;
@@ -1585,9 +1636,12 @@ function scanFile(
       const combined = Buffer.concat(fullChunks);
       first = combined.subarray(0, TRUNCATED_EDGE_BYTES);
       tail = combined.subarray(Math.max(0, combined.length - TRUNCATED_EDGE_BYTES));
+      jsonState = createJsonScanState();
+      advanceJsonScanState(jsonState, combined);
       fullChunks = [];
       truncated = true;
     }
+    if (jsonState) advanceJsonScanState(jsonState, part);
     if (first.length < TRUNCATED_EDGE_BYTES) {
       const needed = TRUNCATED_EDGE_BYTES - first.length;
       first = Buffer.concat([first, part.subarray(0, needed)]);
@@ -1606,7 +1660,7 @@ function scanFile(
         } catch {
           return false;
         }
-      } else if (!isCompleteJsonValue(candidate.filePath, lineStartOffset, lineEnd)) {
+      } else if (!isJsonScanStateComplete(jsonState)) {
         return false;
       }
     }
@@ -1703,21 +1757,64 @@ function scanFile(
     Date.now(),
     candidate.filePath,
   );
+  if (candidate.provider === 'codex') {
+    const codexState = state as CodexState;
+    upsertCodexProbe(database, candidate.filePath, finalStat, {
+      sessionId: codexState.sessionId,
+      parentSessionId: codexState.parentSessionId,
+      forkTimestamp: codexState.forkTimestamp,
+      copiedPrefix: codexState.copiedPrefix,
+    });
+  }
   metrics[scanComplete ? 'scanned_files' : 'partial_files'] =
     Number(metrics[scanComplete ? 'scanned_files' : 'partial_files']) + 1;
   return scanComplete;
 }
 
-function probeCodex(filePath: string): {
+type CodexProbe = {
   sessionId: string;
   parentSessionId: string | null;
   forkTimestamp: number | null;
   copiedPrefix: boolean;
-} {
+};
+
+function upsertCodexProbe(
+  database: DatabaseSync,
+  filePath: string,
+  stat: fs.Stats,
+  probe: CodexProbe,
+): void {
+  database.prepare(`
+    INSERT INTO codex_source_probes(
+      path, session_id, parent_session_id, fork_timestamp_ms, copied_prefix,
+      size, mtime_ms, file_dev, file_ino
+    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(path) DO UPDATE SET
+      session_id = excluded.session_id,
+      parent_session_id = excluded.parent_session_id,
+      fork_timestamp_ms = excluded.fork_timestamp_ms,
+      copied_prefix = excluded.copied_prefix,
+      size = excluded.size,
+      mtime_ms = excluded.mtime_ms,
+      file_dev = excluded.file_dev,
+      file_ino = excluded.file_ino
+  `).run(
+    filePath,
+    probe.sessionId,
+    probe.parentSessionId,
+    probe.forkTimestamp,
+    probe.copiedPrefix ? 1 : 0,
+    stat.size,
+    stat.mtimeMs,
+    Number(stat.dev),
+    Number(stat.ino),
+  );
+}
+
+function probeCodex(filePath: string): CodexProbe {
   const fallback = path.basename(filePath, '.jsonl');
-  let descriptor: number | null = null;
+  const descriptor = fs.openSync(filePath, 'r');
   try {
-    descriptor = fs.openSync(filePath, 'r');
     // Codex writes the authoritative session_meta first. A small bounded probe
     // avoids rereading megabytes from every uncached rollout during discovery.
     const buffer = Buffer.allocUnsafe(PREFIX_BYTES);
@@ -1746,70 +1843,199 @@ function probeCodex(filePath: string): {
       forkTimestamp: leaf?.timestamp || null,
       copiedPrefix,
     };
-  } catch {
-    return {
-      sessionId: fallback,
-      parentSessionId: null,
-      forkTimestamp: null,
-      copiedPrefix: false,
-    };
   } finally {
-    if (descriptor !== null) fs.closeSync(descriptor);
+    fs.closeSync(descriptor);
   }
 }
 
-function codexRawTotalsAt(
+function readCodexParentBaselineAt(
+  database: DatabaseSync,
   filePath: string,
+  stat: fs.Stats,
   cutoff: number,
+  deadline: number,
   metrics: Metrics,
-): Totals | null {
-  const descriptor = fs.openSync(filePath, 'r');
-  let physicalOffset = 0;
-  let chunks: Buffer[] = [];
-  let lineBytes = 0;
-  let latest: Totals | null = null;
-  let accumulated: Totals | null = null;
+): { status: 'ready' | 'incomplete' | 'budget'; baseline: Totals | null } {
+  const existing = database.prepare(`
+    SELECT * FROM codex_parent_baselines
+    WHERE path = ? AND cutoff_ms = ?
+  `).get(filePath, cutoff) as Record<string, unknown> | undefined;
+  const sameIdentity = Boolean(
+    existing
+    && Number(existing.file_dev) === Number(stat.dev)
+    && Number(existing.file_ino) === Number(stat.ino)
+    && stat.size >= Number(existing.committed_offset),
+  );
+  const cachedLatest = existing?.latest_json
+    ? JSON.parse(String(existing.latest_json)) as Totals
+    : null;
+  if (
+    sameIdentity
+    && existing
+    && Number(existing.size) === stat.size
+    && Number(existing.mtime_ms) === stat.mtimeMs
+    && (Number(existing.scan_complete) === 1 || Number(existing.scan_complete) === 2)
+  ) {
+    return { status: 'ready', baseline: cloneTotals(cachedLatest) };
+  }
+  if (Date.now() >= deadline) {
+    return { status: 'budget', baseline: null };
+  }
+
+  let canResume = sameIdentity && Boolean(existing);
+  if (canResume && existing) {
+    const committed = Number(existing.committed_offset);
+    if (
+      committed > 0
+      && (
+        prefixHash(filePath, committed) !== String(existing.prefix_sha256 || '')
+        || suffixHash(filePath, committed) !== String(existing.suffix_sha256 || '')
+      )
+    ) {
+      canResume = false;
+    } else if (
+      Number(existing.scan_complete) === 2
+      || (Number(existing.scan_complete) === 1 && Number(existing.size) === stat.size)
+    ) {
+      database.prepare(`
+        UPDATE codex_parent_baselines
+        SET size = ?, mtime_ms = ?, file_dev = ?, file_ino = ?
+        WHERE path = ? AND cutoff_ms = ?
+      `).run(
+        stat.size,
+        stat.mtimeMs,
+        Number(stat.dev),
+        Number(stat.ino),
+        filePath,
+        cutoff,
+      );
+      return { status: 'ready', baseline: cloneTotals(cachedLatest) };
+    }
+  }
+
+  const savedCheckpoint = canResume && existing?.line_checkpoint_json
+    ? JSON.parse(String(existing.line_checkpoint_json)) as LineCheckpoint
+    : undefined;
+  let lineCheckpoint: LineCheckpoint | undefined;
+  let committedOffset = canResume && existing ? Number(existing.committed_offset) : 0;
+  let physicalOffset = committedOffset;
+  let lineStartOffset = savedCheckpoint?.lineStartOffset ?? committedOffset;
+  let fullChunks: Buffer[] = [];
+  let lineBytes = savedCheckpoint?.lineBytes ?? 0;
+  let first = savedCheckpoint
+    ? Buffer.from(savedCheckpoint.firstBase64, 'base64')
+    : Buffer.alloc(0);
+  let tail = savedCheckpoint
+    ? Buffer.from(savedCheckpoint.tailBase64, 'base64')
+    : Buffer.alloc(0);
+  let truncated = Boolean(savedCheckpoint);
+  let jsonState: JsonScanState | null = savedCheckpoint?.jsonState ?? (truncated ? createJsonScanState() : null);
+  let latest: Totals | null = canResume && existing && existing.latest_json
+    ? JSON.parse(String(existing.latest_json)) as Totals
+    : null;
+  let accumulated: Totals | null = canResume && existing && existing.accumulated_json
+    ? JSON.parse(String(existing.accumulated_json)) as Totals
+    : null;
   let done = false;
-  const consume = () => {
-    if (lineBytes === 0 || lineBytes > 512 * 1024) {
-      chunks = [];
-      lineBytes = 0;
+  let stoppedForBudget = false;
+  let incompleteFinalLine = false;
+
+  const checkpointLine = () => {
+    lineCheckpoint = {
+      lineBytes,
+      lineStartOffset,
+      firstBase64: first.toString('base64'),
+      tailBase64: tail.toString('base64'),
+      ...(jsonState ? { jsonState } : {}),
+    };
+    committedOffset = physicalOffset;
+  };
+  const resetLine = () => {
+    lineStartOffset = committedOffset;
+    fullChunks = [];
+    lineBytes = 0;
+    first = Buffer.alloc(0);
+    tail = Buffer.alloc(0);
+    truncated = false;
+    jsonState = null;
+  };
+  const appendPart = (part: Buffer) => {
+    lineBytes += part.length;
+    if (!truncated && lineBytes <= TRUNCATED_EDGE_BYTES) {
+      fullChunks.push(part);
       return;
     }
+    if (!truncated) {
+      const combined = Buffer.concat(fullChunks);
+      first = combined.subarray(0, TRUNCATED_EDGE_BYTES);
+      tail = combined.subarray(Math.max(0, combined.length - TRUNCATED_EDGE_BYTES));
+      jsonState = createJsonScanState();
+      advanceJsonScanState(jsonState, combined);
+      fullChunks = [];
+      truncated = true;
+    }
+    if (jsonState) advanceJsonScanState(jsonState, part);
+    if (first.length < TRUNCATED_EDGE_BYTES) {
+      const needed = TRUNCATED_EDGE_BYTES - first.length;
+      first = Buffer.concat([first, part.subarray(0, needed)]);
+    }
+    tail = Buffer.concat([tail, part]);
+    if (tail.length > TRUNCATED_EDGE_BYTES) {
+      tail = tail.subarray(tail.length - TRUNCATED_EDGE_BYTES);
+    }
+  };
+  const consumeLine = (lineEnd: number, requireCompleteJson = false): boolean => {
+    const fullLine = truncated ? null : Buffer.concat(fullChunks);
+    if (requireCompleteJson) {
+      if (fullLine) {
+        try {
+          JSON.parse(fullLine.toString('utf8'));
+        } catch {
+          return false;
+        }
+      } else if (!isJsonScanStateComplete(jsonState)) {
+        return false;
+      }
+    }
     try {
-      const record = JSON.parse(Buffer.concat(chunks).toString('utf8')) as
-        Record<string, unknown>;
+      const record = fullLine
+        ? JSON.parse(fullLine.toString('utf8')) as Record<string, unknown>
+        : parseLargeJsonEdge(first, tail)
+          || { timestamp: /"timestamp"\s*:\s*"([^"]+)"/.exec(first.toString('utf8'))?.[1] };
       const observedAt = timestampMs(record.timestamp);
       if (observedAt && observedAt > cutoff) {
         done = true;
-        return;
-      }
-      const payload = record.payload && typeof record.payload === 'object'
-        ? record.payload as Record<string, unknown>
-        : {};
-      if (record.type !== 'event_msg' || payload.type !== 'token_count') return;
-      const info = payload.info && typeof payload.info === 'object'
-        ? payload.info as Record<string, unknown>
-        : {};
-      const total = normalizedCodexTotals(info.total_token_usage);
-      const last = normalizedCodexTotals(info.last_token_usage);
-      if (total) {
-        latest = total;
-        accumulated = total;
-      } else if (last) {
-        accumulated = addTotals(accumulated, last);
-        latest = accumulated;
+      } else {
+        const payload = record.payload && typeof record.payload === 'object'
+          ? record.payload as Record<string, unknown>
+          : {};
+        if (record.type === 'event_msg' && payload.type === 'token_count') {
+          const info = payload.info && typeof payload.info === 'object'
+            ? payload.info as Record<string, unknown>
+            : {};
+          const total = normalizedCodexTotals(info.total_token_usage);
+          const last = normalizedCodexTotals(info.last_token_usage);
+          if (total) {
+            latest = total;
+            accumulated = total;
+          } else if (last) {
+            accumulated = addTotals(accumulated, last);
+            latest = accumulated;
+          }
+        }
       }
     } catch {
       // Only complete, canonical token rows contribute to a parent snapshot.
-    } finally {
-      chunks = [];
-      lineBytes = 0;
     }
+    committedOffset = lineEnd;
+    resetLine();
+    return true;
   };
+
+  const descriptor = fs.openSync(filePath, 'r');
   try {
     const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-    while (!done) {
+    while (!done && !stoppedForBudget) {
       const length = fs.readSync(
         descriptor,
         buffer,
@@ -1825,18 +2051,86 @@ function codexRawTotalsAt(
         const newline = block.indexOf(0x0a, cursor);
         const end = newline < 0 ? block.length : newline + 1;
         const part = Buffer.from(block.subarray(cursor, end));
-        lineBytes += part.length;
-        if (lineBytes <= 512 * 1024) chunks.push(part);
+        appendPart(part);
         physicalOffset += part.length;
         cursor = end;
-        if (newline >= 0) consume();
+        if (newline >= 0) {
+          consumeLine(physicalOffset);
+          if (!done && Date.now() >= deadline && physicalOffset < stat.size) {
+            stoppedForBudget = true;
+            break;
+          }
+        }
+      }
+      if (!done && !stoppedForBudget && Date.now() >= deadline && physicalOffset < stat.size) {
+        if (truncated) checkpointLine();
+        stoppedForBudget = true;
+        break;
       }
     }
-    if (!done && lineBytes > 0) consume();
-    return cloneTotals(latest);
+    if (!done && !stoppedForBudget && lineBytes > 0) {
+      const finished = consumeLine(physicalOffset, true);
+      if (!finished) {
+        incompleteFinalLine = true;
+        if (truncated) checkpointLine();
+      }
+    }
   } finally {
     fs.closeSync(descriptor);
   }
+
+  const scanState = done
+    ? 2
+    : (
+      !stoppedForBudget
+      && !incompleteFinalLine
+      && physicalOffset >= stat.size
+      && committedOffset >= stat.size
+      && lineBytes === 0
+      && !lineCheckpoint
+        ? 1
+        : 0
+    );
+  database.prepare(`
+    INSERT INTO codex_parent_baselines(
+      path, cutoff_ms, size, mtime_ms, file_dev, file_ino,
+      prefix_sha256, suffix_sha256, committed_offset,
+      latest_json, accumulated_json, line_checkpoint_json, scan_complete
+    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(path, cutoff_ms) DO UPDATE SET
+      size = excluded.size,
+      mtime_ms = excluded.mtime_ms,
+      file_dev = excluded.file_dev,
+      file_ino = excluded.file_ino,
+      prefix_sha256 = excluded.prefix_sha256,
+      suffix_sha256 = excluded.suffix_sha256,
+      committed_offset = excluded.committed_offset,
+      latest_json = excluded.latest_json,
+      accumulated_json = excluded.accumulated_json,
+      line_checkpoint_json = excluded.line_checkpoint_json,
+      scan_complete = excluded.scan_complete
+  `).run(
+    filePath,
+    cutoff,
+    stat.size,
+    stat.mtimeMs,
+    Number(stat.dev),
+    Number(stat.ino),
+    committedOffset > 0 ? prefixHash(filePath, committedOffset) : '',
+    committedOffset > 0 ? suffixHash(filePath, committedOffset) : '',
+    committedOffset,
+    latest ? JSON.stringify(latest) : null,
+    accumulated ? JSON.stringify(accumulated) : null,
+    lineCheckpoint ? JSON.stringify(lineCheckpoint) : null,
+    scanState,
+  );
+  if (scanState === 0) {
+    return {
+      status: incompleteFinalLine && !stoppedForBudget ? 'incomplete' : 'budget',
+      baseline: null,
+    };
+  }
+  return { status: 'ready', baseline: cloneTotals(latest) };
 }
 
 function rowEvent(row: Record<string, unknown>): UsageEvent {
@@ -1935,6 +2229,8 @@ function resetDiscovery(database: DatabaseSync, cacheFile: string): void {
     DELETE FROM discovery_source_queue;
     DELETE FROM discovery_directories;
     DELETE FROM codex_quota_candidates;
+    DELETE FROM codex_source_probes;
+    DELETE FROM codex_parent_baselines;
     DELETE FROM claude_messages;
     DELETE FROM usage_provider_hourly;
     DELETE FROM source_files;
@@ -2354,29 +2650,79 @@ function auditSources(
   }
 }
 
-function codexCandidateFromPath(database: DatabaseSync, filePath: string): SourceCandidate {
-  const stat = fs.statSync(filePath);
+function codexProbeFromPath(
+  database: DatabaseSync,
+  filePath: string,
+  stat: fs.Stats,
+): CodexProbe {
   const cached = sourceRow(database, filePath);
-  let probe: ReturnType<typeof probeCodex>;
   if (cached?.provider === 'codex') {
     try {
       const state = JSON.parse(String(cached.parser_state)) as CodexState;
-      probe = {
+      const probe: CodexProbe = {
         sessionId: state.sessionId,
         parentSessionId: state.parentSessionId,
         forkTimestamp: state.forkTimestamp,
         copiedPrefix: state.copiedPrefix,
       };
+      upsertCodexProbe(database, filePath, stat, probe);
+      return probe;
     } catch {
-      probe = probeCodex(filePath);
+      // Fall through to probe file directly.
     }
-  } else {
-    probe = probeCodex(filePath);
   }
+  const existingProbe = (database.prepare(
+    'SELECT * FROM codex_source_probes WHERE path = ?',
+  ).get(filePath) || database.prepare(
+    'SELECT * FROM codex_source_probes WHERE file_dev = ? AND file_ino = ? AND size = ? AND mtime_ms = ? LIMIT 1',
+  ).get(
+    Number(stat.dev),
+    Number(stat.ino),
+    stat.size,
+    stat.mtimeMs,
+  )) as Record<string, unknown> | undefined;
+  if (
+    existingProbe
+    && Number(existingProbe.size) === stat.size
+    && Number(existingProbe.mtime_ms) === stat.mtimeMs
+    && Number(existingProbe.file_dev) === Number(stat.dev)
+    && Number(existingProbe.file_ino) === Number(stat.ino)
+  ) {
+    const probe: CodexProbe = {
+      sessionId: String(existingProbe.session_id),
+      parentSessionId: existingProbe.parent_session_id
+        ? String(existingProbe.parent_session_id)
+        : null,
+      forkTimestamp: existingProbe.fork_timestamp_ms === null
+        ? null
+        : Number(existingProbe.fork_timestamp_ms),
+      copiedPrefix: Number(existingProbe.copied_prefix) === 1,
+    };
+    if (String(existingProbe.path) !== filePath) {
+      upsertCodexProbe(database, filePath, stat, probe);
+    }
+    return probe;
+  }
+  const probe = probeCodex(filePath);
+  upsertCodexProbe(database, filePath, stat, probe);
+  return probe;
+}
+
+function codexCandidateFromPath(
+  database: DatabaseSync,
+  filePath: string,
+  _metrics: Metrics,
+): SourceCandidate {
+  const stat = fs.statSync(filePath);
+  const probe = codexProbeFromPath(database, filePath, stat);
   return { provider: 'codex', filePath, stat, ...probe, parentBaseline: null };
 }
 
-function claudeCandidateFromPath(_database: DatabaseSync, filePath: string): SourceCandidate {
+function claudeCandidateFromPath(
+  _database: DatabaseSync,
+  filePath: string,
+  _metrics: Metrics,
+): SourceCandidate {
   return {
     provider: 'claude',
     filePath,
@@ -2393,8 +2739,9 @@ function candidateFromPath(
   database: DatabaseSync,
   provider: Provider,
   filePath: string,
+  metrics: Metrics,
 ): SourceCandidate {
-  return usageScannerProvider(provider).candidateFromPath(database, filePath);
+  return usageScannerProvider(provider).candidateFromPath(database, filePath, metrics);
 }
 
 function moveSource(
@@ -2439,6 +2786,18 @@ function moveSource(
   database.prepare(
     'UPDATE codex_quota_candidates SET source_path = ? WHERE source_path = ?',
   ).run(candidate.filePath, oldPath);
+  database.prepare('DELETE FROM codex_source_probes WHERE path = ?').run(oldPath);
+  database.prepare(
+    'UPDATE OR REPLACE codex_parent_baselines SET path = ? WHERE path = ?',
+  ).run(candidate.filePath, oldPath);
+  if (candidate.provider === 'codex') {
+    upsertCodexProbe(database, candidate.filePath, candidate.stat, {
+      sessionId: candidate.sessionId,
+      parentSessionId: candidate.parentSessionId,
+      forkTimestamp: candidate.forkTimestamp,
+      copiedPrefix: candidate.copiedPrefix,
+    });
+  }
   database.prepare('DELETE FROM source_files WHERE path = ?').run(oldPath);
 }
 
@@ -2470,61 +2829,221 @@ function prepareCodexCandidate(
   return true;
 }
 
+function probeQueuedCodexSources(
+  database: DatabaseSync,
+  candidatePath: string,
+  deadline: number,
+  metrics: Metrics,
+): boolean {
+  const rows = database.prepare(`
+    SELECT q.path
+    FROM discovery_source_queue q
+    LEFT JOIN codex_source_probes p ON p.path = q.path
+    LEFT JOIN source_files s ON s.path = q.path AND s.provider = 'codex'
+    WHERE q.provider = 'codex'
+      AND q.action = 'upsert'
+      AND p.path IS NULL
+      AND s.path IS NULL
+    ORDER BY
+      CASE
+        WHEN instr(q.path, '/archived_sessions/') > 0
+          OR instr(q.path, '\\archived_sessions\\') > 0
+        THEN 1
+        ELSE 0
+      END ASC,
+      q.priority DESC,
+      q.queued_at_ms ASC
+  `).all() as Array<{ path: string }>;
+  for (const row of rows) {
+    const queuedPath = String(row.path);
+    if (queuedPath === candidatePath) continue;
+    if (Date.now() >= deadline) return false;
+    try {
+      const stat = fs.statSync(queuedPath);
+      codexProbeFromPath(database, queuedPath, stat);
+    } catch (error) {
+      if (
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'ENOENT'
+      ) {
+        deleteSource(database, queuedPath);
+        database.prepare('DELETE FROM discovery_source_queue WHERE path = ?').run(queuedPath);
+        metrics.removed_files = Number(metrics.removed_files) + 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+  return true;
+}
+
+function listCodexParentCandidates(
+  database: DatabaseSync,
+  parentSessionId: string,
+  excludePath: string,
+): Array<{ path: string; mtimeMs: number; size: number }> {
+  const rows = database.prepare(`
+    SELECT path, mtime_ms, size FROM source_files
+    WHERE provider = 'codex' AND session_id = ? AND path != ?
+    UNION
+    SELECT p.path, p.mtime_ms, p.size FROM codex_source_probes p
+    WHERE p.session_id = ? AND p.path != ?
+      AND (
+        EXISTS (SELECT 1 FROM source_files s WHERE s.path = p.path AND s.provider = 'codex')
+        OR EXISTS (
+          SELECT 1 FROM discovery_source_queue q
+          WHERE q.path = p.path AND q.provider = 'codex' AND q.action = 'upsert'
+        )
+      )
+  `).all(
+    parentSessionId,
+    excludePath,
+    parentSessionId,
+    excludePath,
+  ) as Array<{ path: string; mtime_ms: number; size: number }>;
+  const byPath = new Map<string, { path: string; mtimeMs: number; size: number }>();
+  for (const row of rows) {
+    const filePath = String(row.path);
+    const entry = {
+      path: filePath,
+      mtimeMs: Number(row.mtime_ms),
+      size: Number(row.size),
+    };
+    const existing = byPath.get(filePath);
+    if (!existing || entry.mtimeMs > existing.mtimeMs || entry.size > existing.size) {
+      byPath.set(filePath, entry);
+    }
+  }
+  const archivedMarker = `${path.sep}archived_sessions${path.sep}`;
+  return Array.from(byPath.values()).sort((left, right) => {
+    const leftArchived = left.path.includes(archivedMarker) ? 1 : 0;
+    const rightArchived = right.path.includes(archivedMarker) ? 1 : 0;
+    if (leftArchived !== rightArchived) return leftArchived - rightArchived;
+    if (left.mtimeMs !== right.mtimeMs) return right.mtimeMs - left.mtimeMs;
+    if (left.size !== right.size) return right.size - left.size;
+    return left.path.localeCompare(right.path);
+  });
+}
+
 function resolveParentBaselineFromDatabase(
   database: DatabaseSync,
   candidate: SourceCandidate,
   cache: Map<string, Totals | null>,
+  deadline: number,
   metrics: Metrics,
-): Totals | null {
-  if (!candidate.parentSessionId || !candidate.forkTimestamp) return null;
+): { status: 'ready' | 'incomplete' | 'budget'; foundParent: boolean; baseline: Totals | null } {
+  if (!candidate.parentSessionId || !candidate.forkTimestamp) {
+    return { status: 'ready', foundParent: false, baseline: null };
+  }
   const key = `${candidate.parentSessionId}:${candidate.forkTimestamp}`;
-  if (cache.has(key)) return cloneTotals(cache.get(key));
-  const row = database.prepare(
-    "SELECT path FROM source_files WHERE provider = 'codex' AND session_id = ? LIMIT 1",
-  ).get(candidate.parentSessionId) as { path?: string } | undefined;
-  const baseline = row?.path && row.path !== candidate.filePath
-    ? codexRawTotalsAt(row.path, candidate.forkTimestamp, metrics)
-    : null;
-  cache.set(key, cloneTotals(baseline));
-  return baseline;
+  if (cache.has(key)) {
+    return {
+      status: 'ready',
+      foundParent: true,
+      baseline: cloneTotals(cache.get(key)),
+    };
+  }
+  const parentCandidates = listCodexParentCandidates(
+    database,
+    candidate.parentSessionId,
+    candidate.filePath,
+  );
+  for (const parentCandidate of parentCandidates) {
+    try {
+      const stat = fs.statSync(parentCandidate.path);
+      const result = readCodexParentBaselineAt(
+        database,
+        parentCandidate.path,
+        stat,
+        candidate.forkTimestamp,
+        deadline,
+        metrics,
+      );
+      if (result.status !== 'ready') {
+        return { status: result.status, foundParent: true, baseline: null };
+      }
+      cache.set(key, cloneTotals(result.baseline));
+      return { status: 'ready', foundParent: true, baseline: result.baseline };
+    } catch (error) {
+      if (
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'ENOENT'
+      ) {
+        deleteSource(database, parentCandidate.path);
+        database.prepare('DELETE FROM discovery_source_queue WHERE path = ?')
+          .run(parentCandidate.path);
+        metrics.removed_files = Number(metrics.removed_files) + 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+  return { status: 'ready', foundParent: false, baseline: null };
 }
 
 function prepareCodexQueuedCandidate(
   database: DatabaseSync,
   candidate: SourceCandidate,
   parentCache: ParentBaselineCache,
+  deadline: number,
   metrics: Metrics,
 ): QueuePreparation {
   if (!prepareCodexCandidate(database, candidate, metrics)) return 'skip';
-  if (
-    !sourceRow(database, candidate.filePath)
-    && candidate.parentSessionId
-    && !database.prepare(
-      "SELECT 1 FROM source_files WHERE provider = 'codex' AND session_id = ? LIMIT 1",
-    ).get(candidate.parentSessionId)
-  ) {
-    const otherUpsert = database.prepare(
-      "SELECT 1 FROM discovery_source_queue "
-        + "WHERE action = 'upsert' AND path != ? LIMIT 1",
-    ).get(candidate.filePath);
-    if (otherUpsert) {
-      const row = database.prepare(
-        "SELECT priority + 1 AS priority FROM discovery_source_queue "
-          + "WHERE action = 'upsert' ORDER BY priority DESC LIMIT 1",
-      ).get() as { priority: number };
-      database.prepare(
-        'UPDATE discovery_source_queue SET priority = ?, queued_at_ms = ? WHERE path = ?',
-      ).run(Number(row.priority), Date.now(), candidate.filePath);
-      return 'defer';
-    }
-  }
   if (!sourceRow(database, candidate.filePath) && candidate.parentSessionId) {
-    candidate.parentBaseline = resolveParentBaselineFromDatabase(
-      database,
-      candidate,
-      parentCache,
-      metrics,
-    );
+    if (!probeQueuedCodexSources(database, candidate.filePath, deadline, metrics)) {
+      return 'budget';
+    }
+    if (candidate.forkTimestamp) {
+      const resolved = resolveParentBaselineFromDatabase(
+        database,
+        candidate,
+        parentCache,
+        deadline,
+        metrics,
+      );
+      if (resolved.status === 'budget') return 'budget';
+      if (resolved.status === 'incomplete') return 'defer';
+      if (resolved.foundParent) {
+        candidate.parentBaseline = resolved.baseline;
+        return 'ready';
+      }
+    } else {
+      const existingParent = listCodexParentCandidates(
+        database,
+        candidate.parentSessionId,
+        candidate.filePath,
+      ).some((parentCandidate) => {
+        try {
+          fs.statSync(parentCandidate.path);
+          return true;
+        } catch (error) {
+          if (
+            error
+            && typeof error === 'object'
+            && 'code' in error
+            && error.code === 'ENOENT'
+          ) {
+            deleteSource(database, parentCandidate.path);
+            database.prepare('DELETE FROM discovery_source_queue WHERE path = ?')
+              .run(parentCandidate.path);
+            metrics.removed_files = Number(metrics.removed_files) + 1;
+            return false;
+          }
+          throw error;
+        }
+      });
+      if (existingParent) return 'ready';
+    }
+    const pendingCodexDirectory = database.prepare(`
+      SELECT 1 FROM discovery_directories
+      WHERE provider = 'codex' AND present = 1 AND pending = 1
+      LIMIT 1
+    `).get();
+    if (pendingCodexDirectory) return 'defer';
   }
   return 'ready';
 }
@@ -2570,16 +3089,40 @@ function processSourceQueue(
   metrics: Metrics,
 ): void {
   const parentCache = new Map<string, Totals | null>();
+  let hasDeferredCursor = false;
+  let cursorPriority = 0;
+  let cursorQueuedAtMs = 0;
+  let cursorPath = '';
   while (Date.now() < deadline) {
-    const task = (database.prepare(`
-      SELECT * FROM discovery_source_queue
-      WHERE action = 'upsert'
-      ORDER BY priority ASC, queued_at_ms ASC
-      LIMIT 1
-    `).get() || database.prepare(`
+    const upsertTask = (hasDeferredCursor
+      ? database.prepare(`
+        SELECT * FROM discovery_source_queue
+        WHERE action = 'upsert'
+          AND (
+            priority > ?
+            OR (priority = ? AND queued_at_ms > ?)
+            OR (priority = ? AND queued_at_ms = ? AND path > ?)
+          )
+        ORDER BY priority ASC, queued_at_ms ASC, path ASC
+        LIMIT 1
+      `).get(
+        cursorPriority,
+        cursorPriority,
+        cursorQueuedAtMs,
+        cursorPriority,
+        cursorQueuedAtMs,
+        cursorPath,
+      )
+      : database.prepare(`
+        SELECT * FROM discovery_source_queue
+        WHERE action = 'upsert'
+        ORDER BY priority ASC, queued_at_ms ASC, path ASC
+        LIMIT 1
+      `).get()) as Record<string, unknown> | undefined;
+    const task = (upsertTask || database.prepare(`
       SELECT * FROM discovery_source_queue
       WHERE action = 'remove'
-      ORDER BY priority ASC, queued_at_ms ASC
+      ORDER BY priority ASC, queued_at_ms ASC, path ASC
       LIMIT 1
     `).get()) as Record<string, unknown> | undefined;
     if (!task) return;
@@ -2620,36 +3163,47 @@ function processSourceQueue(
       continue;
     }
     try {
-      const candidate = candidateFromPath(
-        database,
-        String(task.provider) as Provider,
-        filePath,
-      );
       database.exec('BEGIN IMMEDIATE');
       let complete = false;
       try {
+        const candidate = candidateFromPath(
+          database,
+          String(task.provider) as Provider,
+          filePath,
+          metrics,
+        );
         const preparation = usageScannerProvider(candidate.provider).prepareQueuedCandidate(
           database,
           candidate,
           parentCache,
+          deadline,
           metrics,
         );
         if (preparation !== 'ready') {
           if (preparation === 'skip') {
             database.prepare('DELETE FROM discovery_source_queue WHERE path = ?').run(filePath);
+            database.prepare('DELETE FROM codex_source_probes WHERE path = ?').run(filePath);
           }
           database.exec('COMMIT');
+          if (preparation === 'budget') return;
+          if (preparation === 'defer') {
+            hasDeferredCursor = true;
+            cursorPriority = Number(task.priority);
+            cursorQueuedAtMs = Number(task.queued_at_ms);
+            cursorPath = filePath;
+          }
           continue;
         }
         complete = scanFile(database, candidate, recentBoundary, deadline, metrics);
+        if (complete) {
+          database.prepare('DELETE FROM discovery_source_queue WHERE path = ?').run(filePath);
+        }
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');
         throw error;
       }
-      if (complete) {
-        database.prepare('DELETE FROM discovery_source_queue WHERE path = ?').run(filePath);
-      } else {
+      if (!complete) {
         return;
       }
     } catch (error) {
@@ -2809,6 +3363,14 @@ export function collectUsage(request: CollectRequest): Record<string, unknown> {
     metrics.recent_rows = Number(stats.recent_rows);
     metrics.committed_bytes = Number(stats.committed_bytes);
     metrics.dedupe_rows = Number(stats.dedupe_rows);
+    const probeRow = database.prepare(
+      'SELECT COUNT(*) AS count FROM codex_source_probes',
+    ).get() as { count?: number } | undefined;
+    const baselineRow = database.prepare(
+      'SELECT COALESCE(SUM(committed_offset), 0) AS bytes FROM codex_parent_baselines',
+    ).get() as { bytes?: number } | undefined;
+    metrics.probed_sources = Number(probeRow?.count || 0);
+    metrics.baseline_bytes = Number(baselineRow?.bytes || 0);
     metrics.codex_fingerprint_rows = 0;
     metrics.codex_session_rows = discovered.codex;
     metrics.codex_session_cache_rows = 0;

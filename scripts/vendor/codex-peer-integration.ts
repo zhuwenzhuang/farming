@@ -8,8 +8,7 @@ export function integrateCodexPeerMessages(source: string): string {
   // The standard steering path must carry the same client identity as the
   // legacy Codex extension, through parsing, queueing and the native request.
   replace('      sessionId,\n      prompt\n    };', '      sessionId,\n      prompt,\n      clientMessageId: params["clientMessageId"]\n    };');
-  replace('        turnId,\n        prompt: params.prompt\n', '        turnId,\n        prompt: params.prompt,\n        clientMessageId: params.clientMessageId\n');
-  replace('      input: buildPromptItems(params.prompt)\n', '      input: buildPromptItems(params.prompt),\n      clientUserMessageId: params.clientMessageId ?? null\n');
+  replace('    const clientUserMessageId = randomUUID5();', '    const clientUserMessageId = params.clientMessageId || randomUUID5();');
   replace('  async createUserMessageUpdates(item) {\n    const updates = [];\n    const messageId = item.id;', '  async createUserMessageUpdates(item) {\n    const updates = [];\n    const messageId = item.clientId || item.id;');
   // Reuse history's content conversion for live receiver-owned input. These
   // messages may have no sender metadata; visibility must not depend on it.
@@ -29,7 +28,10 @@ export function integrateCodexPeerMessages(source: string): string {
   replace('          await promptEventHandler.handleNotification(event);', `          await farmingSyncCodexPeerReceipts(sessionState, event, promptClient.codexClient,
             receipt => promptEventHandler.handleNotification(receipt));
           await promptEventHandler.handleNotification(event);`);
-  replace('      thread,\n      history,\n', '      thread,\n      history: farmingMergePeerHistory(history, await farmingCodexPeerHistory(thread)),\n');
+  replace(
+    '      this.protocolVersion === 2 ? withoutReviewerPrompts(entryPages) : itemsOfEntries(entryPages),',
+    '      farmingMergePeerHistory(this.protocolVersion === 2 ? withoutReviewerPrompts(entryPages) : itemsOfEntries(entryPages), await farmingCodexPeerHistory(thread)),',
+  );
   replace('return turn ? oneItemPage(turn.items) : null;', 'return turn ? farmingMergePeerHistory(oneItemPage(turn.items), await farmingCodexPeerHistory(legacy.thread, new Set([turn.id]))) : null;');
   replace('if (turn) return this.codexClient.threadItemPages(sessionId, { turnId: turn.id });', 'if (turn) return farmingMergePeerHistory(this.codexClient.threadItemPages(sessionId, { turnId: turn.id }), await farmingCodexPeerHistory(metadata.thread, new Set([turn.id])));');
   replace('  async createHistoryUpdates(item, sessionState) {\n', '  async createHistoryUpdates(item, sessionState) {\n    if (item.type === "farmingPeerMessage") return [item.update];\n');
