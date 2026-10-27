@@ -198,7 +198,7 @@ function run() {
   assert(
     packagedClaudeAcpBridge.includes("PACKAGED_CLAUDE_ACP_ARG = '--farming-claude-acp'")
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
-      && bundleCliScript.includes("'claude-agent-acp-0.97.0.mjs'"),
+      && bundleCliScript.includes("'claude-agent-acp-0.98.0.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
   const bundleOutputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-cli-bundle-test-'));

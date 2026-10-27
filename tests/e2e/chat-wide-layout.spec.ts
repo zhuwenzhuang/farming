@@ -118,9 +118,11 @@ for (const appearance of ['light', 'dark', 'paper']) {
     expect(other.ok()).toBeTruthy()
     const otherId = (await other.json() as { agentId: string }).agentId
     const otherRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${otherId}"]`)
-    await otherRow.click()
+    await otherRow.locator('.code-agent-name').click()
+    await expect(otherRow).toHaveClass(/\bactive\b/)
     await expect(page.locator('.code-agent-work-pane.active').getByTestId('code-chat-width-toggle')).toHaveAttribute('aria-pressed', 'true')
-    await row.click()
+    await row.locator('.code-agent-name').click()
+    await expect(row).toHaveClass(/\bactive\b/)
     await page.reload()
     await expect(toggle).toHaveAttribute('aria-pressed', 'true')
     await expect(input).toHaveText('Keep this draft')

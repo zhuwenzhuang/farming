@@ -85,8 +85,8 @@ files under `dist/acp/`:
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@agentclientprotocol/codex-acp` | 2.3.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
-| `@openai/codex` | 0.164.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
-| `@agentclientprotocol/claude-agent-acp` | 0.97.0 | Apache-2.0 | Claude Code ACP adapter |
+| `@openai/codex` | 0.165.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
+| `@agentclientprotocol/claude-agent-acp` | 0.98.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@agentclientprotocol/sdk` | 2.0.2 | Apache-2.0 | Protocol runtime bundled inside the Codex and Claude ACP adapters |
 | `diff` | 9.0.0 | BSD-3-Clause | Exact patch generation bundled inside the Claude ACP adapter |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.310 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
@@ -98,7 +98,7 @@ Farming also embeds the pinned native ripgrep 15.2.0 executable for Project
 Files search. ripgrep is dual-licensed under MIT or the Unlicense; Farming uses
 it under the Unlicense.
 
-The npm distribution declares the exact Codex CLI 0.164.0 and Claude Agent SDK
+The npm distribution declares the exact Codex CLI 0.165.0 and Claude Agent SDK
 CLI package 0.3.310 platform carriers as optional dependencies and embeds the
 reviewed `agent-browser` 0.32.3-farming.1 platform artifacts, built from upstream
 0.32.3 with the Chrome stderr-drain fix from upstream PR #1527 and a launch-path
