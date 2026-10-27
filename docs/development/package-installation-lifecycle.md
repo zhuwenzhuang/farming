@@ -129,6 +129,16 @@ integrity, entry path, executable digest, and the current probe contract. A chan
 to the aggregate manifest alone does not invalidate unchanged dependencies. Only
 a complete preparation publishes a binding for the current manifest.
 
+Independent managed dependencies prepare concurrently under one Config preparation
+lock, with separate staging directories and bounded download/probe deadlines.
+Only all-success completion updates the environment and publishes the binding.
+On failure, the owner waits for every started task and its cleanup before reporting
+failure and releasing the lock; the previous binding remains unchanged. Verified
+peer caches remain reusable on retry. Interactive progress keeps one row per
+download, including retry, verification and terminal status; redirected output
+uses bounded plain-text updates.
+
+
 ## Update State Machine
 
 - **Idle**: no update is active.

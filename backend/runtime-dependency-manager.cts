@@ -134,7 +134,7 @@ interface DownloadRetry {
 export interface RuntimeDependencyProgress {
   dependencyId: string;
   message?: string;
-  phase: 'download' | 'ready' | 'retry' | 'verify';
+  phase: 'download' | 'ready' | 'retry' | 'verify' | 'failed';
   receivedBytes?: number;
   source?: 'managed' | 'system';
   totalBytes?: number;
@@ -760,6 +760,7 @@ async function downloadArtifactFromUrl(
       ),
       meter,
       fs.createWriteStream(destination, { flags: 'wx', mode: 0o600 }),
+      { signal: controller.signal },
     );
     if (expectedSize && received !== expectedSize) {
       throw new Error(`Runtime download size mismatch: expected ${expectedSize}, received ${received}`);
@@ -1252,33 +1253,47 @@ async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): 
   const platformKey = runtimePlatformKey(options);
   fs.mkdirSync(storageLayout.runtimeDependenciesDir(configDir), { recursive: true });
   const releaseLock = await acquirePrepareLock(configDir, options);
-  const prepared: ResolvedRuntime[] = [];
   try {
-    for (const definition of selectedDependencyDefinitions(options.dependencyIds)) {
-      const selectedPlatformKey = dependencyPlatformKey(
-        definition.id,
-        platformKey,
-        candidateEnv,
-      );
-      let runtime = await findExactRuntime(
-        configDir,
-        definition,
-        selectedPlatformKey,
-        candidateEnv,
-      );
-      if (!runtime) {
-        const installRuntime = options.installRuntime || installExactRuntime;
-        runtime = await installRuntime(configDir, definition, selectedPlatformKey, options);
+    // Keep the preparation lock until every task has settled, including staging
+    // cleanup on failure. Promise.all would release it while peers still write.
+    const results = await Promise.allSettled(selectedDependencyDefinitions(options.dependencyIds).map(async definition => {
+      try {
+        const selectedPlatformKey = dependencyPlatformKey(
+          definition.id,
+          platformKey,
+          candidateEnv,
+        );
+        let runtime = await findExactRuntime(
+          configDir,
+          definition,
+          selectedPlatformKey,
+          candidateEnv,
+        );
+        if (!runtime) {
+          const installRuntime = options.installRuntime || installExactRuntime;
+          runtime = await installRuntime(configDir, definition, selectedPlatformKey, options);
+        }
+        runtime.platformKey ||= selectedPlatformKey;
+        notifyProgress(options.onProgress, {
+          dependencyId: definition.id,
+          phase: 'ready',
+          source: runtime.source,
+          version: runtime.version,
+        });
+        return runtime;
+      } catch (error: unknown) {
+        notifyProgress(options.onProgress, {
+          dependencyId: definition.id,
+          phase: 'failed',
+          version: MANIFEST.dependencies[definition.id].version,
+        });
+        throw error;
       }
-      runtime.platformKey ||= selectedPlatformKey;
-      prepared.push(runtime);
-      notifyProgress(options.onProgress, {
-        dependencyId: definition.id,
-        phase: 'ready',
-        source: runtime.source,
-        version: runtime.version,
-      });
-    }
+    }));
+    const prepared = results.map(result => {
+      if (result.status === 'rejected') throw result.reason;
+      return result.value;
+    });
     applyRuntimeEnvironment(env, prepared);
     const bindingId = runtimeBindingId(MANIFEST.manifestId, platformKey);
     const existing = readRuntimeBinding(configDir, bindingId);

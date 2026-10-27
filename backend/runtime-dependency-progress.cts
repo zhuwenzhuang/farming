@@ -2,6 +2,7 @@ import type { RuntimeDependencyProgress } from './runtime-dependency-manager.cjs
 
 interface ProgressStream {
   isTTY?: boolean;
+  columns?: number;
   write(chunk: string): unknown;
 }
 
@@ -59,10 +60,10 @@ function createRuntimeDependencyProgressRenderer(
   const color = tty && !('NO_COLOR' in env);
   const downloaded = new Set<string>();
   const logBuckets = new Map<string, number>();
+  const rows = new Map<string, { text: string; color: number }>();
   let active = false;
-  let currentLine = false;
+  let renderedRows = 0;
   let lastRenderAt = 0;
-  let lastSignature = '';
 
   const paint = (code: number, text: string): string => (
     color ? `\u001b[${code}m${text}\u001b[0m` : text
@@ -74,19 +75,40 @@ function createRuntimeDependencyProgressRenderer(
       // Rendering is best-effort and must not block startup dependency preparation.
     }
   };
-  const clearCurrentLine = (): void => {
-    if (!currentLine) return;
-    write('\r\u001b[2K');
-    currentLine = false;
-  };
   const writeLine = (text: string): void => {
-    clearCurrentLine();
     write(`${text}\n`);
   };
   const begin = (): void => {
     if (active) return;
     active = true;
     writeLine(paint(36, 'Preparing startup dependencies'));
+  };
+  const renderRows = (force = false): void => {
+    if (!tty || rows.size === 0) return;
+    const timestamp = now();
+    if (!force && timestamp - lastRenderAt < TTY_RENDER_INTERVAL_MS) return;
+    lastRenderAt = timestamp;
+    // Leave the cursor below the block. Keep each row shorter than the terminal
+    // width so wrapping cannot turn a dependency into multiple physical rows.
+    const width = Math.max(1, (stream.columns || 80) - 1);
+    let output = renderedRows ? `\u001b[${renderedRows}A` : '';
+    for (const row of rows.values()) {
+      const text = row.text.length > width ? `${row.text.slice(0, width - 1)}…` : row.text;
+      output += `\r\u001b[2K${paint(row.color, text)}\n`;
+    }
+    write(output);
+    renderedRows = rows.size;
+  };
+  const updateRow = (id: string, text: string, color: number, force = true): void => {
+    const previous = rows.get(id);
+    if (previous?.text === text && previous.color === color) return;
+    rows.set(id, { text, color });
+    renderRows(force || !previous);
+  };
+  const status = (id: string, text: string, color: number): void => {
+    begin();
+    if (tty) updateRow(id, text, color);
+    else writeLine(text);
   };
   const renderDownload = (progress: RuntimeDependencyProgress, label: string): void => {
     begin();
@@ -111,30 +133,27 @@ function createRuntimeDependencyProgressRenderer(
       return;
     }
 
-    const signature = `${progress.dependencyId}:${receivedBytes}:${totalBytes}`;
-    const timestamp = now();
-    if (
-      receivedBytes > 0
-      && receivedBytes < totalBytes
-      && timestamp - lastRenderAt < TTY_RENDER_INTERVAL_MS
-    ) {
-      return;
-    }
-    if (signature === lastSignature) return;
-    lastSignature = signature;
-    lastRenderAt = timestamp;
-    clearCurrentLine();
-    write(`\r\u001b[2K${paint(36, progressLine(label, receivedBytes, totalBytes))}`);
-    currentLine = true;
+    updateRow(
+      progress.dependencyId,
+      progressLine(label, receivedBytes, totalBytes),
+      36,
+      receivedBytes === 0 || (totalBytes > 0 && receivedBytes >= totalBytes),
+    );
   };
 
   return {
     abort(): void {
-      clearCurrentLine();
+      renderRows(true);
+      renderedRows = 0;
+      rows.clear();
+      active = false;
     },
     finish(): void {
       if (!active) return;
+      renderRows(true);
       writeLine(paint(32, '✓ Startup dependencies ready'));
+      renderedRows = 0;
+      rows.clear();
       active = false;
     },
     report(progress: RuntimeDependencyProgress): void {
@@ -143,18 +162,22 @@ function createRuntimeDependencyProgressRenderer(
         renderDownload(progress, label);
         return;
       }
+      if (progress.phase === 'failed') {
+        status(progress.dependencyId, `✗ ${label} ${progress.version} failed`, 31);
+        return;
+      }
       if (!downloaded.has(progress.dependencyId)) return;
       if (progress.phase === 'retry') {
         logBuckets.delete(progress.dependencyId);
-        writeLine(paint(33, `! ${label}: mirror unavailable, retrying npm registry`));
+        status(progress.dependencyId, `! ${label}: mirror unavailable, retrying npm registry`, 33);
         return;
       }
       if (progress.phase === 'verify') {
-        writeLine(paint(33, `◇ ${label}: downloaded, verifying`));
+        status(progress.dependencyId, `◇ ${label}: downloaded, verifying`, 33);
         return;
       }
       if (progress.phase === 'ready') {
-        writeLine(paint(32, `✓ ${label} ${progress.version} ready`));
+        status(progress.dependencyId, `✓ ${label} ${progress.version} ready`, 32);
       }
     },
   };
