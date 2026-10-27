@@ -821,6 +821,181 @@ function createPoeticToken(options: PoeticTokenOptions = {}): CreatedPoeticToken
   };
 }
 
+interface PoeticTokenChallengeRow {
+  prefix: string[];
+  fillableCount: number;
+}
+
+interface PoeticTokenChallenge {
+  locale: 'zh' | 'ja' | 'en';
+  mode: 'char' | 'word';
+  separator: string;
+  unitSeparator: string;
+  columns: number;
+  rows: PoeticTokenChallengeRow[];
+  pool: string[];
+}
+
+const POETIC_CHAR_DISTRACTOR_POOL: string[] = uniqueChars(
+  SOURCE_TONE_CHARS
+  + SOURCE_IMAGE_CHARS
+  + CHINESE_POETIC_CATEGORIES.verb
+  + CHINESE_POETIC_CATEGORIES.softVerb
+  + CHINESE_POETIC_WORDS.slice(0, 256).join(''),
+);
+
+function createDeterministicPrng(seed: string): (maxExclusive: number) => number {
+  let counter = 0;
+  let block = Buffer.alloc(0);
+  let offset = 0;
+  const nextUint32 = (): number => {
+    if (offset + 4 > block.length) {
+      block = crypto
+        .createHmac('sha256', 'farming-auth-gate-v1')
+        .update(`${seed}:${counter}`)
+        .digest();
+      counter += 1;
+      offset = 0;
+    }
+    const value = block.readUInt32BE(offset);
+    offset += 4;
+    return value;
+  };
+  return (maxExclusive: number): number => {
+    if (maxExclusive <= 1) return 0;
+    return nextUint32() % maxExclusive;
+  };
+}
+
+function groupWordSegmentsIntoRows(segments: string[]): string[][] {
+  const count = segments.length;
+  if (count === 13) {
+    return [
+      segments.slice(0, 4),
+      segments.slice(4, 9),
+      segments.slice(9, 13),
+    ];
+  }
+  if (count >= 6) {
+    const first = Math.max(2, Math.floor(count / 3));
+    const third = Math.max(2, Math.floor((count - first) / 2));
+    const second = Math.max(2, count - first - third);
+    return [
+      segments.slice(0, first),
+      segments.slice(first, first + second),
+      segments.slice(first + second),
+    ];
+  }
+  if (count >= 4) {
+    const first = Math.floor(count / 2);
+    return [
+      segments.slice(0, first),
+      segments.slice(first),
+    ];
+  }
+  return [segments];
+}
+
+function createPoeticTokenChallenge(token: unknown): PoeticTokenChallenge {
+  const rawToken = String(token || '').trim();
+  const hasHyphen = rawToken.includes('-');
+  const rawSegments = hasHyphen
+    ? rawToken.split('-').filter(Boolean)
+    : (rawToken ? [rawToken] : []);
+  const isWordMode = hasHyphen
+    && rawSegments.length >= 2
+    && rawSegments.every(segment => /^[A-Za-z0-9_]+$/.test(segment))
+    && (
+      rawSegments.length >= 4
+      || rawSegments.every(segment => /^[A-Za-z]{2,24}$/.test(segment))
+    );
+
+  const nextRandomIndex = createDeterministicPrng(rawToken || 'empty');
+  const rows: PoeticTokenChallengeRow[] = [];
+  const fillableItems: string[] = [];
+  const usedItems = new Set<string>();
+
+  if (isWordMode) {
+    const wordRows = groupWordSegmentsIntoRows(rawSegments);
+    for (const rowWords of wordRows) {
+      rowWords.forEach(word => usedItems.add(word));
+      const prefixCount = rowWords.length >= 2 ? 1 : 0;
+      const prefix = rowWords.slice(0, prefixCount);
+      const fillable = rowWords.slice(prefixCount);
+      rows.push({
+        prefix,
+        fillableCount: fillable.length,
+      });
+      fillableItems.push(...fillable);
+    }
+  } else {
+    const charSegments = rawSegments.length > 0 ? rawSegments : [''];
+    for (const segment of charSegments) {
+      const chars = Array.from(segment);
+      chars.forEach(char => usedItems.add(char));
+      const prefixCount = chars.length >= 4
+        ? 2
+        : chars.length >= 2
+          ? 1
+          : 0;
+      const prefix = chars.slice(0, prefixCount);
+      const fillable = chars.slice(prefixCount);
+      rows.push({
+        prefix,
+        fillableCount: fillable.length,
+      });
+      fillableItems.push(...fillable);
+    }
+  }
+
+  const columns = isWordMode ? 4 : 7;
+  const targetPoolSize = isWordMode
+    ? Math.max(16, Math.ceil((fillableItems.length + 4) / 4) * 4)
+    : Math.max(21, Math.ceil((fillableItems.length + 6) / 7) * 7);
+
+  let distractorCandidates: string[];
+  if (isWordMode) {
+    distractorCandidates = Array.from(new Set(ENGLISH_WORDS)).filter(word => !usedItems.has(word));
+  } else if (/[\u4e00-\u9fa5]/.test(rawToken)) {
+    distractorCandidates = POETIC_CHAR_DISTRACTOR_POOL.filter(char => !usedItems.has(char));
+  } else if (/[\u3040-\u30ff]/.test(rawToken)) {
+    distractorCandidates = uniqueChars(JAPANESE_KANA).filter(char => !usedItems.has(char));
+  } else {
+    distractorCandidates = uniqueChars('abcdefghjkmnpqrstuvwxyz23456789').filter(char => !usedItems.has(char));
+  }
+
+  const pool = [...fillableItems];
+  const availableDistractors = [...distractorCandidates];
+  while (pool.length < targetPoolSize && availableDistractors.length > 0) {
+    const pickIdx = nextRandomIndex(availableDistractors.length);
+    const [picked] = availableDistractors.splice(pickIdx, 1);
+    pool.push(picked);
+  }
+
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = nextRandomIndex(i + 1);
+    const temp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = temp;
+  }
+
+  const locale: 'zh' | 'ja' | 'en' = /[\u3040-\u30ff]/.test(rawToken)
+    ? 'ja'
+    : /[\u4e00-\u9fa5]/.test(rawToken)
+      ? 'zh'
+      : 'en';
+
+  return {
+    locale,
+    mode: isWordMode ? 'word' : 'char',
+    separator: isWordMode || hasHyphen ? '-' : '',
+    unitSeparator: isWordMode ? '-' : '',
+    columns,
+    rows,
+    pool,
+  };
+}
+
 export {
   AUTO_TOKEN_LOCALE,
   CHINESE_POETIC_ACTIVE_WORDS,
@@ -841,6 +1016,7 @@ export {
   JAPANESE_VERB_WORDS,
   TOKEN_TEMPLATE,
   createPoeticToken,
+  createPoeticTokenChallenge,
   generateChineseHaikuToken,
   generateEnglishPassphraseToken,
   generateIndianHaikuToken,
@@ -857,6 +1033,8 @@ export {
 };
 export type {
   CreatedPoeticToken,
+  PoeticTokenChallenge,
+  PoeticTokenChallengeRow,
   PoeticTokenOptions,
   PoeticTokenResolution,
   RequestedTokenLocale,

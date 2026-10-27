@@ -392,7 +392,10 @@ if (require.main === module && process.env.NODE_ENV !== 'test') {
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
-const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
+const tokenAuth = new TokenAuth({
+  appearance: () => configManager.getSettings().appearance,
+  basePath: BASE_PATH || '/',
+});
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
 const BROWSER_EXTENSION_WS_PATH = routePath(BASE_PATH, '/browser/extension');

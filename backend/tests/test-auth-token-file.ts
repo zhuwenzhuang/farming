@@ -211,6 +211,131 @@ function run() {
     });
     assert.strictEqual(bearerNextCalled, true);
 
+    let currentAppearance = 'paper';
+    const gateAuth = new TokenAuth({
+      appearance: () => currentAppearance,
+      basePath: '/farming',
+      farmingDir: path.join(configDir, 'gate-config'),
+      token: '春水照晴岚-松风入幽谷清泉-明月渡寒江',
+    });
+    let htmlGateStatus = 0;
+    let htmlGateHeaders: Record<string, string | string[]> = {};
+    let htmlGateBody = '';
+    gateAuth.middleware()({
+      headers: {
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        host: 'localhost',
+      },
+      method: 'GET',
+      url: '/farming/',
+    }, {
+      end(body) {
+        htmlGateBody = body || '';
+      },
+      setHeader(name, value) {
+        htmlGateHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        htmlGateStatus = status;
+        htmlGateHeaders = { ...htmlGateHeaders, ...headers };
+      },
+    }, () => {
+      assert.fail('unauthenticated browser navigation must not reach the application handler');
+    });
+    assert.strictEqual(htmlGateStatus, 401);
+    assert.strictEqual(htmlGateHeaders['Content-Type'], 'text/html; charset=utf-8');
+    assert.strictEqual(htmlGateHeaders['Cache-Control'], 'no-store');
+    assert.match(htmlGateBody, /data-auth-gate="poetic-tap"/);
+    assert.match(htmlGateBody, /data-appearance="paper"/);
+    assert.match(htmlGateBody, /<span class="slot-cell prefilled" aria-hidden="true">春<\/span><span class="slot-cell prefilled" aria-hidden="true">水<\/span>/);
+    assert.match(htmlGateBody, /<span class="slot-cell prefilled" aria-hidden="true">松<\/span><span class="slot-cell prefilled" aria-hidden="true">风<\/span>/);
+    assert.match(htmlGateBody, /<span class="slot-cell prefilled" aria-hidden="true">明<\/span><span class="slot-cell prefilled" aria-hidden="true">月<\/span>/);
+    assert.doesNotMatch(htmlGateBody, /春水照晴岚-松风入幽谷清泉-明月渡寒江/, 'auth gate HTML must never expose the raw token');
+
+    let apiUnauthorizedStatus = 0;
+    let apiUnauthorizedHeaders: Record<string, string | string[]> = {};
+    let apiUnauthorizedBody = '';
+    gateAuth.middleware()({
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        host: 'localhost',
+      },
+      method: 'GET',
+      url: '/farming/api/settings',
+    }, {
+      end(body) {
+        apiUnauthorizedBody = body || '';
+      },
+      setHeader(name, value) {
+        apiUnauthorizedHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        apiUnauthorizedStatus = status;
+        apiUnauthorizedHeaders = { ...apiUnauthorizedHeaders, ...headers };
+      },
+    }, () => {
+      assert.fail('unauthenticated API requests must fail closed');
+    });
+    assert.strictEqual(apiUnauthorizedStatus, 401);
+    assert.strictEqual(apiUnauthorizedHeaders['Content-Type'], 'application/json');
+    assert.deepStrictEqual(JSON.parse(apiUnauthorizedBody), {
+      error: 'Token required. Use the URL printed in terminal.',
+    });
+
+    let badProbeStatus = 0;
+    let badProbeHeaders: Record<string, string | string[]> = {};
+    gateAuth.middleware()({
+      headers: {
+        accept: 'application/json',
+        host: 'localhost',
+        'x-farming-auth-probe': '1',
+      },
+      method: 'GET',
+      url: `/farming/?token=${encodeURIComponent('春水照晴岚-松风入幽谷清泉-明月渡晚梅')}`,
+    }, {
+      end() {},
+      setHeader(name, value) {
+        badProbeHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        badProbeStatus = status;
+        badProbeHeaders = { ...badProbeHeaders, ...headers };
+      },
+    }, () => {
+      assert.fail('invalid auth probe must not call next');
+    });
+    assert.strictEqual(badProbeStatus, 401);
+    assert.strictEqual(badProbeHeaders['Set-Cookie'], undefined);
+
+    let goodProbeStatus = 0;
+    let goodProbeHeaders: Record<string, string | string[]> = {};
+    gateAuth.middleware()({
+      headers: {
+        accept: 'application/json',
+        host: 'localhost',
+        'x-farming-auth-probe': '1',
+      },
+      method: 'GET',
+      url: `/farming/?token=${encodeURIComponent('春水照晴岚-松风入幽谷清泉-明月渡寒江')}`,
+    }, {
+      end() {},
+      setHeader(name, value) {
+        goodProbeHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        goodProbeStatus = status;
+        goodProbeHeaders = { ...goodProbeHeaders, ...headers };
+      },
+    }, () => {
+      assert.fail('valid auth probe should complete directly in middleware');
+    });
+    assert.strictEqual(goodProbeStatus, 204);
+    assert.match(
+      goodProbeHeaders['Set-Cookie'],
+      new RegExp(`^${gateAuth.getCookieName()}=`),
+    );
+    gateAuth.cleanup({ removeTokenFile: true });
+
     const otherConfigDir = path.join(configDir, 'other-config');
     const otherAuth = new TokenAuth({
       basePath: '/farming',

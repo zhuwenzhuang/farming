@@ -6,6 +6,7 @@ const {
   CHINESE_POETIC_WORD_TIERS,
   CHINESE_POETIC_WORDS,
   createPoeticToken,
+  createPoeticTokenChallenge,
   generateEnglishPassphraseToken,
   generateIndianHaikuToken,
   generateJapaneseHaikuToken,
@@ -118,6 +119,57 @@ function run() {
   );
   assert.match(createPoeticToken({ locale: 'auto', timeZone: 'Asia/Tokyo', env: {} }).token, /^[\u4e00-\u9fa5-]+$/);
   assert.match(createPoeticToken({ locale: 'tagore', timeZone: 'UTC', env: {} }).token, /^[\u4e00-\u9fa5-]+$/);
+
+  const sampleChineseToken = '春水照晴岚-松风入幽谷清泉-明月渡寒江';
+  const chineseChallenge = createPoeticTokenChallenge(sampleChineseToken);
+  assert.strictEqual(chineseChallenge.mode, 'char');
+  assert.strictEqual(chineseChallenge.separator, '-');
+  assert.strictEqual(chineseChallenge.unitSeparator, '');
+  assert.strictEqual(chineseChallenge.columns, 7);
+  assert.deepStrictEqual(chineseChallenge.rows, [
+    { prefix: ['春', '水'], fillableCount: 3 },
+    { prefix: ['松', '风'], fillableCount: 5 },
+    { prefix: ['明', '月'], fillableCount: 3 },
+  ]);
+  assert.strictEqual(chineseChallenge.pool.length, 21);
+  for (const ch of Array.from('照晴岚入幽谷清泉渡寒江')) {
+    assert(chineseChallenge.pool.includes(ch), `Chinese challenge pool should include fillable character ${ch}`);
+  }
+  assert.deepStrictEqual(
+    createPoeticTokenChallenge(sampleChineseToken),
+    chineseChallenge,
+    'challenge pool must be deterministic for the same token across page reloads',
+  );
+  assert.notDeepStrictEqual(
+    createPoeticTokenChallenge('秋山入寒林-清泉映疏竹晚霞-孤舟泊烟渚').pool,
+    chineseChallenge.pool,
+    'different tokens must produce distinct challenge pools',
+  );
+
+  const customPoemChallenge = createPoeticTokenChallenge('床前明月光-疑是地上霜-举头望明月-低头思故乡');
+  assert.strictEqual(customPoemChallenge.mode, 'char');
+  assert.strictEqual(customPoemChallenge.rows.length, 4);
+  assert.deepStrictEqual(
+    customPoemChallenge.rows.map(row => row.prefix.join('')),
+    ['床前', '疑是', '举头', '低头'],
+  );
+  assert.deepStrictEqual(
+    customPoemChallenge.rows.map(row => row.fillableCount),
+    [3, 3, 3, 3],
+  );
+
+  const englishChallenge = createPoeticTokenChallenge(englishToken);
+  const englishParts = englishToken.split('-');
+  assert.strictEqual(englishChallenge.mode, 'word');
+  assert.strictEqual(englishChallenge.separator, '-');
+  assert.strictEqual(englishChallenge.unitSeparator, '-');
+  assert.strictEqual(englishChallenge.columns, 4);
+  assert.deepStrictEqual(englishChallenge.rows, [
+    { prefix: [englishParts[0]], fillableCount: 3 },
+    { prefix: [englishParts[4]], fillableCount: 4 },
+    { prefix: [englishParts[9]], fillableCount: 3 },
+  ]);
+  assert.strictEqual(englishChallenge.pool.length, 16);
 
   console.log('test-haiku-token passed');
 }

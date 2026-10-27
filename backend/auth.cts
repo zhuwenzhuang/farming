@@ -1,10 +1,13 @@
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 import {
   createPoeticToken,
+  createPoeticTokenChallenge,
   generatePoeticToken,
   getPoeticTokenEntropyBits,
   type CreatedPoeticToken,
+  type PoeticTokenChallenge,
 } from './haiku-token.cjs';
 
 interface FarmingNetPassVerifierLike {
@@ -22,6 +25,7 @@ interface PoeticTokenInfo extends Omit<CreatedPoeticToken, 'locale' | 'style'> {
 import * as storageLayout from './storage-layout.cjs';
 
 interface TokenAuthOptions {
+  appearance?: unknown | (() => unknown);
   basePath?: string;
   cookieName?: unknown;
   cookiePath?: unknown;
@@ -39,15 +43,18 @@ interface TokenAuthOptions {
 interface AuthRequest {
   authAccessMode?: AuthAccessMode;
   headers: {
+    accept?: string | string[];
     authorization?: string | string[];
     cookie?: string;
     host?: string;
+    'x-farming-auth-probe'?: string | string[];
   };
   method?: string;
   url?: string;
 }
 
 type AuthAccessMode = 'none' | 'owner' | 'read-only';
+type AuthGateAppearance = 'light' | 'dark' | 'paper' | 'system';
 
 interface AuthResponse {
   end(body?: string): void;
@@ -344,7 +351,628 @@ function secureAndReadExistingTokenFile(tokenFile: string): { token: string; ide
   }
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeAuthGateAppearance(value: unknown): AuthGateAppearance {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'light' || normalized === 'dark' || normalized === 'paper') {
+    return normalized;
+  }
+  return 'system';
+}
+
+let cachedFallbackLogoDataUri: string | null = null;
+function loadFallbackLogoDataUri(): string {
+  if (cachedFallbackLogoDataUri !== null) return cachedFallbackLogoDataUri;
+  const candidates = [
+    path.resolve(__dirname, '..', 'public', 'farming-2', 'logo-64.png'),
+    path.resolve(__dirname, '..', 'dist', 'farming-2', 'logo-64.png'),
+    path.resolve(__dirname, '..', 'public', 'farming-2', 'app-icon-v2-180.png'),
+    path.resolve(__dirname, '..', 'dist', 'farming-2', 'app-icon-v2-180.png'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        const bytes = fs.readFileSync(candidate);
+        cachedFallbackLogoDataUri = `data:image/png;base64,${bytes.toString('base64')}`;
+        return cachedFallbackLogoDataUri;
+      }
+    } catch {
+      // Ignore unreadable icon candidate and try next.
+    }
+  }
+  cachedFallbackLogoDataUri = '';
+  return cachedFallbackLogoDataUri;
+}
+
+function renderAuthGateHtml(options: {
+  appearance: AuthGateAppearance;
+  basePath: string;
+  challenge: PoeticTokenChallenge;
+  nonce: string;
+}): string {
+  const { appearance, basePath, challenge, nonce } = options;
+  const resolvedAppearance = appearance === 'system' ? 'light' : appearance;
+  const colorScheme = appearance === 'system'
+    ? 'light dark'
+    : resolvedAppearance === 'dark'
+      ? 'dark'
+      : 'light';
+  const themeColor = resolvedAppearance === 'dark'
+    ? '#181818'
+    : resolvedAppearance === 'paper'
+      ? '#f9f8f4'
+      : '#ffffff';
+  const isWordMode = challenge.mode === 'word';
+  const uiLocale = challenge.locale || (isWordMode ? 'en' : 'zh');
+  const lang = uiLocale === 'ja' ? 'ja' : uiLocale === 'en' ? 'en' : 'zh-CN';
+  const backspaceLabel = uiLocale === 'ja' ? '戻る' : uiLocale === 'en' ? 'Backspace' : '退格';
+  const clearLabel = uiLocale === 'ja' ? 'クリア' : uiLocale === 'en' ? 'Clear' : '清空';
+  const invalidLabel = uiLocale === 'ja' ? 'パスフレーズが無効です' : uiLocale === 'en' ? 'Invalid passphrase' : '口令无效';
+  const slotsAriaLabel = uiLocale === 'ja' ? 'パスフレーズスロット' : uiLocale === 'en' ? 'Passphrase slots' : '口令槽';
+  const poolAriaLabel = uiLocale === 'ja' ? '候補パネル' : uiLocale === 'en' ? 'Candidate word pool' : '候选字盘';
+  const iconSrc = `${basePath || ''}/farming-2/app-icon-v2-180.png`;
+  const faviconHref = `${basePath || ''}/farming-2/favicon-v3.ico`;
+  const fallbackLogoDataUri = loadFallbackLogoDataUri();
+
+  let firstEmptyAssigned = false;
+  const rowsHtml = challenge.rows.map((row, rowIndex) => {
+    const prefixCells = row.prefix.map(item => (
+      `<span class="${isWordMode ? 'word-slot' : 'slot-cell'} prefilled" aria-hidden="true">${escapeHtml(item)}</span>`
+    ));
+    const fillableCells = Array.from({ length: row.fillableCount }, (_, colIndex) => {
+      const isFirstEmpty = !firstEmptyAssigned;
+      if (isFirstEmpty) firstEmptyAssigned = true;
+      const stateClass = isFirstEmpty ? 'active' : 'empty';
+      return `<button type="button" class="${isWordMode ? 'word-slot' : 'slot-cell'} fillable ${stateClass}" data-row="${rowIndex}" data-col="${colIndex}" aria-label="slot-${rowIndex}-${colIndex}"></button>`;
+    });
+    return `<div class="${isWordMode ? 'word-row' : 'poem-row'}">${prefixCells.concat(fillableCells).join('')}</div>`;
+  }).join('');
+
+  const poolHtml = challenge.pool.map((item, poolIndex) => (
+    `<button type="button" class="${isWordMode ? 'word-tile' : 'pool-tile'}" data-pool-index="${poolIndex}">${escapeHtml(item)}</button>`
+  )).join('');
+
+  const serializedChallenge = JSON.stringify(challenge).replace(/</g, '\\u003c');
+
+  return `<!DOCTYPE html>
+<html lang="${lang}" data-appearance-preference="${appearance}" data-appearance="${resolvedAppearance}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="${colorScheme}" />
+  <meta name="theme-color" content="${themeColor}" />
+  <link rel="icon" href="${escapeHtml(faviconHref)}" />
+  <title>Farming</title>
+  <style nonce="${nonce}">
+    :root, [data-appearance="light"] {
+      --code-bg-canvas: #ffffff;
+      --code-bg-inset: #f0f2ef;
+      --code-bg-raised: #ffffff;
+      --code-active-item-surface: #eeeeec;
+      --code-text: #24292f;
+      --code-text-muted: #57606a;
+      --code-text-subtle: #6e7781;
+      --code-text-disabled: #afb8c1;
+      --code-border: rgba(31, 35, 40, 0.12);
+      --code-border-strong: rgba(31, 35, 40, 0.18);
+      --code-border-subtle: rgba(31, 35, 40, 0.08);
+      --code-accent: #0969da;
+      --code-danger: #cf222e;
+      --code-danger-soft: rgba(207, 34, 46, 0.1);
+      --code-border-danger: rgba(207, 34, 46, 0.32);
+      --code-diff-removed: #b4232d;
+      --gate-slot-empty-border: rgba(31, 35, 40, 0.14);
+      --gate-pool-border: rgba(31, 35, 40, 0.08);
+    }
+    [data-appearance="dark"] {
+      --code-bg-canvas: #181818;
+      --code-bg-inset: #222222;
+      --code-bg-raised: #303030;
+      --code-active-item-surface: #233648;
+      --code-text: #ffffff;
+      --code-text-muted: #d8d8d8;
+      --code-text-subtle: #9b9b9b;
+      --code-text-disabled: #6e7681;
+      --code-border: #383838;
+      --code-border-strong: #484848;
+      --code-border-subtle: #2a2a2a;
+      --code-accent: #339cff;
+      --code-danger: #fa423e;
+      --code-danger-soft: rgba(250, 66, 62, 0.14);
+      --code-border-danger: rgba(248, 81, 73, 0.42);
+      --code-diff-removed: #ff7b72;
+      --gate-slot-empty-border: #383838;
+      --gate-pool-border: #2a2a2a;
+    }
+    [data-appearance="paper"] {
+      --code-bg-canvas: #f9f8f4;
+      --code-bg-inset: #efede7;
+      --code-bg-raised: #fffefa;
+      --code-active-item-surface: #e6e5e1;
+      --code-text: #282922;
+      --code-text-muted: #68685f;
+      --code-text-subtle: #77776d;
+      --code-text-disabled: #aaa79d;
+      --code-border: #dfdbd0;
+      --code-border-strong: #cfc9bc;
+      --code-border-subtle: #e5e1d6;
+      --code-accent: #282922;
+      --code-danger: #b4232f;
+      --code-danger-soft: rgba(180, 35, 47, 0.09);
+      --code-border-danger: rgba(180, 35, 47, 0.35);
+      --code-diff-removed: #a33a3f;
+      --gate-slot-empty-border: #d8d3c8;
+      --gate-pool-border: transparent;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      background: var(--code-bg-canvas);
+      color: var(--code-text);
+    }
+    body.code-mode {
+      display: flex;
+      flex-direction: column;
+      overflow: auto;
+    }
+    .auth-viewport {
+      flex: 1;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .auth-surface {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 22px;
+      max-width: 100%;
+    }
+    .brand-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-logo {
+      width: 56px;
+      height: 56px;
+      display: block;
+      border-radius: 14px;
+      object-fit: cover;
+    }
+    .brand-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 500;
+      letter-spacing: -0.018em;
+      line-height: 1.2;
+      color: var(--code-text);
+    }
+    .poem-slots, .word-slots {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+    }
+    .poem-row, .word-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+    }
+    .slot-cell {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 500;
+      outline: none;
+    }
+    .word-slot {
+      min-width: 72px;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      outline: none;
+    }
+    .slot-cell.prefilled, .word-slot.prefilled {
+      background: var(--code-bg-inset);
+      border: 1px solid var(--code-border);
+      color: var(--code-text-muted);
+      cursor: default;
+    }
+    .slot-cell.empty, .word-slot.empty {
+      background: transparent;
+      border: 1px dashed var(--gate-slot-empty-border);
+      color: transparent;
+      cursor: pointer;
+    }
+    .slot-cell.active, .word-slot.active {
+      background: var(--code-bg-canvas);
+      border: 1.5px solid var(--code-accent);
+      color: var(--code-text);
+      cursor: pointer;
+    }
+    .slot-cell.filled, .word-slot.filled {
+      background: var(--code-bg-raised);
+      border: 1px solid var(--code-border-strong);
+      color: var(--code-text);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      cursor: pointer;
+    }
+    .slot-cell.error, .word-slot.error {
+      background: var(--code-danger-soft);
+      border: 1px solid var(--code-border-danger);
+      color: var(--code-diff-removed);
+      cursor: pointer;
+    }
+    .status-line {
+      min-height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: -10px 0;
+      font-size: 12px;
+      color: var(--code-danger);
+    }
+    .status-line[hidden] {
+      display: none;
+    }
+    .char-pool {
+      display: grid;
+      grid-template-columns: repeat(${challenge.columns}, 36px);
+      gap: 6px;
+    }
+    .word-pool {
+      display: grid;
+      grid-template-columns: repeat(${challenge.columns}, minmax(76px, 1fr));
+      gap: 7px;
+    }
+    .pool-tile {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 450;
+      background: var(--code-bg-inset);
+      border: 1px solid var(--gate-pool-border);
+      color: var(--code-text);
+      cursor: pointer;
+    }
+    .word-tile {
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 450;
+      background: var(--code-bg-inset);
+      border: 1px solid var(--gate-pool-border);
+      color: var(--code-text);
+      cursor: pointer;
+    }
+    .pool-tile:hover:not(.used), .word-tile:hover:not(.used) {
+      background: var(--code-active-item-surface);
+    }
+    .pool-tile.used, .word-tile.used {
+      background: transparent;
+      border: 1px dashed var(--code-border-subtle);
+      color: var(--code-text-disabled);
+      opacity: 0.36;
+      cursor: default;
+    }
+    .minor-actions {
+      margin-top: -6px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 12px;
+      color: var(--code-text-subtle);
+    }
+    .minor-action-btn {
+      padding: 2px 4px;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--code-text-subtle);
+      cursor: pointer;
+    }
+    .minor-action-btn:hover {
+      background: var(--code-active-item-surface);
+      color: var(--code-text);
+    }
+  </style>
+</head>
+<body class="code-mode" data-auth-gate="poetic-tap">
+  <main class="auth-viewport">
+    <section class="auth-surface">
+      <header class="brand-header">
+        <img id="brand-logo" class="brand-logo" src="${escapeHtml(iconSrc)}" data-fallback="${escapeHtml(fallbackLogoDataUri)}" alt="" />
+        <h1 class="brand-title">Farming</h1>
+      </header>
+
+      <div id="token-slots" class="${isWordMode ? 'word-slots' : 'poem-slots'}" role="group" aria-label="${escapeHtml(slotsAriaLabel)}">
+        ${rowsHtml}
+      </div>
+
+      <div id="status-line" class="status-line" role="status" aria-live="polite" hidden>${escapeHtml(invalidLabel)}</div>
+
+      <div id="candidate-pool" class="${isWordMode ? 'word-pool' : 'char-pool'}" role="group" aria-label="${escapeHtml(poolAriaLabel)}">
+        ${poolHtml}
+      </div>
+
+      <div class="minor-actions">
+        <button type="button" id="btn-backspace" class="minor-action-btn">${escapeHtml(backspaceLabel)}</button>
+        <span aria-hidden="true">·</span>
+        <button type="button" id="btn-clear" class="minor-action-btn">${escapeHtml(clearLabel)}</button>
+      </div>
+    </section>
+  </main>
+  <script nonce="${nonce}">
+    (function () {
+      var root = document.documentElement;
+      if (root.getAttribute('data-appearance-preference') === 'system' && window.matchMedia) {
+        var media = window.matchMedia('(prefers-color-scheme: dark)');
+        var syncAppearance = function () {
+          root.setAttribute('data-appearance', media.matches ? 'dark' : 'light');
+        };
+        syncAppearance();
+        if (typeof media.addEventListener === 'function') {
+          media.addEventListener('change', syncAppearance);
+        }
+      }
+
+      var logo = document.getElementById('brand-logo');
+      if (logo) {
+        logo.addEventListener('error', function () {
+          var fallback = logo.getAttribute('data-fallback');
+          if (fallback && logo.getAttribute('src') !== fallback) {
+            logo.setAttribute('src', fallback);
+          }
+        });
+      }
+
+      var challenge = ${serializedChallenge};
+      var slotButtons = Array.prototype.slice.call(document.querySelectorAll('.fillable'));
+      var poolButtons = Array.prototype.slice.call(document.querySelectorAll('[data-pool-index]'));
+      var statusLine = document.getElementById('status-line');
+      var btnBackspace = document.getElementById('btn-backspace');
+      var btnClear = document.getElementById('btn-clear');
+
+      var slots = slotButtons.map(function () { return null; });
+      var activeSlotIndex = 0;
+      var hasError = false;
+      var verifying = false;
+
+      function findFirstEmptySlot() {
+        for (var i = 0; i < slots.length; i += 1) {
+          if (!slots[i]) return i;
+        }
+        return -1;
+      }
+
+      function render() {
+        var usedPool = {};
+        for (var i = 0; i < slots.length; i += 1) {
+          if (slots[i]) usedPool[slots[i].poolIndex] = true;
+        }
+        var nextEmpty = findFirstEmptySlot();
+        if (activeSlotIndex < 0 || activeSlotIndex >= slots.length || slots[activeSlotIndex]) {
+          activeSlotIndex = nextEmpty;
+        }
+
+        for (var s = 0; s < slotButtons.length; s += 1) {
+          var btn = slotButtons[s];
+          var item = slots[s];
+          btn.classList.remove('empty', 'active', 'filled', 'error');
+          if (item) {
+            btn.textContent = item.text;
+            btn.classList.add(hasError ? 'error' : 'filled');
+          } else {
+            btn.textContent = '';
+            btn.classList.add(!hasError && s === activeSlotIndex ? 'active' : 'empty');
+          }
+        }
+
+        for (var p = 0; p < poolButtons.length; p += 1) {
+          var poolBtn = poolButtons[p];
+          var isUsed = Boolean(usedPool[p]);
+          poolBtn.classList.toggle('used', isUsed);
+          poolBtn.disabled = isUsed || verifying;
+        }
+
+        if (statusLine) {
+          statusLine.hidden = !hasError;
+        }
+      }
+
+      function assembleCandidateToken() {
+        var cursor = 0;
+        var rowStrings = challenge.rows.map(function (row) {
+          var units = row.prefix.slice();
+          for (var c = 0; c < row.fillableCount; c += 1) {
+            var slotItem = slots[cursor];
+            cursor += 1;
+            units.push(slotItem ? slotItem.text : '');
+          }
+          return units.join(challenge.unitSeparator || '');
+        });
+        return rowStrings.join(challenge.separator);
+      }
+
+      function verifyCandidateToken(candidateToken) {
+        if (!candidateToken || verifying) return;
+        verifying = true;
+        render();
+        var probeUrl = new URL(window.location.href);
+        probeUrl.searchParams.set('token', candidateToken);
+        fetch(probeUrl.toString(), {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'X-Farming-Auth-Probe': '1'
+          },
+          credentials: 'same-origin'
+        }).then(function (response) {
+          verifying = false;
+          if (response.ok) {
+            var targetUrl = new URL(window.location.href);
+            targetUrl.searchParams.set('token', candidateToken);
+            window.location.replace(targetUrl.toString());
+            return;
+          }
+          hasError = true;
+          render();
+        }).catch(function () {
+          verifying = false;
+          hasError = true;
+          render();
+        });
+      }
+
+      function handlePoolSelect(poolIndex) {
+        if (verifying) return;
+        for (var i = 0; i < slots.length; i += 1) {
+          if (slots[i] && slots[i].poolIndex === poolIndex) return;
+        }
+        if (hasError) {
+          hasError = false;
+        }
+        var targetSlot = (activeSlotIndex >= 0 && activeSlotIndex < slots.length && !slots[activeSlotIndex])
+          ? activeSlotIndex
+          : findFirstEmptySlot();
+        if (targetSlot < 0) return;
+        slots[targetSlot] = {
+          poolIndex: poolIndex,
+          text: challenge.pool[poolIndex]
+        };
+        activeSlotIndex = findFirstEmptySlot();
+        render();
+        if (findFirstEmptySlot() === -1) {
+          verifyCandidateToken(assembleCandidateToken());
+        }
+      }
+
+      function handleSlotClick(slotIndex) {
+        if (verifying) return;
+        if (slots[slotIndex]) {
+          slots[slotIndex] = null;
+          hasError = false;
+          activeSlotIndex = slotIndex;
+          render();
+          return;
+        }
+        activeSlotIndex = slotIndex;
+        render();
+      }
+
+      function handleBackspace() {
+        if (verifying) return;
+        hasError = false;
+        for (var i = slots.length - 1; i >= 0; i -= 1) {
+          if (slots[i]) {
+            slots[i] = null;
+            activeSlotIndex = i;
+            render();
+            return;
+          }
+        }
+      }
+
+      function handleClear() {
+        if (verifying) return;
+        hasError = false;
+        for (var i = 0; i < slots.length; i += 1) {
+          slots[i] = null;
+        }
+        activeSlotIndex = 0;
+        render();
+      }
+
+      poolButtons.forEach(function (btn, index) {
+        btn.addEventListener('click', function () {
+          handlePoolSelect(index);
+        });
+      });
+
+      slotButtons.forEach(function (btn, index) {
+        btn.addEventListener('click', function () {
+          handleSlotClick(index);
+        });
+      });
+
+      if (btnBackspace) btnBackspace.addEventListener('click', handleBackspace);
+      if (btnClear) btnClear.addEventListener('click', handleClear);
+
+      window.addEventListener('keydown', function (event) {
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+          event.preventDefault();
+          handleBackspace();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          handleClear();
+        }
+      });
+
+      window.addEventListener('paste', function (event) {
+        var raw = event.clipboardData ? event.clipboardData.getData('text') : '';
+        var trimmed = String(raw || '').trim();
+        if (!trimmed) return;
+        event.preventDefault();
+        try {
+          if (/^https?:\\/\\//i.test(trimmed)) {
+            var parsed = new URL(trimmed);
+            var urlToken = parsed.searchParams.get('token');
+            if (urlToken) trimmed = urlToken.trim();
+          }
+        } catch (_err) {}
+        verifyCandidateToken(trimmed);
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>`;
+}
+
 class TokenAuth {
+  appearanceSource: unknown | (() => unknown);
   disabled: boolean;
   basePath: string;
   authStatusPath: string;
@@ -363,6 +991,7 @@ class TokenAuth {
 
   constructor(options: TokenAuthOptions = {}) {
     const authEnv = options.env || process.env;
+    this.appearanceSource = options.appearance;
     this.disabled = options.disabled === true || isTruthyEnv(authEnv.FARMING_DISABLE_AUTH);
     this.basePath = normalizeBasePath(options.basePath || '/');
     this.authStatusPath = this.basePath ? `${this.basePath}/api/auth/status` : '/api/auth/status';
@@ -735,6 +1364,47 @@ class TokenAuth {
     res.end();
   }
 
+  resolveAppearance(): AuthGateAppearance {
+    try {
+      const value = typeof this.appearanceSource === 'function'
+        ? (this.appearanceSource as () => unknown)()
+        : this.appearanceSource;
+      return normalizeAuthGateAppearance(value);
+    } catch {
+      return 'system';
+    }
+  }
+
+  isHtmlNavigationRequest(req: AuthRequest, url: URL): boolean {
+    const method = String(req.method || 'GET').toUpperCase();
+    if (!['GET', 'HEAD'].includes(method)) return false;
+    const probeHeader = req.headers['x-farming-auth-probe'];
+    if (String(Array.isArray(probeHeader) ? probeHeader[0] : (probeHeader || '')).trim() === '1') {
+      return false;
+    }
+    const acceptHeader = Array.isArray(req.headers.accept)
+      ? req.headers.accept.join(',')
+      : String(req.headers.accept || '');
+    if (!/\btext\/html\b/i.test(acceptHeader)) return false;
+
+    const pathname = url.pathname || '/';
+    const apiPrefix = this.basePath ? `${this.basePath}/api` : '/api';
+    if (
+      pathname === '/api'
+      || pathname.startsWith('/api/')
+      || pathname === apiPrefix
+      || pathname.startsWith(`${apiPrefix}/`)
+    ) {
+      return false;
+    }
+
+    const ext = path.extname(pathname).toLowerCase();
+    if (ext && ext !== '.html' && ext !== '.htm') {
+      return false;
+    }
+    return true;
+  }
+
   middleware(): AuthMiddleware {
     return (req, res, next) => {
       if (this.disabled) return next();
@@ -765,6 +1435,24 @@ class TokenAuth {
       }
 
       const token = this.extractToken(req);
+      const probeHeader = req.headers['x-farming-auth-probe'];
+      const isAuthProbe = String(Array.isArray(probeHeader) ? probeHeader[0] : (probeHeader || '')).trim() === '1';
+      if (isAuthProbe && ['GET', 'HEAD'].includes(method)) {
+        const probeAccessMode = this.accessForToken(token);
+        if (token && probeAccessMode !== 'none') {
+          this.setAccessCookie(res, token);
+          res.writeHead(204, { 'Cache-Control': 'no-store' });
+          res.end();
+          return;
+        }
+        res.writeHead(401, {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/json',
+        });
+        res.end(JSON.stringify({ error: 'Token required. Use the URL printed in terminal.' }));
+        return;
+      }
+
       const authorize = (accessMode: AuthAccessMode) => {
         const shareTicketPath = this.basePath
           ? `${this.basePath}/api/share/qr-ticket`
@@ -809,6 +1497,39 @@ class TokenAuth {
         return authorize(accessMode);
       }
 
+      if (this.isHtmlNavigationRequest(req, url)) {
+        const nonce = crypto.randomBytes(16).toString('base64');
+        const html = renderAuthGateHtml({
+          appearance: this.resolveAppearance(),
+          basePath: this.basePath,
+          challenge: createPoeticTokenChallenge(this.token),
+          nonce,
+        });
+        res.writeHead(401, {
+          'Cache-Control': 'no-store',
+          'Content-Security-Policy': [
+            "default-src 'self'",
+            "connect-src 'self'",
+            "img-src 'self' data:",
+            `style-src 'self' 'nonce-${nonce}'`,
+            `script-src 'self' 'nonce-${nonce}'`,
+            "base-uri 'none'",
+            "frame-ancestors 'none'",
+            "form-action 'self'",
+          ].join('; '),
+          'Content-Type': 'text/html; charset=utf-8',
+          'Referrer-Policy': 'no-referrer',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+        });
+        if (method === 'HEAD') {
+          res.end();
+        } else {
+          res.end(html);
+        }
+        return;
+      }
+
       // Unauthorized
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Token required. Use the URL printed in terminal.' }));
@@ -839,6 +1560,7 @@ export {
   TokenAuth,
   authenticatedAccessScopeId,
   bearerAuthorizationHeader,
+  createPoeticTokenChallenge,
   decodeCookieToken,
   encodeCookieToken,
   farmingAuthCookieName,

@@ -140,6 +140,15 @@ frontend keeps that token in the visible URL so reloads, copied URLs, and instal
 app handoffs retain owner access. The HTTP-only cookie remains an alternate
 authenticated transport, but does not replace the URL credential.
 
+When an unauthenticated browser opens an HTML entry route without a valid token or
+cookie, Farming responds with a `401` tap-to-compose passphrase gate instead of a raw
+JSON error body. The gate splits the active passphrase along `-` into dynamic rows,
+pre-fills the leading anchor characters or word of each row, and presents a
+deterministically shuffled candidate pool drawn from the poetic or English word bank
+without exposing the full credential in the HTML response. Verification runs only
+after all remaining slots are filled (or a token/URL is pasted); programmatic and API
+requests continue to receive `401` JSON responses.
+
 New HTTP requests and WebSocket handshakes are admitted only while a capability is
 valid. Existing WebSocket connections retain their admission until disconnect.
 
