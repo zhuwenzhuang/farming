@@ -114,7 +114,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await expect(side).toBeHidden()
       await input.fill('Keep this draft')
     }
-    const other = await page.request.post('/farming/api/control/agents', { data: { command: 'gemini', workspace: workspaceRoot, agentRuntimeMode: 'chat' } })
+    const other = await page.request.post('/farming/api/control/agents', { data: { command: 'claude', workspace: workspaceRoot, agentRuntimeMode: 'chat' } })
     expect(other.ok()).toBeTruthy()
     const otherId = (await other.json() as { agentId: string }).agentId
     const otherRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${otherId}"]`)

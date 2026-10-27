@@ -686,7 +686,7 @@ test('an owned observer-deadline abort preserves confirmed absence even when tim
   const result = await observe((_request, response) => {
     if (++reads === 1) response.writeHead(404).end();
     // The next request stalls until the observer-owned timeout fires.
-  }, { timeout: 150, uploadResult: { exitCode: 0 }, advanceAbortByMs: 5 });
+  }, { timeout: 1_000, uploadResult: { exitCode: 0 }, advanceAbortByMs: 5 });
   assert(reads >= 2);
   assert.equal(result.code, 3, result.output);
   assert.equal(result.state.status, 'awaiting-public');

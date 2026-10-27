@@ -108,6 +108,7 @@ export function AgentWorkPane({
   const acpChat = Boolean(acpRuntime)
   const chatMode = acpChat
   const showRuntimeSwitch = runtimeSwitchVisible && supportsAgentRuntimeSwitch(agent)
+  const showChatWidthToggle = runtimeSwitchVisible && chatMode
   const runtimeIdentityReady = canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent) || !runtimeIdentityReady
   const runtimeSwitchReason = runtimeIdentityReady ? undefined : copy.runtimeSwitchIdentityUnavailable
@@ -148,15 +149,15 @@ export function AgentWorkPane({
 
   return (
     <section
-      className={`code-agent-work-pane ${active ? 'active' : ''} ${showRuntimeSwitch || chatMode ? 'runtime-switchable' : ''} ${chatMode ? 'has-chat-width-toggle' : ''}`}
+      className={`code-agent-work-pane ${active ? 'active' : ''} ${showRuntimeSwitch || showChatWidthToggle ? 'runtime-switchable' : ''} ${showChatWidthToggle ? 'has-chat-width-toggle' : ''}`}
       data-testid="code-agent-work-pane"
       data-agent-id={agent.id}
       hidden={!active}
       aria-busy={switching}
     >
-      {showRuntimeSwitch || chatMode ? (
+      {showRuntimeSwitch || showChatWidthToggle ? (
         <div className={`code-terminal-mode-toggle ${!showRuntimeSwitch ? 'chat-width-only' : ''}`} data-testid="code-terminal-mode-toggle" title={runtimeSwitchReason} onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          {chatMode ? <button type="button" className={`code-chat-width-toggle ${wideLayout ? 'active' : ''}`} data-testid="code-chat-width-toggle" aria-pressed={wideLayout} aria-label={wideLayout ? copy.chatStandardWidth : copy.chatWideWidth} title={wideLayout ? copy.chatStandardWidth : copy.chatWideWidth} onClick={toggleChatWideLayout}>
+          {showChatWidthToggle ? <button type="button" className={`code-chat-width-toggle ${wideLayout ? 'active' : ''}`} data-testid="code-chat-width-toggle" aria-pressed={wideLayout} aria-label={wideLayout ? copy.chatStandardWidth : copy.chatWideWidth} title={wideLayout ? copy.chatStandardWidth : copy.chatWideWidth} onClick={toggleChatWideLayout}>
             <HorizontalExpandGlyph />
           </button> : null}
           {showRuntimeSwitch ? <>

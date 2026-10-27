@@ -700,7 +700,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   .code-terminal-grid:has(> .code-mobile-unread-preview) { position: relative; }
 }
 
-body.code-mode.code-compact-layout .code-chat-width-toggle,
+body.code-mode.code-compact-layout .code-terminal-mode-toggle .code-chat-width-toggle,
 body.code-mode.code-compact-layout .code-terminal-mode-toggle.chat-width-only {
   display: none;
 }

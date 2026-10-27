@@ -311,6 +311,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
   private readonly pathExists: (workspace: string) => boolean | Promise<boolean>;
   private readonly permanentWorktreeReservations = new Map<string, symbol>();
   private readonly temporaryWorktreeReservations = new Map<string, symbol>();
+  private worktreeCommandQueue: Promise<unknown> = Promise.resolve();
 
   constructor(options: WorktreeGitServiceOptions = {}) {
     this.execFile = options.execFile || defaultExecFile;
@@ -389,10 +390,16 @@ class WorktreeGitService implements WorktreeGitServicePort {
     }
   }
 
+  private runWorktreeCommand<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.worktreeCommandQueue.then(operation, operation);
+    this.worktreeCommandQueue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
   async listWorktrees(sourceWorkspace: string): Promise<WorktreeListRecord[]> {
-    const { stdout } = await this.execFile('git', [
+    const { stdout } = await this.runWorktreeCommand(() => this.execFile('git', [
       '-C', sourceWorkspace, 'worktree', 'list', '--porcelain',
-    ], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
+    ], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }));
     return parseGitWorktreeList(stdout);
   }
 
@@ -772,9 +779,9 @@ class WorktreeGitService implements WorktreeGitServicePort {
     let commandFailure: WorktreeCommandFailure | null = null;
     try {
       try {
-        await this.execFile('git', [
+        await this.runWorktreeCommand(() => this.execFile('git', [
           '-C', sourceWorkspace, 'worktree', 'add', identity.workspace, 'HEAD',
-        ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
+        ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }));
       } catch (caught) {
         commandFailure = {
           cause: caught,
@@ -854,7 +861,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
     if (force) args.push('--force');
     args.push(identity.workspace);
     try {
-      await this.execFile('git', args, { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
+      await this.runWorktreeCommand(() => this.execFile('git', args, { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }));
     } catch (caught) {
       commandFailure = {
         cause: caught,
@@ -938,10 +945,10 @@ class WorktreeGitService implements WorktreeGitServicePort {
     let commandFailure: WorktreeCommandFailure | null = null;
     try {
       try {
-        await this.execFile('git', [
+        await this.runWorktreeCommand(() => this.execFile('git', [
           '-C', identity.sourceWorkspace,
           'worktree', 'add', '-b', identity.branch, identity.workspace, identity.head || 'HEAD',
-        ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
+        ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }));
       } catch (caught) {
         commandFailure = {
           cause: caught,
@@ -971,9 +978,9 @@ class WorktreeGitService implements WorktreeGitServicePort {
   ): Promise<{ error?: string; rolledBack: boolean }> {
     const errors: string[] = [];
     try {
-      await this.execFile('git', [
+      await this.runWorktreeCommand(() => this.execFile('git', [
         '-C', identity.sourceWorkspace, 'worktree', 'remove', '--force', identity.workspace,
-      ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
+      ], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }));
     } catch (caught) {
       errors.push(commandErrorMessage(caught, 'Failed to remove the created worktree'));
     } finally {

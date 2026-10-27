@@ -95,7 +95,11 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       if (editor.state.doc.eq(editor.schema.nodeFromJSON(snapshot.doc))) {
         cancelAnimationFrame(revealFrame)
         revealFrame = requestAnimationFrame(() => {
-          if (editor.view.hasFocus()) editor.commands.scrollIntoView()
+          if (!editor.view.hasFocus() || editor.view.composing || !editor.state.selection.empty || !window.getSelection()?.isCollapsed) return
+          const caret = editor.view.coordsAtPos(editor.state.selection.head)
+          const box = host.getBoundingClientRect()
+          if (caret.top < box.top) host.scrollTop -= box.top - caret.top + 6
+          else if (caret.bottom > box.bottom) host.scrollTop += caret.bottom - box.bottom + 6
         })
         return
       }

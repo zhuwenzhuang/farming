@@ -176,10 +176,7 @@ for (const mode of ['chat', 'terminal'] as const) {
       await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
       await input.fill('ordinary prose')
       const before = await typography(input)
-      // Native Select All updates both editor and DOM selection. Back-to-back
-      // contenteditable fill() calls only select the DOM before inserting text.
-      await input.press('ControlOrMeta+a')
-      await page.keyboard.insertText(draft)
+      await input.fill(draft)
       await expectValue(input, draft)
       expect(await typography(input)).toEqual(before)
       await expect(page.getByTestId('code-composer-draft-highlight')).toHaveCount(0)
