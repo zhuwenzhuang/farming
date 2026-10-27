@@ -447,6 +447,65 @@ export function didAgyCurrentTurnCompleteCleanly(
   }
 }
 
+// agy print results can report a conversation-wide historical error even when
+// the newly admitted turn completed. Reconcile only an exact native error from
+// before admission; a matching message alone is never completion evidence.
+export async function isAgyHistoricalResultError(
+  agyHomePath: string,
+  conversationId: string,
+  previousUserStepIndex: number | null,
+  error: string
+): Promise<boolean> {
+  if (!error || !didAgyCurrentTurnCompleteCleanly(agyHomePath, conversationId, previousUserStepIndex)) return false;
+  const sqlite = loadNodeSqlite();
+  if (!sqlite || previousUserStepIndex === null) return false;
+  let db: SqliteDatabaseSync | null = null;
+  let transcript: fs.promises.FileHandle | null = null;
+  try {
+    db = new sqlite.DatabaseSync(path.join(agyHomePath, 'conversations', `${conversationId}.db`), { readOnly: true, timeout: 1000 });
+    const latestUser = db.prepare('SELECT MAX(idx) AS idx FROM steps WHERE step_type = 14').get()?.idx;
+    if (typeof latestUser !== 'number' || latestUser <= previousUserStepIndex) return false;
+    // Even a completed response cannot hide an error or unfinished tool in this
+    // turn. This is deliberately stricter than the generic stream-interruption
+    // reconciliation, where the model may have recovered within the same turn.
+    if (db.prepare('SELECT idx FROM steps WHERE idx > ? AND (step_type = 17 OR status != 3) LIMIT 1').get(latestUser)) return false;
+    const historicalErrors = new Set(db.prepare('SELECT idx FROM steps WHERE step_type = 17 AND idx < ?').all(latestUser).map(row => row.idx));
+    if (!historicalErrors.size) return false;
+    transcript = await fs.promises.open(path.join(agyHomePath, 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'), 'r');
+    const stat = await transcript.stat();
+    // Missing, oversized or partially written evidence leaves the failure intact.
+    if (!stat.isFile() || stat.size > 32 * 1024 * 1024) return false;
+    const buffer = Buffer.alloc(stat.size);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await transcript.read(buffer, offset, buffer.length - offset, offset);
+      if (!bytesRead) return false;
+      offset += bytesRead;
+    }
+    let matchedHistoricalError = false;
+    let currentInputRecorded = false;
+    for (const line of buffer.toString('utf8').split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      if (entry.type === 'USER_INPUT' && entry.step_index === latestUser) currentInputRecorded = true;
+      if (entry.type !== 'ERROR_MESSAGE') continue;
+      if (typeof entry.step_index !== 'number' || entry.step_index >= latestUser) return false;
+      if (historicalErrors.has(entry.step_index) && entry.error === error) matchedHistoricalError = true;
+    }
+    // Recheck the admission boundary after asynchronous I/O; another writer must
+    // not lend its completion to the result being reconciled.
+    return matchedHistoricalError && currentInputRecorded
+      && readAgyLatestUserStepIndex(agyHomePath, conversationId) === latestUser
+      && !db.prepare('SELECT idx FROM steps WHERE idx > ? AND (step_type = 17 OR status != 3) LIMIT 1').get(latestUser)
+      && didAgyCurrentTurnCompleteCleanly(agyHomePath, conversationId, previousUserStepIndex);
+  } catch {
+    return false;
+  } finally {
+    try { db?.close(); } catch { /* Preserve the original provider failure. */ }
+    await transcript?.close().catch(() => {});
+  }
+}
+
 export function readAgyConversationWorkspace(
   agyHomePath: string,
   conversationId: string

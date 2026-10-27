@@ -116,6 +116,12 @@ continuing the same native conversation. Interrupted tools retain an explicit
 failure with unconfirmed completion; continuation cannot turn them into success.
 Model and effort slash changes become active only after a successful native result
 and clean process exit, then publish the confirmed configuration to the UI.
+Its CLI can return a conversation-wide historical error in a later print result.
+The adapter may reconcile that result only after clean process exit, a newly
+persisted input and completed response, no current-turn error or unfinished step,
+and an exact error match in native history before that input. Missing, conflicting
+or oversized evidence preserves failure. This never retries input, suppresses a
+current provider failure, or rewrites the original failed Turn.
 
 Permission and elicitation requests have independent identity and validity.
 Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
@@ -507,6 +513,9 @@ identifies the Agent's account as the scope to check, retains provider reset-tim
 instructions without inventing a timezone, and never automatically retries work.
 Unknown errors retain their original reason. Sidebar Agent previews expose the
 current authoritative Turn failure without requiring activation.
+Composer failure feedback keeps its heading, reason and optional recovery action
+in separate slots. Long reasons wrap; compact layouts scroll the feedback within
+its allocated space while keeping the input and toolbar unobscured.
 
 Rich content uses safe Markdown and bounded media/render paths. Source is preserved;
 untrusted HTML does not execute. Streaming, settled and interrupted content have

@@ -41,6 +41,7 @@ import {
   agyExplicitHomeCliArgs,
   cleanAgyUserInputText,
   didAgyCurrentTurnCompleteCleanly,
+  isAgyHistoricalResultError,
   readAgyLatestUserStepIndex,
   ensureAgyConversationDatabase,
   hasAgyConversationDatabase,
@@ -977,6 +978,7 @@ class AgyAcpAgent {
     let stderrText = '';
     let resultFailure = '';
     let resultReceived = false;
+    let historicalResultCandidate = false;
 
     child.stderr?.on('data', chunk => {
       stderrText = (stderrText + String(chunk)).slice(-65_536);
@@ -1116,6 +1118,7 @@ class AgyAcpAgent {
               ? (event.result as Record<string, unknown>)
               : event;
           resultReceived = true;
+          if (typeof resultObj.conversation_id === 'string' && (resultObj.conversation_id || !isCliDirect) && resultObj.conversation_id !== session.sessionId) throw new Error('Antigravity returned a different conversation identity');
           const resultStatus = String(resultObj.status || '').toUpperCase();
           const topLevelError = typeof event.error === 'string' ? event.error.trim() : '';
           const nestedError = typeof resultObj.error === 'string' ? resultObj.error.trim() : '';
@@ -1127,6 +1130,7 @@ class AgyAcpAgent {
               didAgyCurrentTurnCompleteCleanly(this.options.agyHomePath, session.sessionId, previousUserStepIndex);
             if (!recoveredCleanTurn) {
               resultFailure = topLevelError || nestedError || `Antigravity turn failed: ${resultStatus}`;
+              historicalResultCandidate = !isCliDirect && !topLevelError && resultStatus === 'ERROR' && Boolean(nestedError);
             }
           }
           const commandObj =
@@ -1197,6 +1201,10 @@ class AgyAcpAgent {
           });
         }
         return 'steered';
+      }
+      if (code === 0 && !signal && historicalResultCandidate && resultFailure
+        && await isAgyHistoricalResultError(this.options.agyHomePath, session.sessionId, previousUserStepIndex, resultFailure)) {
+        resultFailure = '';
       }
       if (code !== 0 || signal || resultFailure || !resultReceived) {
         throw new Error(resultFailure || stderrText.trim() || `Antigravity CLI did not complete successfully (${signal || code}); ${resultReceived ? 'result received' : 'missing final result'}`);

@@ -358,9 +358,19 @@
 }
 
 .code-acp-session-error header {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+.code-acp-session-error p {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-wrap: anywhere;
 }
 
 .code-acp-session-error header strong {
@@ -3021,7 +3031,16 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     transition: bottom 160ms ease;
   }
 
-  body.code-mode.code-compact-layout .code-composer.has-acp-request > .code-acp-request {
+  body.code-mode.code-compact-layout .code-composer.has-acp-request:has(> .code-acp-session-error) {
+    grid-template-rows: minmax(0, 1fr) minmax(22px, auto) 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.has-acp-request > .code-acp-session-error {
+    align-self: stretch;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.has-acp-request > .code-acp-request,
+  body.code-mode.code-compact-layout .code-composer.has-acp-request > .code-acp-session-error {
     min-width: 0;
     min-height: 0;
     overflow-x: hidden;

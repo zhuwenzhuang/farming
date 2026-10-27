@@ -2722,6 +2722,10 @@ class FakeAgent {
       });
       throw new Error("You've hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 25th, 2026 4:47 AM.");
     }
+    if (promptText.includes('idle timeout provider error')) {
+      throw new Error('API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded'
+        + (promptText.includes('long diagnostic') ? `\nRequest: ${'abcdef0123456789'.repeat(16)}` : ''));
+    }
     if (promptText.includes('duplicate provider error')) {
       const message = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed';
       await client.notify('session/update', {

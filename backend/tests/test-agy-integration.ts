@@ -10,6 +10,7 @@ const {
   buildAgyTrajectoryMetadataBlob,
   cleanAgyUserInputText,
   didAgyCurrentTurnCompleteCleanly,
+  isAgyHistoricalResultError,
   ensureAgyConversationDatabase,
   readAgyConversationStepCount,
   readAgyConversationSummaries,
@@ -344,6 +345,50 @@ async function testSessionHistoryAndInventory(tmpRoot: string) {
   }
 }
 
+async function testHistoricalResultError(tmpRoot: string) {
+  const home = path.join(tmpRoot, 'historical-error-home');
+  const id = crypto.randomUUID();
+  ensureAgyConversationDatabase(home, id);
+  const db = new DatabaseSync(path.join(home, 'conversations', `${id}.db`));
+  const logs = path.join(home, 'brain', id, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  const transcript = path.join(logs, 'transcript_full.jsonl');
+  const error = 'API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded';
+  const entries = [
+    { step_index: 1, type: 'ERROR_MESSAGE', error },
+    { step_index: 3, type: 'USER_INPUT', status: 'DONE', content: 'New request' },
+    { step_index: 4, type: 'PLANNER_RESPONSE', status: 'DONE', content: 'Complete' },
+  ];
+  const writeTranscript = (value = entries) => fs.writeFileSync(transcript, value.map(entry => JSON.stringify(entry)).join('\n') + '\n');
+  const check = (reason = error, boundary: number | null = 0) => isAgyHistoricalResultError(home, id, boundary, reason);
+  try {
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (0,14,3),(1,17,3),(2,15,3),(3,14,3),(4,15,3)');
+    writeTranscript();
+    assert.strictEqual(await check(), true);
+    assert.strictEqual(await check(error, null), false, 'missing admission evidence cannot reconcile');
+    assert.strictEqual(await check(error, 3), false, 'a prior completed turn cannot settle an unrecorded request');
+    assert.strictEqual(await check('different provider error'), false, 'new errors must not be hidden');
+    writeTranscript(entries.filter(entry => entry.type !== 'USER_INPUT'));
+    assert.strictEqual(await check(), false, 'transcript must reach the current native input');
+    writeTranscript(entries.map(entry => entry.type === 'ERROR_MESSAGE' ? { ...entry, step_index: 2 } : entry));
+    assert.strictEqual(await check(), false, 'text must match a native error step, not prose');
+    writeTranscript();
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (5,132,1)');
+    assert.strictEqual(await check(), false, 'an unfinished tool cannot complete');
+    db.exec('UPDATE steps SET status=3 WHERE idx=5');
+    assert.strictEqual(await check(), false, 'a completed tool can still await a response');
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (6,17,3),(7,15,3)');
+    assert.strictEqual(await check(), false, 'even a later answer cannot hide a current-turn error');
+    db.exec('DELETE FROM steps WHERE idx>=5');
+    fs.appendFileSync(transcript, '{partial');
+    assert.strictEqual(await check(), false, 'partial native evidence must fail closed');
+    fs.unlinkSync(transcript);
+    assert.strictEqual(await check(), false, 'missing native evidence must fail closed');
+  } finally {
+    db.close();
+  }
+}
+
 async function testAcpBridgeEndToEnd(tmpRoot: string) {
   const agyHome = path.join(tmpRoot, 'agy-acp-home');
   const workspaceDir = path.join(tmpRoot, 'acp-workspace');
@@ -425,6 +470,26 @@ if (text.startsWith('/model ') || text.startsWith('/effort ')) {
   console.log(JSON.stringify({ status: value === 'rejected-model' || value === 'low' ? 'ERROR' : 'SUCCESS',
     data: { [command.slice(1)]: value }, response: 'configuration result' }));
   process.exit(value === 'exit-failure-model' ? 7 : 0);
+}
+if (text.includes('HISTORICAL_TIMEOUT')) {
+  const error = 'API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded';
+  const db = new DatabaseSync(dbPath);
+  const index = db.prepare('SELECT COALESCE(MAX(idx), -1) AS idx FROM steps').get().idx + 1;
+  db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (?,14,3),(?,15,3)').run(index, index + 1);
+  if (text.includes('CURRENT_ERROR')) db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (?,17,3)').run(index + 2);
+  db.close();
+  const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  fs.appendFileSync(path.join(logs, 'transcript_full.jsonl'), [
+    { step_index: 2, type: 'ERROR_MESSAGE', status: 'DONE', error },
+    { step_index: index, type: 'USER_INPUT', status: 'DONE', content: text },
+    { step_index: index + 1, type: 'PLANNER_RESPONSE', status: 'DONE', content: 'Current turn completed' },
+  ].map(entry => JSON.stringify(entry)).join('\\n') + '\\n');
+  console.log(JSON.stringify({ event: 'result',
+    ...(text.includes('TOP_LEVEL') ? { error } : {}),
+    result: { conversation_id: text.includes('WRONG_SESSION') ? 'wrong-session' : conversationId,
+      status: 'ERROR', error, response: 'Current turn completed' } }));
+  process.exit(text.includes('EXIT_FAILURE') ? 7 : 0);
 }
 if (text.includes('LONG_RUNNING_TURN')) {
   // Compress the CLI's positive print deadline so a regression cannot wait an hour.
@@ -810,6 +875,15 @@ console.log(JSON.stringify({
     assert.strictEqual(runtime.getSession('agent-agy-test-1').chatTurn.status, 'failed',
       'a completed tool followed by provider interruption must not be reported as a completed turn');
 
+    const historicalTimeout = await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'HISTORICAL_TIMEOUT' }]);
+    assert.strictEqual(historicalTimeout.stopReason, 'end_turn');
+    assert.strictEqual(runtime.getSession('agent-agy-test-1').chatTurn.status, 'completed');
+    for (const suffix of ['CURRENT_ERROR', 'EXIT_FAILURE', 'TOP_LEVEL', 'WRONG_SESSION']) {
+      await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: `HISTORICAL_TIMEOUT_${suffix}` }]),
+        /stream idle timeout|different conversation identity/);
+      assert.strictEqual(runtime.getSession('agent-agy-test-1').chatTurn.status, 'failed');
+    }
+
     await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'FAIL_STATUS' }]), /ERROR/);
 
     // Verify steering capability and live mid-turn steering.
@@ -1094,6 +1168,7 @@ async function main() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agy-test-'));
   try {
     await testConversationStore(tmpRoot);
+    await testHistoricalResultError(tmpRoot);
     await testCliSpecDiscoveryAndTerminalObserver(tmpRoot);
     await testHomeConfigurationAndExtensions(tmpRoot);
     await testSessionHistoryAndInventory(tmpRoot);

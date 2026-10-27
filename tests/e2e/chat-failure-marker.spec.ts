@@ -109,6 +109,48 @@ test('Chat failure marker survives reads and renders across appearances and layo
 })
 
 
+test('composer errors keep the heading and long reason separate across appearances and widths', async ({ page, workspaceRoot }, testInfo) => {
+  test.setTimeout(120_000)
+  const id = await createChat(page, workspaceRoot)
+  await openFarming(page)
+  await row(page, id).click()
+  await send(page, 'idle timeout provider error long diagnostic')
+  const card = page.getByTestId('code-acp-error')
+  await expect(card).toContainText('stream idle timeout (5m0s)')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    expect((await page.request.post('/farming/api/settings', { data: { appearance } })).ok()).toBeTruthy()
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(card).toBeVisible()
+      await expect.poll(() => card.evaluate(element => {
+        const outer = element.getBoundingClientRect()
+        const header = element.querySelector('header')!.getBoundingClientRect()
+        const reason = element.querySelector('p')!.getBoundingClientRect()
+        const label = element.querySelector('header strong')!.getBoundingClientRect()
+        const state = element.querySelector('header span')!.getBoundingClientRect()
+        return header.bottom <= reason.top && (label.right <= state.left || label.bottom <= state.top)
+          && [...element.querySelectorAll('header, p')].every(child => {
+          const rect = child.getBoundingClientRect()
+          return rect.left >= outer.left && rect.right <= outer.right
+            && child.scrollWidth <= child.clientWidth + 1
+        }) && element.scrollWidth <= element.clientWidth + 1
+      })).toBe(true)
+      await expect.poll(async () => {
+        const error = await card.boundingBox()
+        const input = await page.getByTestId('code-acp-composer-input').boundingBox()
+        return Boolean(error && input && error.y + error.height <= input.y)
+      }).toBe(true)
+      await captureSurface(page.getByTestId('code-acp-composer'), testInfo, `composer-error-${appearance}-${width}.png`)
+    }
+  }
+  await send(page, 'failed tool')
+  await expect(card).toHaveCount(0)
+  await expect(page.getByText('The check failed; no files were changed.', { exact: true })).toBeVisible()
+})
+
 test('usage-limit failures expose the cause and recovery without expanding activity', async ({ page, workspaceRoot }, testInfo) => {
   test.setTimeout(120_000)
   const workspace = path.join(workspaceRoot, 'usage-limit-demo')
