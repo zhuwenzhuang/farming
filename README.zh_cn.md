@@ -23,15 +23,24 @@
 
 ## 快速开始
 
-在 Mac 或 Linux 上安装并启动：
+**npm 安装** — 已有 Node.js 22.13+（含 23.x），且 npm 的 bin 目录已在 PATH 中。
 
 ```bash
 npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 
-需要 Node.js 和 npm，建议使用当前 LTS 版本。打开输出的访问地址，选择 **New Agent** 即可开始。
-详见[安装与更新](https://zhuwenzhuang.github.io/farming/cn/get-started/installation)。
+**指定目录安装** — 安装到你选择的目录，自带 Node.js，并为受支持的旧 Linux 主机提供兼容运行环境。
+
+```bash
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
+```
+
+macOS / Linux；任选一种方式，打开输出的访问地址，选择 **New Agent** 即可开始。
+详见[安装要求](https://zhuwenzhuang.github.io/farming/cn/get-started/installation)。
 
 [![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.webp)](./docs/products/code/assets/01-code-workspace.png)
 

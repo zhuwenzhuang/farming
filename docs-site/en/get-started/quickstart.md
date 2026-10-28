@@ -22,14 +22,25 @@ On the same Mac or Linux host running Farming, the target coding Agent CLI start
 
 ## Install and open Farming
 
-Run these commands on the host where your Agents will run:
+Choose **npm install** if Node.js 22.13+ (including 23.x) is already available and npm's bin directory is in PATH. Otherwise, use **Directory install** to put Farming and its private Node.js runtime in a directory you choose, including compatibility for supported older Linux hosts. See [installation requirements](./installation).
 
-```bash
+::: code-group
+
+```bash [npm install]
 npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 
-Open the address printed in the terminal. See [Installation and updates](./installation) for dependencies.
+```bash [Directory install]
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
+```
+
+:::
+
+Both methods install first, then start Farming in the background and print authenticated URLs. Run each step separately and proceed only after it succeeds. On the same machine, open the local address. The directory example runs the CLI from the chosen installation directory without modifying PATH.
 
 ::: warning Protect authenticated URLs
 The Token in an authenticated URL grants access to Farming. Do not put it in public logs, screenshots, issues, or chat messages.

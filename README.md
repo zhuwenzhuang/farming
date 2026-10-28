@@ -23,15 +23,24 @@
 
 ## Quick Start
 
-Install and start on macOS or Linux:
+**npm installation** — Node.js 22.13+ (including 23.x), with npm's bin directory in PATH.
 
 ```bash
 npm install --global farming-code@latest --registry=https://registry.npmjs.org
 farming daemon
 ```
 
-Requires Node.js and npm; the current LTS release is recommended. Open the printed address and choose **New Agent**.
-See [Installation and updates](https://zhuwenzhuang.github.io/farming/en/get-started/installation).
+**Directory installation** — installs into a directory you choose, with its own Node.js and compatibility for supported older Linux hosts.
+
+```bash
+curl -fLO https://zhuwenzhuang.github.io/farming/farming_install.sh
+bash farming_install.sh --dir ~/farming
+cd ~/farming
+./farming daemon
+```
+
+macOS / Linux. Choose one method, then open the printed URL and choose **New Agent**.
+See [installation requirements](https://zhuwenzhuang.github.io/farming/en/get-started/installation).
 
 [![Farming Code workbench](./docs/products/code/assets/01-code-workspace.webp)](./docs/products/code/assets/01-code-workspace.png)
 
