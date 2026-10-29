@@ -54,17 +54,27 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 ### Agent、Chat 与 Terminal
 
-启动或恢复 Codex、Claude Code、Pi、OpenCode、Qoder、Qwen Code、Antigravity 以及其他检测到的 Coding Agent。使用结构化 Chat 阅读结果和检查过程，或使用 Terminal 直接操作 CLI。
+启动或恢复 Codex、Claude Code、Pi、OpenCode、Qoder、Qwen Code、Antigravity 以及其他检测到的 Coding Agent。使用结构化 Chat 阅读结果和检查过程，或切换到 Terminal 在同一个后端 Session 上直接操作交互式 CLI。
 
 [![Farming Code 结构化 Agent 过程](./docs/products/code/assets/11-code-agent-process.webp)](./docs/products/code/assets/11-code-agent-process.png)
 
+[![Farming Code 交互式 Terminal 会话](./docs/products/code/assets/12-code-terminal-session.webp)](./docs/products/code/assets/12-code-terminal-session.png)
+
+### Agent Homes
+
+为同一个 Coding Agent 配置多个隔离的 Home，干净地分离工作与个人账号、Provider 配置文件以及默认启动模式（`Chat` 或 `Terminal`）。
+
+[![Farming Code Agent Homes](./docs/products/code/assets/19-code-agent-homes.webp)](./docs/products/code/assets/19-code-agent-homes.png)
+
 ### Files 与 Review
 
-浏览、搜索并轻量编辑 Project Files，不需要离开当前任务。需要证据时可以检查修改并打开 Review。
+浏览、搜索并配合 Language Server 导航轻量编辑 Project Files，不需要离开当前任务。需要证据时可以检查修改并打开 Review。
 
 ### Browser Resource
 
-Farming 让人和 Agent 使用同一个 Project Browser。详见 [Farming Browser](docs/products/code/browser-agent-cli.zh_cn.md)。
+Farming 让人和 Agent 使用同一个 Project Browser，方便直接完成登录、检查实时页面并将控制权交还给 Agent。详见 [Farming Browser](docs/products/code/browser-agent-cli.zh_cn.md)。
+
+[![Farming Browser 共享浏览器会话](./docs-site/public/cn/assets/browser-viewer.webp)](./docs-site/public/cn/assets/browser-viewer.png)
 
 ## 支持的 Agent
 
@@ -84,6 +94,10 @@ Farming 让人和 Agent 使用同一个 Project Browser。详见 [Farming Browse
 ## 远程使用
 
 在开发机上运行 Farming，再从能够访问这台机器的电脑或手机打开带鉴权 URL。浏览器断开后 Agent 仍会继续运行。远程访问和安全说明见[运行与维护](./docs/operations/README.zh_cn.md)。
+
+<p align="center">
+  <a href="./docs/products/code/assets/05-mobile-agent-chat.png"><img src="./docs/products/code/assets/05-mobile-agent-chat.webp" alt="手机浏览器中的 Farming Code" width="360"></a>
+</p>
 
 ## Farming CRT
 

@@ -56,18 +56,28 @@ Farming Code is the default desktop and mobile interface. It groups work by proj
 
 Start or resume Codex, Claude Code, Pi, OpenCode, Qoder, Qwen Code, Antigravity, and other detected
 coding Agents. Use structured Chat to read results and inspect the process, or
-Terminal to work directly with the CLI.
+switch to Terminal to work directly with the interactive CLI over the same backend session.
 
 [![Farming Code structured Agent process](./docs/products/code/assets/11-code-agent-process.webp)](./docs/products/code/assets/11-code-agent-process.png)
 
+[![Farming Code interactive Terminal session](./docs/products/code/assets/12-code-terminal-session.webp)](./docs/products/code/assets/12-code-terminal-session.png)
+
+### Agent Homes
+
+Configure multiple isolated Homes for the same coding Agent to separate work and personal accounts, provider configurations, and default launch modes (`Chat` or `Terminal`).
+
+[![Farming Code Agent Homes](./docs/products/code/assets/19-code-agent-homes.webp)](./docs/products/code/assets/19-code-agent-homes.png)
+
 ### Files and Review
 
-Browse, search, and lightly edit Project Files without leaving the current task.
+Browse, search, and lightly edit Project Files with Language Server navigation without leaving the current task.
 Inspect changes and open Review when you need evidence.
 
 ### Browser Resources
 
-Farming lets people and Agents use the same project browser. See [Farming Browser](docs/products/code/browser-agent-cli.md).
+Farming lets people and Agents use the same project browser so you can sign in, inspect live pages, and hand control back to the Agent. See [Farming Browser](docs/products/code/browser-agent-cli.md).
+
+[![Farming Browser shared session](./docs-site/public/en/assets/browser-viewer.webp)](./docs-site/public/en/assets/browser-viewer.png)
 
 ## Supported Agents
 
@@ -91,6 +101,10 @@ Run Farming on the development machine and open its authenticated URL from a
 desktop or phone that can reach it. Agents keep running when the browser
 disconnects. See [Operations](./docs/operations/README.md) for remote-access and
 security guidance.
+
+<p align="center">
+  <a href="./docs/products/code/assets/05-mobile-agent-chat.png"><img src="./docs/products/code/assets/05-mobile-agent-chat.webp" alt="Farming Code on a phone browser" width="360"></a>
+</p>
 
 ## Farming CRT
 

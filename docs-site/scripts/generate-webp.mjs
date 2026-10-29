@@ -9,8 +9,11 @@ const readmeImages = [
   'public/farming-2/app-icon-v2-512.png',
   'docs/products/code/assets/01-code-workspace.png',
   'docs/products/code/assets/02-start-agent-picker.png',
+  'docs/products/code/assets/05-mobile-agent-chat.png',
   'docs/products/code/assets/11-code-agent-process.png',
+  'docs/products/code/assets/12-code-terminal-session.png',
   'docs/products/code/assets/14-code-settings.png',
+  'docs/products/code/assets/19-code-agent-homes.png',
   'docs/products/crt/assets/01-crt-dashboard.png',
 ]
 
