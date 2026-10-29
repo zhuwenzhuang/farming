@@ -49,6 +49,9 @@ for (const name of ['README.md', 'README.zh_cn.md']) {
   const source = fs.readFileSync(path.join(repositoryRoot, name), 'utf8')
   const references = Array.from(source.matchAll(/(?:src="|!\[[^\]]*\]\()(\.\/[^)"\s]+\.webp)/g), match => match[1])
   for (const reference of references) {
+    if (reference.startsWith('./docs-site/public/')) {
+      failures.push(`${name} references ${reference}, which is gitignored in docs-site/public/`)
+    }
     const display = path.join(repositoryRoot, reference)
     const original = display.replace(/\.webp$/, '.png')
     if (!fs.existsSync(display)) failures.push(`${name} references missing ${reference}`)

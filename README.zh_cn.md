@@ -74,7 +74,7 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 Farming 让人和 Agent 使用同一个 Project Browser，方便直接完成登录、检查实时页面并将控制权交还给 Agent。详见 [Farming Browser](docs/products/code/browser-agent-cli.zh_cn.md)。
 
-[![Farming Browser 共享浏览器会话](./docs-site/public/cn/assets/browser-viewer.webp)](./docs-site/public/cn/assets/browser-viewer.png)
+[![Farming Browser 共享浏览器会话](./docs-site/public/cn/assets/browser-viewer.png)](./docs-site/public/cn/assets/browser-viewer.png)
 
 ## 支持的 Agent
 

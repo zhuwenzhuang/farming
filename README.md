@@ -77,7 +77,7 @@ Inspect changes and open Review when you need evidence.
 
 Farming lets people and Agents use the same project browser so you can sign in, inspect live pages, and hand control back to the Agent. See [Farming Browser](docs/products/code/browser-agent-cli.md).
 
-[![Farming Browser shared session](./docs-site/public/en/assets/browser-viewer.webp)](./docs-site/public/en/assets/browser-viewer.png)
+[![Farming Browser shared session](./docs-site/public/en/assets/browser-viewer.png)](./docs-site/public/en/assets/browser-viewer.png)
 
 ## Supported Agents
 
