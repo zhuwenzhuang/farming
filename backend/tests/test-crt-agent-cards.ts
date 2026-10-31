@@ -198,6 +198,7 @@ function run() {
       { role: 'user', label: 'YOU', text: 'First question' },
       { role: 'assistant', label: 'AGENT', text: 'First answer' },
       { role: 'user', label: 'YOU', text: 'Follow up' },
+      { role: 'assistant', label: 'AGENT', text: 'Intermediate progress' },
       { role: 'assistant', label: 'AGENT', text: 'Second answer' },
       { role: 'user', label: 'YOU', text: 'Latest question' },
       { role: 'assistant', label: 'AGENT', text: 'Latest answer' },

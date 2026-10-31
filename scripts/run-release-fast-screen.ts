@@ -39,6 +39,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-acp-answer-continuation.ts'],
   },
   {
+    name: 'CRT transcript projection preserves consecutive messages in sessions and cards',
+    args: ['--import', 'tsx', '--test', 'backend/tests/test-crt-runtime-switch-helpers.ts', 'backend/tests/test-crt-agent-cards.ts'],
+  },
+  {
     name: 'related-session trailing history turn',
     args: ['--import', 'tsx', 'backend/tests/test-related-session-pagination.ts'],
   },
