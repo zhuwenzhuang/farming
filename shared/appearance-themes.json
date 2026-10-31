@@ -569,7 +569,7 @@
       "--code-composer-shadow": "none",
       "--code-composer-surface": "var(--code-bg-raised)",
       "--code-context-danger-ring": "conic-gradient(#cf222e calc(var(--context-percent) * 1%), #f4c7ca 0)",
-      "--code-context-menu-surface": "var(--code-bg-inset)",
+      "--code-context-menu-surface": "var(--code-bg-raised)",
       "--code-context-warning-ring": "conic-gradient(#bf8700 calc(var(--context-percent) * 1%), #efe5c5 0)",
       "--code-danger": "#b4232f",
       "--code-danger-soft": "rgba(180, 35, 47, 0.09)",

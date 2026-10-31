@@ -126,6 +126,102 @@ async function createControlAgent(
 }
 
 test.describe('iPhone mobile layout', () => {
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    test(`mobile overflow actions and distinct project menu in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+      testInfo.setTimeout(90_000)
+      await page.setViewportSize({ width: 393, height: 852 })
+      const workspace = path.join(workspaceRoot, 'sample-project')
+      const otherWorkspace = path.join(workspaceRoot, 'another-project')
+      fs.mkdirSync(workspace)
+      fs.mkdirSync(otherWorkspace)
+      fs.writeFileSync(path.join(workspace, 'README.md'), '# Sample project\n')
+      const agentId = await createControlAgent(page, 'codex', workspace, 'chat')
+      await createControlAgent(page, 'bash', otherWorkspace)
+      await openFarming(page)
+      await page.evaluate(value => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
+      }, appearance)
+      await page.getByTestId('code-mobile-menu').click()
+      const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+      await row.locator('.code-agent-row-copy').click()
+      await expect(page.getByTestId('code-acp-composer-input')).toBeVisible()
+      const trigger = page.getByTestId('code-mobile-more')
+      const menu = page.getByTestId('code-options-menu')
+      await trigger.click()
+      for (const name of ['Pin Agent', 'Rename Agent', 'Archive', 'Switch to Terminal', 'Share current page', 'Settings']) {
+        await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible()
+      }
+      await expect(menu).toHaveCSS('background-color', await menu.evaluate(element => {
+        const probe = document.createElement('span')
+        probe.style.background = 'var(--code-context-menu-surface)'
+        element.append(probe)
+        const color = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return color
+      }))
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      await page.screenshot({ path: testInfo.outputPath(`mobile-${appearance}-overflow.png`), animations: 'disabled' })
+      await testInfo.attach(`mobile-${appearance}-overflow`, { path: testInfo.outputPath(`mobile-${appearance}-overflow.png`), contentType: 'image/png' })
+      await menu.getByRole('menuitem', { name: 'Rename Agent', exact: true }).click()
+      await page.getByTestId('code-rename-input').fill('Sample Chat')
+      await page.getByTestId('code-rename-input').press('Enter')
+      await expect(page.getByTestId('code-mobile-topbar')).toContainText('Sample Chat')
+      await trigger.click()
+      await menu.getByRole('menuitem', { name: 'Pin Agent', exact: true }).click()
+      await expect(menu).toHaveCount(0)
+      await trigger.click()
+      await expect(menu.getByRole('menuitem', { name: 'Unpin Agent', exact: true })).toBeVisible()
+      await trigger.click()
+      await expect(menu).toHaveCount(0)
+      await trigger.click()
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+
+      await trigger.click()
+      await page.setViewportSize({ width: 320, height: 380 })
+      await expect.poll(() => menu.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        return rect.left >= 8 && rect.top >= 8 && rect.right <= innerWidth - 7 && rect.bottom <= innerHeight - 7
+      })).toBe(true)
+      await menu.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+      await expect(menu).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await page.setViewportSize({ width: 393, height: 852 })
+      await page.getByTestId('code-mobile-menu').click()
+      const project = page.getByTestId('code-project-group').filter({ hasText: 'sample-project' })
+      await project.getByTestId('code-project-actions').click()
+      const projectMenu = page.getByTestId('code-project-context-menu')
+      await expect(projectMenu.getByRole('menuitem', { name: 'Rename project', exact: true })).toBeVisible()
+      const surface = await projectMenu.evaluate(element => {
+        const rect = element.getBoundingClientRect()
+        const sidebar = document.querySelector('[data-testid="code-sidebar"]')!
+        return {
+          background: getComputedStyle(element).backgroundColor,
+          sidebar: getComputedStyle(sidebar).backgroundColor,
+          cornersOnTop: [[rect.left + 4, rect.top + rect.height / 2], [rect.right - 4, rect.top + rect.height / 2]].every(([x, y]) => element.contains(document.elementFromPoint(x, y))),
+        }
+      })
+      expect(surface.background).not.toBe('rgba(0, 0, 0, 0)')
+      expect(surface.background).not.toBe(surface.sidebar)
+      expect(surface.cornersOnTop).toBe(true)
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      await page.screenshot({ path: testInfo.outputPath(`mobile-${appearance}-project-menu.png`), animations: 'disabled' })
+      await testInfo.attach(`mobile-${appearance}-project-menu`, { path: testInfo.outputPath(`mobile-${appearance}-project-menu.png`), contentType: 'image/png' })
+      await page.keyboard.press('Escape')
+      await expect(projectMenu).toHaveCount(0)
+      await expect(page.getByTestId('code-sidebar')).not.toHaveClass(/collapsed/)
+      await page.getByTestId('code-nav-history').click()
+      await trigger.click()
+      await expect(menu.getByRole('menuitem', { name: 'Rename Agent', exact: true })).toHaveCount(0)
+      await expect(menu.getByRole('menuitem', { name: 'Share current page', exact: true })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: 'Settings', exact: true })).toBeVisible()
+      await page.getByTestId('code-main').click({ position: { x: 20, y: 400 } })
+      await expect(menu).toHaveCount(0)
+    })
+  }
+
   test('opens and toggles a sandboxed HTML preview inside the mobile file surface', async ({ page, workspaceRoot }, testInfo) => {
     test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
     const projectDir = path.join(workspaceRoot, 'iphone-html-preview')

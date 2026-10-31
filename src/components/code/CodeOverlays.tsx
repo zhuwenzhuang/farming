@@ -27,11 +27,14 @@ import type { ShareNoticeAnchor } from './share-notice'
 import {
   BrowserGlyph,
   ChatBubblesGlyph,
+  CheckGlyph,
   CloseGlyph,
   CopyGlyph,
   DesktopGlyph,
   FieldFlagGlyph,
   ForkGlyph,
+  SettingsGlyph,
+  ShareGlyph,
   TerminalSquareGlyph,
   VisibilityGlyph,
   VisibilityOffGlyph,
@@ -81,6 +84,8 @@ interface CodeOverlaysProps {
   contextMenuAgentSession: AgentSessionHistoryItem | null
   contextMenuProject: ProjectGroup | null
   agentMenu: AgentMenuState
+  optionsMenu: { x: number; y: number } | null
+  optionsMenuEntries: ContextMenuEntry[]
   projectMenu: ProjectMenuState
   agentSessionMenu: AgentSessionMenuState
   renameDialog: RenameDialogState | null
@@ -144,6 +149,8 @@ export function CodeOverlays({
   contextMenuAgentSession,
   contextMenuProject,
   agentMenu,
+  optionsMenu,
+  optionsMenuEntries,
   projectMenu,
   agentSessionMenu,
   renameDialog,
@@ -235,7 +242,7 @@ export function CodeOverlays({
     }
   }, [projectMenu])
   const canRevealProject = revealCapability?.menu === projectMenu && revealCapability?.available === true
-  const activeContextMenu = agentMenu || projectMenu || agentSessionMenu
+  const activeContextMenu = agentMenu || projectMenu || agentSessionMenu || optionsMenu
   useMenuViewportBounds(Boolean(activeContextMenu), contextMenuRef, activeContextMenu)
   useModalFocusScope({
     open: Boolean(renameDialog),
@@ -496,7 +503,24 @@ export function CodeOverlays({
 
   return (
     <>
-      {contextMenuAgent && (
+      {optionsMenu && (
+        <div
+          className="code-menu-surface code-menu-list code-context-menu code-options-menu"
+          data-testid="code-options-menu"
+          style={{ left: optionsMenu.x, top: optionsMenu.y }}
+          role="menu"
+          ref={contextMenuRef}
+          onKeyDownCapture={onContextMenuKeyDown}
+          onKeyDown={onContextMenuKeyDown}
+        >
+          <ContextMenuEntries entries={compactContextMenuEntries([
+            ...(contextMenuAgent ? agentMenuEntries : []),
+            { type: 'separator', id: 'options-agent-separator' },
+            ...optionsMenuEntries,
+          ])} />
+        </div>
+      )}
+      {contextMenuAgent && agentMenu && (
         <div
           className="code-menu-surface code-menu-list code-context-menu code-sidebar-context-menu"
           data-testid="code-agent-context-menu"
@@ -773,12 +797,17 @@ function ContextMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
           <button
             key={entry.id}
             type="button"
-            role="menuitem"
+            role={typeof entry.checked === 'boolean' ? 'menuitemradio' : 'menuitem'}
+            aria-checked={entry.checked}
+            aria-label={entry.ariaLabel}
             className={entry.danger ? 'danger' : undefined}
             disabled={entry.disabled}
             title={entry.title}
             onClick={entry.onSelect}
           >
+            {typeof entry.checked === 'boolean' && (
+              <span className="code-context-menu-icon" aria-hidden="true">{entry.checked ? <CheckGlyph /> : null}</span>
+            )}
             {(entry.icon || entry.removeIcon) && (
               <span className="code-context-menu-icon" aria-hidden="true">
                 {entry.removeIcon ? <RemoveProjectIcon /> : <ContextMenuIcon kind={entry.icon!} />}
@@ -806,6 +835,8 @@ function RemoveProjectIcon() {
 }
 
 export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
+  if (kind === 'share') return <ShareGlyph />
+  if (kind === 'settings') return <SettingsGlyph />
   if (kind === 'show') return <VisibilityGlyph />
   if (kind === 'hide') return <VisibilityOffGlyph />
   if (kind === 'follow-up') return <FieldFlagGlyph filled />

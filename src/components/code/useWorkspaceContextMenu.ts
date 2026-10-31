@@ -22,7 +22,7 @@ export type WorkspaceContextMenu =
   | { kind: 'agent'; agentId: string; x: number; y: number; focusFirstItem: boolean; relatedVisibility?: RelatedRowsVisibility }
   | { kind: 'project'; projectId: string; protectedAgentIds: string[]; x: number; y: number; returnFocusTarget: HTMLElement; focusFirstItem: boolean }
   | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number; focusFirstItem: boolean }
-  | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null; focusFirstItem: boolean }
+  | { kind: 'options'; agentId?: string; x: number; y: number; returnFocusTarget: HTMLElement | null; focusFirstItem: boolean }
 
 type WorkspaceContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
 
@@ -143,17 +143,22 @@ export function useWorkspaceContextMenu({
       focusFirstItem: isKeyboardMenuTrigger(event),
     })
   }, [])
-  const openOptionsContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+  const openOptionsContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>, agentId?: string) => {
     prepareMenuTrigger(event)
+    if (contextMenu?.kind === 'options') {
+      setContextMenu(null)
+      return
+    }
     const rect = event.currentTarget.getBoundingClientRect()
     setContextMenu({
       kind: 'options',
-      x: Math.max(8, rect.right - 164),
+      agentId,
+      x: Math.max(8, rect.right - 220),
       y: Math.min(window.innerHeight - 12, rect.bottom + 6),
       returnFocusTarget: event.currentTarget,
       focusFirstItem: isKeyboardMenuTrigger(event),
     })
-  }, [])
+  }, [contextMenu])
 
   const handleContextMenuNavigation = useCallback((
     event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>,

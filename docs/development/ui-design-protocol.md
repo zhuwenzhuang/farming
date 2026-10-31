@@ -248,6 +248,12 @@ desktop action cluster is incomplete unless its capabilities remain available.
 Validate this at initial narrow load as well as after resizing a wide view; a
 wide-screen action performed beforehand must not be required to use mobile UI.
 
+The compact top-bar overflow menu exposes the current Agent’s shared actions
+when viewing its Chat or Terminal, followed by page sharing and Settings. Other
+views and read-only access expose page actions only. It snapshots the target
+Agent when opened, uses the shared menu recipe, and scrolls within the visual
+viewport when space is limited.
+
 Distinguish visual bounds from hit bounds without overlapping adjacent targets.
 Primary touch navigation can keep larger targets than dense detail rows under
 their documented contracts. Neither difference permits a second menu design or

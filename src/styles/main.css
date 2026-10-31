@@ -960,37 +960,7 @@ body.code-resizing-language-server-dock {
 .code-options-menu {
   width: max-content;
   min-width: 150px;
-  max-width: min(220px, calc(100vw - 16px));
-}
-
-.code-options-menu button {
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: 16px max-content;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  white-space: nowrap;
-  color: var(--code-text);
-}
-
-.code-options-menu button.selectable:not(.checked) {
-  color: var(--code-text-muted);
-}
-
-.code-options-menu button.checked {
-  color: var(--code-text);
-  font-weight: 550;
-  background: var(--code-accent-soft);
-}
-
-.code-options-menu-check {
-  width: 16px;
-  color: var(--code-text);
-  font-size: 14px;
-  line-height: 1;
-  text-align: center;
+  max-width: min(280px, calc(100vw - 16px));
 }
 
 .code-kill-dialog h2 {
@@ -3624,50 +3594,6 @@ body.code-mode .input-dialog .dialog-header {
   body.code-mode.code-compact-layout .code-mobile-topbar-button {
     background: transparent;
     box-shadow: none;
-  }
-
-  /* Keep the phone overflow menu as a small action rail, not a desktop
-     context card. */
-  body.code-mode.code-compact-layout .code-options-menu {
-    min-width: 132px;
-    max-width: 164px;
-    padding: 4px;
-    border: 0;
-    border-radius: 14px;
-    background: var(--code-mobile-options-surface);
-    box-shadow: var(--code-shadow-raised);
-    backdrop-filter: blur(18px) saturate(1.1);
-    -webkit-backdrop-filter: blur(18px) saturate(1.1);
-  }
-
-  body.code-mode.code-compact-layout .code-options-menu button {
-    min-height: 44px;
-    display: block;
-    width: 100%;
-    padding: 5px 10px;
-    border-radius: 9px;
-    color: var(--code-mobile-options-text);
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 20px;
-  }
-
-  body.code-mode.code-compact-layout .code-options-menu button:hover:not(:disabled),
-body.code-mode.code-compact-layout .code-options-menu button:active {
-    background: var(--code-bg-hover);
-    color: var(--code-text);
-  }
-
-  body.code-mode.code-compact-layout .code-options-menu button:focus,
-body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
-    outline: 0;
-    background: transparent;
-    color: var(--code-mobile-options-text);
-  }
-
-  body.code-mode.code-compact-layout .code-options-menu .code-context-menu-separator {
-    margin: 4px 5px;
-    background: var(--code-border);
   }
 
   body.code-mode.code-compact-layout .code-mobile-sidebar-backdrop {

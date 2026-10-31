@@ -43,6 +43,8 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
   Tab 背后使用一块克制的色调填充。文件类型、Provider 与语义状态图标在文件树、Open
   Editors、Tab、面包屑和 Chat 中保留各自的身份颜色；普通导航与操作图标继续使用中性
   文字层级。
+- 浮动菜单在所有外观中都使用不透明的 raised 表面。Paper 保持无边框、无阴影风格，
+  但必须与下方导航面板形成清晰的表面区分。
 - Paper 图标按钮静止时直接使用父级纸面；只有 Selected 或 Pressed Toggle 持续使用更深的
   Selected 填充，Hover 填充只提供临时反馈，未选中的静止按钮不使用局部底色。
 - 桌面常驻导航使用 chrome 角色；紧凑布局的固定顶栏和导航抽屉使用 panel-surface

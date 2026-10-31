@@ -57,6 +57,9 @@ equivalence. This document owns their appearance roles and theme lifecycle.
   File-type, Provider, and semantic-status icons retain their own identity
   colors across the file tree, Open Editors, tabs, breadcrumbs, and Chat;
   ordinary navigation and action icons continue to use the neutral text hierarchy.
+- Floating menus use the opaque raised surface in every appearance. Paper keeps
+  its borderless, shadowless treatment but must remain distinct from the navigation
+  panel beneath it.
 - Paper icon buttons rest directly on their parent paper surface. Only a
   selected or pressed toggle keeps the deeper selected fill; hover fill is
   temporary and an idle unselected button has no local background.

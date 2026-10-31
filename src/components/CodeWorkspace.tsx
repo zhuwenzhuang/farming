@@ -36,7 +36,7 @@ import type {
 } from '@/types/agent'
 import type { WorkspaceFileEventMessage } from '@/types/messages'
 import type { WorkspaceFileWatchReadyReason } from '@/hooks/useWebSocket'
-import { CheckGlyph, MenuGlyph, MoreHorizontalGlyph } from '@/components/IconGlyphs'
+import { MenuGlyph, MoreHorizontalGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { getStartupSearch } from '@/lib/auth-url'
 import type { WebSocketAccessMode } from '@/lib/websocket-access'
@@ -117,7 +117,6 @@ import { discardAcpSessionState } from './code/acp/acp-session-state-pool'
 import { MobileShareSheet } from './code/MobileShareSheet'
 import {
   CodeOverlays,
-  ContextMenuIcon,
   type RemoveProjectDialogView,
 } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
@@ -1812,8 +1811,8 @@ export function CodeWorkspace({
     setMainPaneMode,
   ])
   const structuralContextMenuAgent = useMemo(
-    () => activeAgents.find(agent => agent.id === agentMenu?.agentId) ?? null,
-    [activeAgents, agentMenu?.agentId]
+    () => activeAgents.find(agent => agent.id === (agentMenu?.agentId ?? optionsMenu?.agentId)) ?? null,
+    [activeAgents, agentMenu?.agentId, optionsMenu?.agentId]
   )
   const contextMenuAgent = useAgentWithLiveRuntimeState(structuralContextMenuAgent)
   const contextMenuProject = useMemo(
@@ -4857,8 +4856,10 @@ export function CodeWorkspace({
       setSettingsPanelOpen(true)
       return
     }
-    openOptionsContextMenu(event)
-  }, [closeContextMenu, openOptionsContextMenu])
+    const menuAgent = !readOnly && !agentOpeningBusy && activeView === 'projects'
+      && !showFileEditor && mainPaneMode === 'terminal' ? activeAgent : null
+    openOptionsContextMenu(event, menuAgent?.id)
+  }, [activeAgent, activeView, agentOpeningBusy, closeContextMenu, mainPaneMode, openOptionsContextMenu, readOnly, showFileEditor])
 
   const shareCurrentView = useCallback(() => {
     closeContextMenu()
@@ -4898,13 +4899,20 @@ export function CodeWorkspace({
   const optionsMenuEntries = useMemo<ContextMenuEntry[]>(() => {
     if (isCompactViewport()) {
       return compactContextMenuEntries([
-        { type: 'separator', id: 'options-mobile-share-separator' },
         {
           type: 'item',
           id: 'options-mobile-share',
           label: copy.sharePage,
+          icon: 'share',
           ariaLabel: copy.sharePage,
           onSelect: shareCurrentView,
+        },
+        {
+          type: 'item',
+          id: 'options-mobile-settings',
+          label: copy.openSettings,
+          icon: 'settings',
+          onSelect: openSettingsPanel,
         },
       ])
     }
@@ -6211,25 +6219,13 @@ export function CodeWorkspace({
           className="code-mobile-topbar-button more"
           data-testid="code-mobile-more"
           aria-label={copy.openOptions}
+          aria-haspopup="menu"
+          aria-expanded={Boolean(optionsMenu)}
           onClick={openOptionsMenu}
         >
           <MoreHorizontalGlyph />
         </button>
       </div>
-
-      {optionsMenu && (
-        <div
-          className="code-menu-surface code-menu-list code-context-menu code-options-menu"
-          data-testid="code-options-menu"
-          style={{ left: optionsMenu.x, top: optionsMenu.y }}
-          role="menu"
-          ref={contextMenuRef}
-          onKeyDownCapture={handleContextMenuKeyDown}
-          onKeyDown={handleContextMenuKeyDown}
-        >
-          <CodexMenuEntries entries={optionsMenuEntries} />
-        </div>
-      )}
 
       <CodeMainArea
         unreadProjects={projectListProjects}
@@ -6563,6 +6559,8 @@ export function CodeWorkspace({
         contextMenuAgentSession={contextMenuAgentSession}
         contextMenuProject={contextMenuProject}
         agentMenu={agentMenu}
+        optionsMenu={optionsMenu}
+        optionsMenuEntries={optionsMenuEntries}
         projectMenu={projectMenu}
         agentSessionMenu={agentSessionMenu}
         renameDialog={renameDialog}
@@ -6647,49 +6645,5 @@ export function CodeWorkspace({
         copy={copy}
       />
     </div>
-  )
-}
-
-function CodexMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
-  return (
-    <>
-      {entries.map(entry => {
-        if (entry.type === 'separator') {
-          return <div key={entry.id} className="code-context-menu-separator" role="separator" />
-        }
-
-        return (
-          <button
-            key={entry.id}
-            type="button"
-            role={typeof entry.checked === 'boolean' ? 'menuitemradio' : 'menuitem'}
-            aria-checked={typeof entry.checked === 'boolean' ? entry.checked : undefined}
-            aria-label={entry.ariaLabel}
-            className={[
-              entry.danger ? 'danger' : '',
-              typeof entry.checked === 'boolean' ? 'selectable' : '',
-              entry.checked ? 'checked' : '',
-            ].filter(Boolean).join(' ') || undefined}
-            disabled={entry.disabled}
-            onClick={entry.onSelect}
-          >
-            {typeof entry.checked === 'boolean' && (
-              <span className="code-options-menu-check" aria-hidden="true">{entry.checked ? <CheckGlyph /> : null}</span>
-            )}
-            {entry.icon && (
-              <span className="code-context-menu-icon" aria-hidden="true">
-                <ContextMenuIcon kind={entry.icon} />
-              </span>
-            )}
-            <span>{entry.label}</span>
-            {entry.trailingIcon && (
-              <span className="code-context-menu-icon trailing" aria-hidden="true">
-                <ContextMenuIcon kind={entry.trailingIcon} />
-              </span>
-            )}
-          </button>
-        )
-      })}
-    </>
   )
 }
