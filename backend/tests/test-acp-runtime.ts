@@ -81,8 +81,8 @@ async function run() {
   } finally {
     fs.readFileSync = readFileSync;
   }
-  assert.strictEqual(resolveAcpLaunch('codex').version, '2.3.0');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.98.0');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '2.5.0');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.99.1');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.34');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
@@ -1025,11 +1025,11 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-2\.3\.0\.mjs|codex-acp\/dist\/index\.js)$/);
+  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-2\.5\.0\.mjs|codex-acp\/dist\/index\.js)$/);
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),
-    /(?:dist\/acp\/claude-agent-acp-0\.98\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+    /(?:dist\/acp\/claude-agent-acp-0\.99\.1\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
   const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
   assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.34\.mjs$/);
@@ -2198,6 +2198,14 @@ async function run() {
     const activePromptResult = activePromptOutcome.value;
     assert.strictEqual(activePromptResult.stopReason, 'cancelled');
     assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').state, 'idle');
+    const deferredPermission = new Promise<string>(resolve => {
+      const listener = event => {
+        if (event.agentId !== 'agent-acp-close-during-prompt' || !event.pendingPermission) return;
+        runtime.off('agent-runtime', listener);
+        resolve(event.pendingPermission.requestId);
+      };
+      runtime.on('agent-runtime', listener);
+    });
     const promptAfterDeferred = runtime.prompt('agent-acp-close-during-prompt', 'after deferred settings');
     for (let attempt = 0; attempt < 100 && !releaseDeferredConfig; attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -2213,6 +2221,8 @@ async function run() {
       if (runtime.getSession('agent-acp-close-during-prompt').deferredConfigOptions.length === 0) break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    // The applied restricted mode supersedes the original full-access launch.
+    runtime.respondPermission('agent-acp-close-during-prompt', await deferredPermission, 'allow');
     assert.strictEqual((await promptAfterDeferred).stopReason, 'end_turn');
     assert.strictEqual(deferredConfigCalls, 1);
     assert.strictEqual(deferredModeCalls, 1);

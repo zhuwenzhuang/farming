@@ -64,6 +64,17 @@ an explicit per-launch permission choice takes precedence over that default.
 Browsers must not submit cached defaults as explicit choices. Changing the global
 default does not change existing Sessions' permissions.
 
+When a Provider advertises permission modes, initialization applies the resolved
+choice to that Session before accepting input. Prefer the mode configuration
+option and verify its returned value; legacy mode-only Providers use
+`session/set_mode`. A missing advertised choice or rejected/unconfirmed change
+fails initialization without retrying the mutation. The execution mode and the
+Composer selection must agree. Saved Session overrides take precedence during
+recovery, and later explicit mode changes replace the launch approval policy.
+Providers whose modes describe reasoning or build/plan behavior retain those
+settings; their native permission behavior or ACP client approval contract applies.
+Permission defaults never mutate another Session sharing the same process.
+
 Accepted model, reasoning and Fast changes update only the requested new-Agent
 Home defaults in the same Config, after verifying exact Home identity. Restoration
 does not rewrite defaults. Session success with a failed default save is reported

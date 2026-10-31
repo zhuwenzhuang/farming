@@ -14,6 +14,14 @@ const projectRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
 const tasks: FastScreenTask[] = [
   {
+    name: 'isolated browser copies preserve working-tree additions and deletions',
+    args: ['--test', 'scripts/run-playwright-isolated-lanes.test.mjs'],
+  },
+  {
+    name: 'broken submodule diagnostics across supported Git versions',
+    args: ['--import', 'tsx', 'backend/tests/test-workspace-submodules.ts'],
+  },
+  {
     name: 'read-only Composer denial settles correlated delivery',
     args: ['--import', 'tsx', 'backend/tests/test-read-only-access.ts'],
   },
@@ -69,6 +77,11 @@ const tasks: FastScreenTask[] = [
     name: 'provider-neutral ACP protocol compatibility',
     managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-acp-protocol-compatibility.ts'],
+  },
+  {
+    name: 'ACP permission defaults and restricted-mode recovery across all providers',
+    managedUpgrade: true,
+    args: ['--import', 'tsx', '--test', 'backend/tests/test-agent-permission-matrix.ts'],
   },
   {
     name: 'source-inspection contract registration',
@@ -215,6 +228,7 @@ const tasks: FastScreenTask[] = [
   },
   {
     name: 'shared Codex ACP replacement',
+    managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-acp-shared-codex-adapter.ts'],
   },
   {

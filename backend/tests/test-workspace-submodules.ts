@@ -111,7 +111,8 @@ async function run() {
     fs.writeFileSync(path.join(child, '.git'), 'gitdir: /nonexistent/submodule\n');
     const broken = await files.changes(root, { repositories: true });
     assert.equal(broken.repositories?.find(repo => repo.path === 'lib')?.uninitialized, undefined);
-    assert.match(broken.repositories?.find(repo => repo.path === 'lib')?.error || '', /not a git repository/i);
+    // Git 2.56 identifies an invalid gitfile separately from a missing repository.
+    assert.match(broken.repositories?.find(repo => repo.path === 'lib')?.error || '', /not a git repository|gitfile does not point to a valid repository/i);
     console.log('test-workspace-submodules passed');
   } finally {
     await files.dispose();

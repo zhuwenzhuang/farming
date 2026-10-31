@@ -293,9 +293,13 @@ async function run() {
     await assert.rejects(runtime.cancelSubagent('shared-codex-a', 'reusable-child'), /controlled by its parent/);
     await updateChild({ state: { state: 'idle', stopReason: 'end_turn' } });
 
+    const gatewayModelId = runtime.getSession('shared-codex-a').configOptions
+      .find(option => option.id === 'model')?.currentValue;
+    assert.ok(typeof gatewayModelId === 'string' && gatewayModelId.length > 0,
+      'the replacement gateway must advertise the model selected by the app-server fixture');
     const gatewayServer = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ data: [{ id: 'gpt-4.1' }] }));
+      res.end(JSON.stringify({ data: [{ id: gatewayModelId }] }));
     });
     await new Promise(resolve => gatewayServer.listen(0, '127.0.0.1', resolve));
     const gatewayPort = gatewayServer.address().port;

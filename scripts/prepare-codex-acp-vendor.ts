@@ -9,10 +9,10 @@ import { integrateCodexRelatedHistory } from './vendor/codex-related-integration
 import { integrateCodexSubagentTurns } from './vendor/codex-subagent-integration';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '2.3.0';
-const expectedUpstreamSha256 = 'd584cb7df74847661c3cf69d34de6ad3a24f6bc69787faeaff49a1fd9a3d8870';
-const expectedBundleSha256 = 'd604a28754a099df3ea9edaa866be74fe52266d9783d3ab63b0e19c7c41eb361';
-const expectedPatchedSha256 = 'c341ebd44088437614ec98acd86f4f7a7d44459b6067d3ee9c891bbee7e909e8';
+const expectedVersion = '2.5.0';
+const expectedUpstreamSha256 = '15de6b2dd5203876a48b12861378bcf87040d623ab2159e05052dc9d54c32b16';
+const expectedBundleSha256 = 'd48968fd754c498d6c30de6a1e2f74653d0958244b10cbae72d66d8ceb5bd33f';
+const expectedPatchedSha256 = '73d73ef90f16d726c3f5639846389ed6fb24301a8d130f1312c4f55e9d2dcdb7';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');

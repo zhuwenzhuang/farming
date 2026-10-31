@@ -2,8 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
 
-for (const appearance of ['light', 'dark', 'paper'] as const) {
-  test(`new Agents honor the current bypass default in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+const permissionModes = [
+  { provider: 'codex', ordinary: 'agent', bypass: 'agent-full-access' },
+  { provider: 'claude', ordinary: 'default', bypass: 'bypassPermissions' },
+  { provider: 'qoder', ordinary: 'default', bypass: 'bypassPermissions' },
+  { provider: 'qwen', ordinary: 'default', bypass: 'yolo' },
+  { provider: 'agy', ordinary: 'agent_decides', bypass: 'bypassPermissions' },
+]
+for (const { provider, ordinary, bypass } of permissionModes) {
+ for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`new ${provider} Agents honor the current bypass default in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const seeded = await page.request.post('/farming/api/settings', { data: {
       appearance,
       dangerouslySkipAgentPermissionsByDefault: false,
@@ -11,7 +19,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     } })
     expect(seeded.ok()).toBe(true)
     const modesFixture = path.join(workspaceRoot, '.fake-acp-permission-modes')
-    fs.writeFileSync(modesFixture, '')
+    fs.writeFileSync(modesFixture, JSON.stringify({ currentModeId: ordinary,
+      availableModes: [{ id: ordinary, name: 'Default' }, { id: bypass, name: 'Bypass permissions' }],
+    }))
     try {
       await openFarming(page)
       await openNewAgentDialog(page)
@@ -23,9 +33,9 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         await project.getByTestId('code-project-new-agent').click({ force: true })
         await page.getByTestId(`code-project-agent-launch-${provider}`).click()
       }
-      await launchChat('codex')
+      await launchChat(provider)
       const mode = page.getByTestId('code-acp-mode')
-      await expect(mode).toHaveAttribute('data-acp-value', 'agent')
+      await expect(mode).toHaveAttribute('data-acp-value', ordinary)
 
       await page.getByTestId('code-sidebar-options').click()
       const settings = page.getByTestId('code-settings-panel')
@@ -38,12 +48,12 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await expect(toggle).toHaveAttribute('aria-pressed', 'true')
       await settings.getByRole('button', { name: 'Close', exact: true }).click()
       await expect(settings).toBeHidden()
-      await expect(mode).toHaveAttribute('data-acp-value', 'agent')
+      await expect(mode).toHaveAttribute('data-acp-value', ordinary)
 
-      await launchChat('codex')
-      await expect(mode).toHaveAttribute('data-acp-value', 'agent-full-access')
-      await testInfo.attach(`default-permissions-codex-${appearance}`, {
-        body: await mode.screenshot({ path: testInfo.outputPath(`default-permissions-codex-${appearance}.png`) }),
+      await launchChat(provider)
+      await expect(mode).toHaveAttribute('data-acp-value', bypass)
+      await testInfo.attach(`default-permissions-${provider}-${appearance}`, {
+        body: await mode.screenshot({ path: testInfo.outputPath(`default-permissions-${provider}-${appearance}.png`) }),
         contentType: 'image/png',
       })
     } finally {
@@ -52,16 +62,15 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       expect(reset.ok()).toBe(true)
     }
   })
+ }
 }
 
-// The fake ACP server advertises Codex modes only. For Claude, verify the
-// authoritative launch contract without inventing provider mode capabilities.
-for (const provider of ['codex', 'claude'] as const) {
+for (const provider of ['codex', 'claude', 'qoder', 'qwen', 'opencode', 'pi', 'agy'] as const) {
   for (const runtime of ['acp', 'terminal'] as const) {
     test(`${provider} ${runtime} resolves current permission defaults and explicit choices`, async ({ page, workspaceRoot }) => {
       const permissionKey = provider === 'codex' ? 'codexApprovalMode' : 'claudePermissionMode'
-      const restrictedMode = provider === 'codex' ? 'approve' : 'plan'
-      const bypassMode = provider === 'codex' ? 'full' : 'bypassPermissions'
+      const restrictedMode = provider === 'codex' ? 'approve' : provider === 'claude' ? 'plan' : ''
+      const bypassMode = provider === 'claude' ? 'bypassPermissions' : provider === 'pi' ? '' : 'full'
       const ownedAgentIds = new Set<string>()
       const readAgent = async (agentId: string) => {
         const response = await page.request.get('/farming/api/control/agents')
@@ -99,7 +108,8 @@ for (const provider of ['codex', 'claude'] as const) {
         const bypass = await create()
         await expect.poll(async () => (await readAgent(bypass))?.launchPermissionMode).toBe(bypassMode)
 
-        const explicit = await create({ [permissionKey]: restrictedMode })
+        const explicit = await create(provider === 'codex' || provider === 'claude'
+          ? { [permissionKey]: restrictedMode } : { dangerouslySkipPermissions: false })
         await expect.poll(async () => (await readAgent(explicit))?.launchPermissionMode).toBe(restrictedMode)
 
         await setDefault(false)

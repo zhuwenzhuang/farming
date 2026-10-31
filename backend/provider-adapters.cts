@@ -700,7 +700,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
-      version: '2.3.0',
+      version: '2.5.0',
       sharedRuntime: true,
       normalizeHostMessageChunks: true,
       config: {
@@ -768,9 +768,18 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
-      version: '0.98.0',
+      version: '0.99.1',
       sharedRuntime: true,
       config: {
+        approvalModes: {
+          full: 'bypassPermissions',
+          bypassPermissions: 'bypassPermissions',
+          acceptEdits: 'acceptEdits',
+          auto: 'auto',
+          default: 'default',
+          dontAsk: 'dontAsk',
+          plan: 'plan',
+        },
         launchModelAndReasoning: true,
         reasoningProfileKey: 'effort',
       },
@@ -985,6 +994,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
+      config: { approvalModes: { full: 'bypassPermissions' } },
       historyReplay: {
         restoreMissingCheckpointMedia: true,
         waitForNotifications: true,
@@ -1055,6 +1065,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
+      config: { approvalModes: { full: 'yolo' } },
       launch: options => ({
         command: options.executable || 'qwen',
         args: [
@@ -1133,6 +1144,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       version: 'native',
       acceptsMcpServers: false,
       sharedRuntime: false,
+      config: { approvalModes: { full: 'bypassPermissions' } },
       launch: options => resolveAgyAcpLaunch(options),
     },
     usage: {

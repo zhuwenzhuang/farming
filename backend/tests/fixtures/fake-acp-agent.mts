@@ -100,6 +100,11 @@ interface SessionConfigState {
   fast: boolean;
 }
 const sessionConfigStates = new Map<string, SessionConfigState>();
+const sessionPermissionModes = new Map<string, {
+  currentModeId: string;
+  availableModes: Array<{ id: string; name: string }>;
+  configOption: boolean;
+}>();
 const omitFastOption = process.env.FARMING_TEST_ACP_OMIT_FAST === '1';
 const cancelledSessions = new Map<string, () => void>();
 const sessionEnvironments = new Map<string, NodeJS.ProcessEnv>();
@@ -210,6 +215,11 @@ function sessionConfigOptions(id: string): SessionConfigOption[] {
         : ['high', 'ultra']).map(value => ({ value, name: value })),
     },
   ];
+  const permission = sessionPermissionModes.get(id);
+  if (permission?.configOption) options.push({
+    id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: permission.currentModeId,
+    options: permission.availableModes.map(mode => ({ value: mode.id, name: mode.name })),
+  });
   if (!omitFastOption) {
     options.push({ id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: state.fast });
   }
@@ -290,19 +300,21 @@ class FakeAgent {
       sessionId = deterministicE2eSessionId(environment.FARMING_AGENT_ID);
     }
     bindSessionEnvironment(sessionId, params);
+    const permissionFixture = path.join(process.cwd(), '.fake-acp-permission-modes');
+    if (fs.existsSync(permissionFixture)) {
+      const contents = fs.readFileSync(permissionFixture, 'utf8').trim();
+      sessionPermissionModes.set(sessionId, contents ? { ...JSON.parse(contents), configOption: true } : {
+        currentModeId: 'agent', configOption: false,
+        availableModes: [
+          { id: 'read-only', name: 'Read only' }, { id: 'agent', name: 'Workspace' },
+          { id: 'agent-full-access', name: 'Full access' },
+        ],
+      });
+    }
     return {
       sessionId,
       configOptions: sessionConfigOptions(sessionId),
-      ...(fs.existsSync(path.join(process.cwd(), '.fake-acp-permission-modes')) ? {
-        modes: {
-          currentModeId: 'agent',
-          availableModes: [
-            { id: 'read-only', name: 'Read only' },
-            { id: 'agent', name: 'Workspace' },
-            { id: 'agent-full-access', name: 'Full access' },
-          ],
-        },
-      } : {}),
+      ...(sessionPermissionModes.has(sessionId) ? { modes: sessionPermissionModes.get(sessionId) } : {}),
     };
   }
 
@@ -426,6 +438,12 @@ class FakeAgent {
     const state = sessionConfigState(params.sessionId);
     if (process.env.FARMING_TEST_ACP_REJECT_CONFIG_ID === params.configId) {
       throw new Error(`Fake provider rejected config option ${params.configId}`);
+    }
+    if (params.configId === 'mode') {
+      const permission = sessionPermissionModes.get(params.sessionId);
+      if (!permission?.availableModes.some(mode => mode.id === params.value)) throw new Error('Unsupported mode');
+      permission.currentModeId = String(params.value);
+      return { configOptions: sessionConfigOptions(params.sessionId) };
     }
     if (params.configId === 'model') {
       if (typeof params.value !== 'string') {

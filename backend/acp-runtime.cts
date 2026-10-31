@@ -331,9 +331,9 @@ const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
-const CODEX_ACP_VERSION = '2.3.0';
+const CODEX_ACP_VERSION = '2.5.0';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
-const CLAUDE_ACP_VERSION = '0.98.0';
+const CLAUDE_ACP_VERSION = '0.99.1';
 const PI_ACP_PACKAGE = 'pi-acp';
 const PI_ACP_VERSION = '0.0.34';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
@@ -522,7 +522,7 @@ function isStructuredReconnectableFailure(binding: AcpBinding, error: unknown) {
 
 function autoPermissionResponse(request: UnknownRecord, approvalMode: string): PermissionResponse | null {
   const options = Array.isArray(request?.options) ? request.options : [];
-  if (approvalMode === 'full') {
+  if (approvalMode === 'full' || approvalMode === 'bypassPermissions') {
     const option = options.find(item => item.kind === 'allow_always')
       || options.find(item => item.kind === 'allow_once');
     return option ? selectedPermission(option) : { outcome: { outcome: 'cancelled' } };
@@ -2096,6 +2096,7 @@ class AcpRuntime extends EventEmitter {
         }
         initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
         initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+        this.syncSessionPermissionMode(binding);
         const configPolicy = providerAcpConfigPolicy(provider);
         const launchConfigIds = new Set<string>();
         if (configPolicy?.launchModelAndReasoning || options.model || options.reasoningEffort) {
@@ -2133,15 +2134,25 @@ class AcpRuntime extends EventEmitter {
         }
         if (configPolicy?.approvalModes) {
           const modeId = configPolicy.approvalModes[binding.approvalMode];
+          const modeOption = binding.configOptions.find(option => option.type === 'select' && option.category === 'mode');
           const availableModes = Array.isArray(binding.modes?.availableModes)
             ? binding.modes.availableModes
             : [];
-          if (
-            modeId
-            && String(binding.modes?.currentModeId || '') !== modeId
-            && availableModes.some(mode => String(recordValue(mode).id || '') === modeId)
-          ) {
-            await this.setSessionModeNow(binding, modeId);
+          if (modeId && modeOption) {
+            if (!sessionConfigSelectValues(modeOption).includes(modeId)) {
+              throw new Error(`${provider} ACP Agent did not advertise permission mode ${modeId}`);
+            }
+            // The config response is authoritative for the Composer as well as
+            // execution. set_mode alone may leave that option at its old value.
+            await this.applySessionConfigOption(binding, modeOption.id, modeId, { maxAttempts: 1 });
+            launchConfigIds.add(modeOption.id);
+          } else if (modeId && binding.modes) {
+            if (!availableModes.some(mode => String(recordValue(mode).id || '') === modeId)) {
+              throw new Error(`${provider} ACP Agent did not advertise permission mode ${modeId}`);
+            }
+            if (String(binding.modes.currentModeId || '') !== modeId) {
+              await this.setSessionModeNow(binding, modeId);
+            }
           }
         }
         if (options.serviceTier && options.serviceTier !== 'config') {
@@ -3142,6 +3153,7 @@ class AcpRuntime extends EventEmitter {
           }
           if (isPrimarySession && update?.sessionUpdate === 'config_option_update') {
             binding.configOptions = JSON.parse(JSON.stringify(update.configOptions || []));
+            this.syncSessionPermissionMode(binding);
           }
           if (!isPrimarySession && binding.sessionState) {
             const parentTool = binding.sessionState.entries.find((entry: TranscriptEntry) => (
@@ -3215,7 +3227,15 @@ class AcpRuntime extends EventEmitter {
     ) {
       return { outcome: { outcome: 'cancelled' } };
     }
-    const automatic = autoPermissionResponse(request, binding.approvalMode);
+    const approvalModes = providerAcpConfigPolicy(binding.provider)?.approvalModes;
+    const currentMode = binding.configOptions.find(option => option.category === 'mode')?.currentValue
+      || binding.sessionState?.currentModeId;
+    // A later explicit Session choice supersedes the launch default. Providers
+    // without permission modes (e.g. OpenCode) delegate approvals to the client.
+    const approvalMode = approvalModes && currentMode
+      ? Object.entries(approvalModes).find(([, mode]) => mode === currentMode)?.[0] || 'approve'
+      : binding.approvalMode;
+    const automatic = autoPermissionResponse(request, approvalMode);
     if (automatic) return automatic;
     const requestId = `acp-permission-${crypto.randomUUID()}`;
     binding.interactionOrigins.set(requestId, binding.state);
@@ -4424,6 +4444,12 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionModeNow(binding: AcpBinding, modeId: string) {
     this.requireOpenBinding(binding);
+    const modeOption = binding.configOptions.find(option => option.type === 'select' && option.category === 'mode');
+    if (modeOption && providerAcpConfigPolicy(binding.provider)?.approvalModes) {
+      await this.applySessionConfigOption(binding, modeOption.id, modeId, { maxAttempts: 1 });
+      this.rememberSessionConfigOverrides(binding, [{ configId: modeOption.id, value: modeId }]);
+      return { sessionId: binding.sessionId, modeId: String(modeId) };
+    }
     await withTimeout(
       binding.connection.setSessionMode({ sessionId: binding.sessionId, modeId: String(modeId || '') }),
       this.requestTimeoutMs,
@@ -4801,11 +4827,20 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
   }
 
+  private syncSessionPermissionMode(binding: AcpBinding) {
+    if (!providerAcpConfigPolicy(binding.provider)?.approvalModes) return;
+    const modeId = binding.configOptions.find(option => option.type === 'select' && option.category === 'mode')?.currentValue;
+    if (typeof modeId !== 'string') return;
+    this.requireSessionState(binding).currentModeId = modeId;
+    if (binding.modes) binding.modes = { ...binding.modes, currentModeId: modeId };
+  }
+
   async applySessionConfigOption(binding: AcpBinding, configId: string, value: ConfigValue, options: PrepareAgentOptions = {}) {
     this.requireOpenBinding(binding);
     const normalizedConfigId = String(configId || '');
     const currentOption = this.requireSessionConfigOption(binding, normalizedConfigId, value);
     if (options.force !== true && currentOption?.currentValue === value) {
+      this.syncSessionPermissionMode(binding);
       if (options.emit !== false) this.emitSession(binding);
       return { sessionId: binding.sessionId, configOptions: binding.configOptions };
     }
@@ -4829,6 +4864,7 @@ class AcpRuntime extends EventEmitter {
       }
     }
     this.requireSessionState(binding).configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+    this.syncSessionPermissionMode(binding);
     this.scheduleCheckpoint(binding, { exact: true });
     if (options.emit !== false) this.emitSession(binding);
     return { sessionId: binding.sessionId, configOptions: binding.configOptions };

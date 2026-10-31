@@ -12,7 +12,7 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   const resultFile = path.join(tmp, 'answer.json');
   const requestLog = path.join(tmp, 'requests.jsonl');
   const accountReadGate = path.join(tmp, 'account-read-gate');
-  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-2.3.0.mjs')], {
+  const child = spawn(process.execPath, [path.join(root, 'dist/acp/codex-acp-2.5.0.mjs')], {
     cwd: root, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CODEX_HOME: tmp, CODEX_PATH: path.join(__dirname, 'fixtures/fake-codex-app-server.ts'),
       FARMING_TEST_ACTIVE_WRITER: kind === 'writer' ? '1' : '0',

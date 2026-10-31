@@ -179,3 +179,18 @@ test('rich editor selection and responsive input specs belong to the Composer ow
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.name), ['composer']);
 });
+
+test('provider launch policies and permission defaults select the seven-provider regression', () => {
+  const plan = selectBrowserScreen(['backend/provider-adapters.cts', 'tests/e2e/default-agent-permissions.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.script), ['release:fast-screen:permissions']);
+});
+
+test('shared menu surfaces and native Antigravity children retain their focused owners', () => {
+  const plan = selectBrowserScreen(['shared/appearance-themes.json', 'src/styles/tokens.css',
+    'src/components/code/CodeOverlays.tsx', 'src/components/code/menu-model.ts',
+    'src/components/code/useWorkspaceContextMenu.ts', 'backend/agy-related-sessions.cts',
+    'tests/e2e/agy-related-sessions.spec.ts']);
+  assert.deepEqual(plan.unmapped, []);
+  assert.deepEqual(plan.lanes.map(lane => lane.name), ['mobile-menus', 'agy-children']);
+});

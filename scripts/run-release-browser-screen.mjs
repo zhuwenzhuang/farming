@@ -11,6 +11,9 @@ const definitions = [
   ['mobile-auth', 'release:fast-screen:mobile-auth'],
   ['composer', 'release:fast-screen:composer'],
   ['interaction', 'release:fast-screen:interaction'],
+  ['permissions', 'release:fast-screen:permissions'],
+  ['mobile-menus', 'release:fast-screen:mobile-menus'],
+  ['agy-children', 'release:fast-screen:agy-children'],
   ['language-server', 'release:fast-screen:language-server'],
   ['sidebar', 'release:fast-screen:sidebar-mobile'],
   ['communication', 'release:fast-screen:communication'],
@@ -59,6 +62,12 @@ export function selectBrowserScreen(files) {
     if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);
     if (/^tests\/e2e\/(backend-connection-status|mermaid-module-recovery|background-chat-continuity)\.spec\.ts$/.test(filename)) select(['interaction']);
     if (filename === 'tests/e2e/quote-selection.spec.ts') select(['quoted-side', 'interaction']);
+    if (['backend/provider-adapters.cts', 'tests/e2e/default-agent-permissions.spec.ts'].includes(filename)) select(['permissions']);
+    if (['shared/appearance-themes.json', 'src/styles/tokens.css', 'src/components/code/CodeOverlays.tsx',
+      'src/components/code/menu-model.ts', 'src/components/code/useWorkspaceContextMenu.ts',
+      'tests/e2e/iphone-mobile-layout.spec.ts'].includes(filename)) select(['mobile-menus']);
+    if (['backend/agy-related-sessions.cts', 'backend/acp/agy-acp-bridge.cts',
+      'tests/e2e/agy-related-sessions.spec.ts'].includes(filename)) select(['agy-children']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }
   return {

@@ -1,8 +1,7 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index f44e3aa..27eb9b1 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -27964,6 +27964,8 @@ var require2 = createRequire(import.meta.url);
+@@ -28096,6 +28096,8 @@
  var DRAINED_MARKER_METHOD = "codex-acp/stdoutDrained";
  function startCodexConnection(codexPath, env, appServerStartupArgs = ["app-server"], options = {}) {
    const spawnEnv = env ?? process.env;
@@ -11,7 +10,7 @@ index f44e3aa..27eb9b1 100755
    let codex;
    if (codexPath) {
      codex = process.platform === "win32" ? (0, import_cross_spawn.default)(codexPath, appServerStartupArgs, { env: spawnEnv }) : spawn(codexPath, appServerStartupArgs, { env: spawnEnv });
-@@ -34023,6 +34025,10 @@ var GOAL_EXTENSION_VERSION = 1;
+@@ -34609,6 +34611,10 @@
  var GOAL_CONTROL_METHOD = "_session/goal";
  var LEGACY_GOAL_CONTROL_METHOD = "_codex/session/goal_control";
  var GOAL_CONTROL_ACTIONS = ["set", "pause", "resume", "clear"];
@@ -22,7 +21,7 @@ index f44e3aa..27eb9b1 100755
  
  // src/ThreadGoalSnapshot.ts
  function toGoalStatus(status) {
-@@ -34055,7 +34061,7 @@ function toThreadGoalSnapshot(goal) {
+@@ -34641,7 +34647,7 @@
  function sameThreadGoalSnapshot(left, right) {
    if (left === void 0) return false;
    if (left === null || right === null) return left === right;
@@ -31,7 +30,7 @@ index f44e3aa..27eb9b1 100755
  }
  function goalSessionInfoUpdate(goal, airClient) {
    if (!airClient) return null;
-@@ -34371,9 +34377,7 @@ var CodexSubagentEventRouter = class _CodexSubagentEventRouter {
+@@ -35219,9 +35225,7 @@
        const childTurn = this.isKnownChild(notification.params.threadId);
        const state = terminalStateFromTurn(notification.params.turn.status);
        if (!state) return childTurn;
@@ -42,7 +41,7 @@ index f44e3aa..27eb9b1 100755
          if (this.pendingSpawns.has(notification.params.threadId)) {
            this.finishPending(notification.params.threadId);
          } else {
-@@ -35637,6 +35641,12 @@ ${diff}`, "");
+@@ -37177,6 +37181,12 @@
     * remains installed until the ACP session closes, so terminal errors need a durable session-level path
     * instead of entering a turn buffer that will never be flushed.
     */
@@ -53,9 +52,9 @@ index f44e3aa..27eb9b1 100755
 +    } } };
 +  }
    async handleSessionScopedNotification(notification) {
-     this.recordTerminalTurnError(notification);
-     if (notification.method !== "error") {
-@@ -35876,12 +35886,14 @@ ${params.turnId}`;
+     const threadId = notification.params.threadId;
+     if (this.subagents instanceof StandardSubagentEventRouter && typeof threadId === "string" && threadId !== this.sessionState.sessionId) {
+@@ -37434,12 +37444,14 @@
          this.sessionState.interruptTurnId = notification.params.turn.id;
          this.sessionState.currentTurnId ??= notification.params.turn.id;
          await this.flushPendingErrors();
@@ -72,7 +71,7 @@ index f44e3aa..27eb9b1 100755
          this.sessionState.interruptTurnId = null;
          if (this.session.protocolVersion === 2 && notification.params.turn.status === "failed") {
            for (const update of this.sessionState.openToolCalls.finishOutstanding()) {
-@@ -35890,7 +35902,7 @@ ${params.turnId}`;
+@@ -37448,7 +37460,7 @@
          }
          this.sessionState.toolCallReports.releaseOpen(this.subagents.notificationSessionId(notification));
          this.sessionState.openToolCalls.clear();
@@ -81,7 +80,7 @@ index f44e3aa..27eb9b1 100755
        case "thread/tokenUsage/updated":
          return this.createUsageUpdate(notification.params);
        case "thread/name/updated":
-@@ -37584,7 +37596,7 @@ var CodexElicitationHandler = class {
+@@ -39175,7 +39187,7 @@
      const properties = {};
      const required2 = [];
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -90,7 +89,7 @@ index f44e3aa..27eb9b1 100755
      for (const question of params.questions) {
        const options = question.options ?? [];
        const hasOptions = options.length > 0;
-@@ -37688,7 +37700,7 @@ var CodexElicitationHandler = class {
+@@ -39279,7 +39291,7 @@
      const answers = {};
      const content = contentRecord(response.content);
      const questionIds = new Set(params.questions.map((question) => question.id));
@@ -99,7 +98,7 @@ index f44e3aa..27eb9b1 100755
      for (const question of params.questions) {
        const answerValues = [];
        const hasOtherAnswer = question.isOther && question.options != null && question.options.length > 0;
-@@ -39486,6 +39498,9 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41104,6 +41116,9 @@
    sessionNotificationQueues = /* @__PURE__ */ new Map();
    subagents;
    skillExtraRoots = [];
@@ -109,7 +108,7 @@ index f44e3aa..27eb9b1 100755
    configPath = null;
    constructor(codexClient, codexConfig, modelProvider) {
      this.codexClient = codexClient;
-@@ -39540,12 +39555,17 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41158,12 +41173,17 @@
    getHomePath() {
      return this.configPath;
    }
@@ -119,7 +118,7 @@ index f44e3aa..27eb9b1 100755
 +  }
    async authenticate(authRequest, urlElicitationRequester) {
      if (!isCodexAuthRequest(authRequest)) {
-       throw RequestError.invalidRequest();
+       throw RequestError.invalidParams();
      }
      this.gatewayConfig = null;
      this.gatewayConfigSource = null;
@@ -127,7 +126,7 @@ index f44e3aa..27eb9b1 100755
      switch (authRequest.methodId) {
        case "api-key":
          return await this.authenticateWithApiKey(authRequest);
-@@ -39733,6 +39753,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41356,6 +41376,7 @@
      });
      await this.codexClient.accountLogout();
      await accountUpdatedPromise;
@@ -135,7 +134,7 @@ index f44e3aa..27eb9b1 100755
    }
    /** Reads whether the agent needs a login, with the account read that gave the answer. */
    async readAuthRequirement() {
-@@ -39793,6 +39814,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41416,6 +41437,7 @@
    setProvider(gatewayConfig) {
      this.gatewayConfigSource = "acpProviders";
      this.gatewayConfig = gatewayConfig;
@@ -143,7 +142,7 @@ index f44e3aa..27eb9b1 100755
      logger.log("providers/set applied", {
        providerId: OPENAI_PROVIDER_ID,
        apiType: gatewayApiTypeFromConfig(gatewayConfig),
-@@ -39848,6 +39870,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41471,6 +41493,7 @@
      if (request.providerId === OPENAI_PROVIDER_ID) {
        this.gatewayConfig = null;
        this.gatewayConfigSource = null;
@@ -151,7 +150,7 @@ index f44e3aa..27eb9b1 100755
      }
      const current = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -39954,7 +39977,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41577,7 +41600,7 @@
      const instructions = await this.resolveSessionInstructions(request, previousInstructions);
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
@@ -160,7 +159,7 @@ index f44e3aa..27eb9b1 100755
      const response = await this.resumeThreadWithInstructions({
        excludeTurns: true,
        config: sessionConfig.config,
-@@ -39987,7 +40010,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41610,7 +41633,7 @@
      return await forkSession(request, additionalDirectories, {
        codexClient: this.codexClient,
        refreshSkills: (cwd, directories) => this.refreshSkills(cwd, directories),
@@ -169,7 +168,7 @@ index f44e3aa..27eb9b1 100755
        getResumeModelProvider: () => this.getResumeModelProvider(),
        fetchAvailableModels: () => this.fetchAvailableModels(),
        createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
-@@ -40000,7 +40023,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41623,7 +41646,7 @@
      const instructions = await this.resolveSessionInstructions(request, previousInstructions);
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
@@ -178,7 +177,7 @@ index f44e3aa..27eb9b1 100755
      const response = await this.resumeThreadWithInstructions({
        excludeTurns: true,
        config: sessionConfig.config,
-@@ -40024,7 +40047,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41647,7 +41670,7 @@
        thread = { ...legacy, turns: [] };
        history = oneItemPage(legacy.turns.flatMap((turn) => turn.items.map((item) => ({
          turnId: turn.id,
@@ -187,7 +186,7 @@ index f44e3aa..27eb9b1 100755
          startedAtMs: null,
          completedAtMs: null
        }))));
-@@ -40046,7 +40069,24 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41669,7 +41692,24 @@
        ...instructions ? { instructions } : {}
      };
    }
@@ -213,7 +212,7 @@ index f44e3aa..27eb9b1 100755
     * The items of the turn at `index` of a session, oldest first, in pages.
     * Returns null when the session has fewer turns.
     */
-@@ -40076,7 +40116,7 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41714,7 +41754,7 @@
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      const developerInstructions = instructions?.developerInstructions;
      await this.refreshSkills(request.cwd, additionalDirectories);
@@ -222,7 +221,7 @@ index f44e3aa..27eb9b1 100755
      const response = await this.codexClient.threadStart({
        config: sessionConfig.config,
        modelProvider: this.getModelProvider(),
-@@ -40191,13 +40231,11 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41829,13 +41869,11 @@
    }
    async deleteSession(sessionId) {
      try {
@@ -241,10 +240,11 @@ index f44e3aa..27eb9b1 100755
      }
    }
    async renameSession(sessionId, name) {
-@@ -40217,6 +40255,59 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41854,6 +41892,59 @@
+   async getGoal(sessionId) {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
-   }
++  }
 +  onClientTransportEvent(callback) {
 +    this.codexClient.onClientTransportEvent(callback);
 +  }
@@ -297,11 +297,10 @@ index f44e3aa..27eb9b1 100755
 +      )
 +    );
 +    return resolved.filter(Boolean);
-+  }
+   }
    async setGoal(sessionId, objective, onTurnStarted, onGoalSet, onAccepted) {
      const params = {
-       threadId: sessionId,
-@@ -40260,8 +40351,20 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41898,8 +41989,20 @@
    getMcpServerStartupVersion() {
      return this.codexClient.mcpStartup.version();
    }
@@ -323,7 +322,7 @@ index f44e3aa..27eb9b1 100755
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
        baseUrl: this.gatewayConfig.config.base_url
-@@ -40275,6 +40378,12 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41913,6 +42016,12 @@
      });
      const mergedConfig = {
        ...disableUnsupportedSkills(forceGitRootTurnDiffPaths(mergeGatewayConfig(this.config, this.gatewayConfig))),
@@ -336,7 +335,7 @@ index f44e3aa..27eb9b1 100755
        projects: Object.fromEntries(sessionRoots.map((root) => [root, {
          trust_level: "trusted"
        }]))
-@@ -40338,6 +40447,23 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -41976,6 +42085,23 @@
        await this.codexClient.skillsExtraRootsSet({ extraRoots: skillExtraRoots });
        this.skillExtraRoots = skillExtraRoots;
      }
@@ -360,7 +359,7 @@ index f44e3aa..27eb9b1 100755
    }
    /**
     * Resolves a ModelId using the provided ID and reasoning effort.
-@@ -40386,11 +40512,9 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -42043,11 +42169,9 @@
      });
    }
    async waitForSessionNotifications(sessionId) {
@@ -375,10 +374,11 @@ index f44e3aa..27eb9b1 100755
    }
    enqueueSessionNotification(sessionId, operation) {
      const run = async () => {
-@@ -40429,6 +40553,14 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -42085,6 +42209,14 @@
+       serviceTier,
        ...clientUserMessageId !== void 0 ? { clientUserMessageId } : {}
      }, onTurnStarted);
-   }
++  }
 +  async steerPrompt(sessionId, turnId, prompt, clientMessageId) {
 +    return await this.codexClient.turnSteer({
 +      threadId: sessionId,
@@ -386,11 +386,10 @@ index f44e3aa..27eb9b1 100755
 +      expectedTurnId: turnId,
 +      clientUserMessageId: clientMessageId ?? null
 +    });
-+  }
+   }
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
-       threadId: sessionId,
-@@ -40557,13 +40689,36 @@ var CodexAcpClient = class _CodexAcpClient {
+@@ -42214,13 +42346,36 @@
    }
    /** The Codex models, narrowed to the ones that the `providers/set` gateway lists. */
    async fetchAvailableModels() {
@@ -434,7 +433,7 @@ index f44e3aa..27eb9b1 100755
      const listed = this.getGatewayListedModels();
      return listed === null ? models : narrowToListedModels(models, listed);
    }
-@@ -41563,7 +41718,7 @@ var CodexAppServerClient = class {
+@@ -43266,7 +43421,7 @@
     */
    async *threadItemPages(threadId, options = {}) {
      for await (const page of this.threadItemEntryPages(threadId, options)) {
@@ -443,7 +442,7 @@ index f44e3aa..27eb9b1 100755
      }
    }
    /** The pages of {@link threadItemPages}, with the turn of each item. */
-@@ -41640,7 +41795,26 @@ var CodexAppServerClient = class {
+@@ -43343,7 +43498,26 @@
      return await this.sendRequest({ method: "thread/delete", params });
    }
    async threadUnsubscribe(params) {
@@ -471,7 +470,7 @@ index f44e3aa..27eb9b1 100755
    }
    async threadCompactStart(params) {
      return await this.sendRequest({ method: "thread/compact/start", params });
-@@ -44877,7 +45051,7 @@ function sameAuthStatus(previous, next) {
+@@ -46465,7 +46639,7 @@
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var SESSION_STEERING_METHOD = "_session/steering";
  function isExtMethodRequest(request) {
@@ -479,8 +478,8 @@ index f44e3aa..27eb9b1 100755
 +  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === LEGACY_GOAL_CONTROL_METHOD || request.method === SESSION_STEERING_METHOD || request.method === ASYNC_TASK_STOP_METHOD || request.method === STEER_METHOD;
  }
  
- // src/tool-calls/ClientCapabilities.ts
-@@ -47760,6 +47934,53 @@ function clientSupportsAgentFileChangeReports(capabilities) {
+ // src/tool-calls/reporters/PlanReviewReporter.ts
+@@ -49424,6 +49598,53 @@
  function isAuthRequiredError(error62) {
    return error62 instanceof RequestError && error62.code === RequestError.authRequired().code;
  }
@@ -534,7 +533,7 @@ index f44e3aa..27eb9b1 100755
  var CodexAcpServer = class {
    codexAcpClient;
    connection;
-@@ -47818,6 +48039,14 @@ var CodexAcpServer = class {
+@@ -49484,6 +49705,14 @@
    closingSessions;
    sessionGenerations;
    sessionOpenGenerations;
@@ -549,7 +548,7 @@ index f44e3aa..27eb9b1 100755
    permissionLifecycleContexts;
    codexProcessState;
    /** Brings the app-server back after a crash; `null` without a process state (tests). */
-@@ -47856,6 +48085,14 @@ var CodexAcpServer = class {
+@@ -49522,6 +49751,14 @@
      this.closingSessions = /* @__PURE__ */ new Map();
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
@@ -564,7 +563,7 @@ index f44e3aa..27eb9b1 100755
      this.permissionLifecycleContexts = /* @__PURE__ */ new WeakMap();
      if (connection instanceof AcpV2Connection) {
        this.protocolVersion = 2;
-@@ -47897,6 +48134,7 @@ var CodexAcpServer = class {
+@@ -49563,6 +49800,7 @@
      this.currentAuthStatus = null;
      this.availableCommands = this.createAvailableCommands(codexAcpClient);
      this.recovery = this.createRecovery();
@@ -572,19 +571,19 @@ index f44e3aa..27eb9b1 100755
    }
    createAvailableCommands(client) {
      return new CodexCommands(
-@@ -47907,6 +48145,11 @@ var CodexAcpServer = class {
+@@ -49572,6 +49810,11 @@
+       () => this.refreshAuthState(null),
        this.mcpServerSignIn
      );
-   }
++  }
 +  bindClientTransportEvents(client) {
 +    client.onClientTransportEvent((event) => {
 +      this.handleSubagentTransportEvent(event);
 +    });
-+  }
-   async initialize(_params) {
-     logger.log("Initialize request received");
-     this.clientInfo = _params.clientInfo ?? null;
-@@ -47924,9 +48167,9 @@ var CodexAcpServer = class {
+   }
+   usesStandardSubagents() {
+     return subagentProtocol(this.clientCapabilities, this.protocolVersion) === "standard";
+@@ -49709,9 +49952,9 @@
      const sessionCapabilities = {
        resume: {},
        list: {},
@@ -595,7 +594,7 @@ index f44e3aa..27eb9b1 100755
        additionalDirectories: {},
        subagents: {},
        systemPrompt: {}
-@@ -47955,6 +48198,12 @@ var CodexAcpServer = class {
+@@ -49740,6 +49983,12 @@
            sse: false
          },
          _meta: {
@@ -608,7 +607,7 @@ index f44e3aa..27eb9b1 100755
            // Presence means "this agent pushes `_auth/status_update`". It
            // never carries a payload, and the client never asks for one.
            [AUTH_STATUS_META_KEY]: authStatusCapability()
-@@ -48070,6 +48319,77 @@ var CodexAcpServer = class {
+@@ -49855,6 +50104,77 @@
      const appServer = this.ensureAppServer();
      if (appServer) await appServer;
      return { trusted: await this.runWithProcessCheck(() => trustCodexHooks(this.codexAcpClient.appServerClient, cwd, hooks)) };
@@ -686,10 +685,11 @@ index f44e3aa..27eb9b1 100755
    }
    async extMethod(method, params) {
      const methodRequest = { method, params };
-@@ -48140,6 +48460,31 @@ var CodexAcpServer = class {
+@@ -49924,6 +50244,31 @@
+           }
          }
          return {};
-       }
++      }
 +      case STEER_METHOD: {
 +        const sessionState = this.sessions.get(methodRequest.params.sessionId);
 +        if (!sessionState) {
@@ -714,11 +714,10 @@ index f44e3aa..27eb9b1 100755
 +          });
 +        }
 +        return { turnId: response.turnId };
-+      }
+       }
      }
    }
-   /**
-@@ -48426,6 +48771,7 @@ You have been logged out. Please try again.`);
+@@ -50216,6 +50561,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -726,13 +725,13 @@ index f44e3aa..27eb9b1 100755
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -48871,8 +49217,30 @@ You have been logged out. Please try again.`);
+@@ -50666,7 +51012,29 @@
      }
      await this.getSessionState(sessionId).asyncTasks.reconcile();
      await previousTitleGen?.waitForIdle(TITLE_GENERATION_SETTLE_TIMEOUT_MS);
 +    this.refreshSubagentSnapshotAsync(sessionId);
      return { sessionId, modelState, modeState };
-   }
++  }
 +  async unstable_forkSession(params) {
 +    if (this.providerUpdate !== null) {
 +      await this.providerUpdate;
@@ -753,11 +752,10 @@ index f44e3aa..27eb9b1 100755
 +      sessionId: response.sessionId
 +    });
 +    return response;
-+  }
+   }
    async resumeSession(params) {
      return this.withSystemPromptUpdate(params, async () => this.recovery === null ? await this.resumeSessionOnce(params) : await this.recovery.trackOpen(params.sessionId, () => this.resumeSessionOnce(params)));
-   }
-@@ -48889,6 +49257,7 @@ You have been logged out. Please try again.`);
+@@ -50684,6 +51052,7 @@
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -765,7 +763,7 @@ index f44e3aa..27eb9b1 100755
      return {
        models: modelState,
        modes: modeState,
-@@ -48973,10 +49342,75 @@ You have been logged out. Please try again.`);
+@@ -50769,10 +51138,75 @@
        })
      };
    }
@@ -841,7 +839,7 @@ index f44e3aa..27eb9b1 100755
      this.beginSessionCloseFence(params.sessionId);
      try {
        this.cancelQueuedV2Prompts(params.sessionId);
-@@ -48997,9 +49431,11 @@ You have been logged out. Please try again.`);
+@@ -50795,9 +51229,11 @@
          logger.log("Session closed without an app-server call: its app-server is gone", { sessionId: params.sessionId });
        }
        await this.reportCodexTurnState(params.sessionId, { state: "idle", stopReason: "cancelled" });
@@ -854,7 +852,7 @@ index f44e3aa..27eb9b1 100755
          this.sessions.delete(params.sessionId);
          if (!this.v2PromptsInFlight.has(params.sessionId)) {
            AcpV2Connection.of(this.connection)?.forgetSession(params.sessionId);
-@@ -49019,7 +49455,257 @@ You have been logged out. Please try again.`);
+@@ -50817,7 +51253,257 @@
      }
      return {};
    }
@@ -1112,15 +1110,15 @@ index f44e3aa..27eb9b1 100755
      const appServer = this.ensureAppServer();
      if (appServer) await appServer;
      logger.log("Deleting session...", { sessionId: params.sessionId });
-@@ -49174,6 +49860,7 @@ You have been logged out. Please try again.`);
+@@ -50975,6 +51661,7 @@
        }
        await this.finishAllAsyncTasks("stopped", "before the provider restart");
        const replacement = await this.restartCodexClient();
 +      this.bindClientTransportEvents(replacement);
        const previousClient = this.codexAcpClient;
-       apply2(replacement);
-       if (this.initializeRequest === null) {
-@@ -49205,7 +49892,8 @@ You have been logged out. Please try again.`);
+       for (const session of this.sessions.values()) {
+         if (session.subagents instanceof StandardSubagentEventRouter) await session.subagents.finishOutstanding("disconnected");
+@@ -51011,7 +51698,8 @@
              sessionId: session.sessionId,
              cwd: session.cwd,
              additionalDirectories: session.additionalDirectories,
@@ -1130,7 +1128,7 @@ index f44e3aa..27eb9b1 100755
            };
            let resumed = null;
            const resume = async (onSubscribed) => {
-@@ -49325,7 +50013,8 @@ You have been logged out. Please try again.`);
+@@ -51135,7 +51823,8 @@
            sessionId: session.sessionId,
            cwd: session.cwd,
            additionalDirectories: session.additionalDirectories,
@@ -1140,7 +1138,7 @@ index f44e3aa..27eb9b1 100755
          }, onSubscribed, session.instructions);
          await this.applyResumedModels(session, client, metadata);
          return { collaborationMode: metadata.collaborationMode };
-@@ -49341,6 +50030,7 @@ You have been logged out. Please try again.`);
+@@ -51151,6 +51840,7 @@
    /** Makes `client`, of a restarted app-server, the client of the agent and of every session. */
    installCodexClient(client) {
      client.adoptRoutingFrom(this.codexAcpClient);
@@ -1148,7 +1146,7 @@ index f44e3aa..27eb9b1 100755
      this.codexAcpClient = client;
      this.sessionIndex.observe(client);
      this.availableCommands = this.createAvailableCommands(client);
-@@ -50141,6 +50831,7 @@ You have been logged out. Please try again.`);
+@@ -51971,6 +52661,7 @@
        cwd: request.cwd,
        additionalDirectories: sessionMetadata.additionalDirectories,
        mcpServers: requestedMcpServers,
@@ -1156,7 +1154,7 @@ index f44e3aa..27eb9b1 100755
        fastModeEnabled: sessionMetadata.currentServiceTier === "fast",
        currentModelSupportsFast,
        sessionMcpServers,
-@@ -50447,8 +51138,17 @@ You have been logged out. Please try again.`);
+@@ -52411,8 +53102,17 @@
    async createHistoryUpdates(item, sessionState) {
      const renderer = new AcpToolCallRenderer(sessionState.clientCapabilities);
      switch (item.type) {
@@ -1176,7 +1174,7 @@ index f44e3aa..27eb9b1 100755
        case "hookPrompt":
        case "functionCallOutput":
        case "sleep":
-@@ -50492,10 +51192,11 @@ You have been logged out. Please try again.`);
+@@ -52456,10 +53156,11 @@
          return item.text.length > 0 ? [this.createPlanHistoryUpdate(item)] : [];
      }
    }
@@ -1191,7 +1189,7 @@ index f44e3aa..27eb9b1 100755
      const attachmentUris = new Set(contentBlocks.flatMap((blocks, index) => item.content[index]?.type === "text" ? blocks.flatMap((block) => block.type === "resource_link" ? [block.uri] : []) : []));
      for (const [index, input2] of item.content.entries()) {
        const nativePath = input2.type === "localImage" || input2.type === "localAudio" || input2.type === "mention" ? input2.path : (input2.type === "image" || input2.type === "audio") && "url" in input2 ? input2.url : null;
-@@ -50541,16 +51242,26 @@ You have been logged out. Please try again.`);
+@@ -52505,16 +53206,26 @@
        createMessagePhaseMeta("final_answer", this.capabilities.airClient)
      );
    }
@@ -1224,7 +1222,7 @@ index f44e3aa..27eb9b1 100755
        case "localAudio":
        case "mention": {
          const uri = attachmentFileUri(input2.path);
-@@ -51231,6 +51942,9 @@ You have been logged out. Please try again.`);
+@@ -53202,6 +53913,9 @@
              }
            }
            await observeInteraction(event);
@@ -1234,7 +1232,7 @@ index f44e3aa..27eb9b1 100755
            if (!promptNotificationsActive) {
              await promptEventHandler.handleSessionScopedNotification(event);
              await this.trackCodexTurnCompletion(sessionState, event, promptEventHandler);
-@@ -51399,6 +52113,10 @@ You have been logged out. Please try again.`);
+@@ -53372,6 +54086,10 @@
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -1245,7 +1243,7 @@ index f44e3aa..27eb9b1 100755
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -51408,16 +52126,7 @@ You have been logged out. Please try again.`);
+@@ -53381,16 +54099,7 @@
          return cancelledPromptResponse();
        }
        await promptClient.waitForSessionNotifications(params.sessionId);
@@ -1263,7 +1261,7 @@ index f44e3aa..27eb9b1 100755
        await eventHandler.flushPendingErrors();
        await eventHandler.handleFailedTurn(turnCompleted.turn);
        if (insertion && activePrompt.clientCancelled && turnCompleted.turn.status === "failed") {
-@@ -51511,16 +52220,7 @@ You have been logged out. Please try again.`);
+@@ -53484,16 +54193,7 @@
              return cancelledPromptResponse();
            }
            await promptClient.waitForSessionNotifications(params.sessionId);
@@ -1281,7 +1279,7 @@ index f44e3aa..27eb9b1 100755
            await eventHandler.flushPendingErrors();
            await eventHandler.handleFailedTurn(turnCompleted.turn);
            if (insertion && activePrompt.clientCancelled && turnCompleted.turn.status === "failed") {
-@@ -51614,11 +52314,8 @@ You have been logged out. Please try again.`);
+@@ -53586,11 +54286,8 @@
        promptNotificationsActive = false;
        try {
          await promptClient.waitForSessionNotifications(params.sessionId);
@@ -1294,7 +1292,7 @@ index f44e3aa..27eb9b1 100755
        }
        if (agentFileChangeReportRequest !== null && agentFileChangeWorkspace !== null) {
          if (promptWasCancelled || activePrompt.signal.aborted || this.sessionIsClosing(params.sessionId)) {
-@@ -51641,7 +52338,9 @@ You have been logged out. Please try again.`);
+@@ -53613,7 +54310,9 @@
        await eventHandler?.dispose();
        disposePromptRequestCancellation();
        removeAppServerLossListener();
@@ -1305,7 +1303,7 @@ index f44e3aa..27eb9b1 100755
        sessionState.interruptTurnId = null;
        const registeredPendingTurnStart = this.pendingTurnStarts.get(params.sessionId);
        if (registeredPendingTurnStart !== void 0) {
-@@ -51820,7 +52519,7 @@ async function* withoutReviewerPrompts(pages) {
+@@ -53801,7 +54500,7 @@
    for await (const page of pages) {
      const items = [];
      for (const entry of page) {
@@ -1314,7 +1312,7 @@ index f44e3aa..27eb9b1 100755
        const turnStarts = entry.turnId !== turnId;
        turnId = entry.turnId;
        if (candidate !== null && turnStarts) {
-@@ -51848,7 +52547,7 @@ async function* withoutReviewerPrompts(pages) {
+@@ -53829,7 +54528,7 @@
  }
  async function* itemsOfEntries(pages) {
    for await (const page of pages) {
@@ -1322,8 +1320,8 @@ index f44e3aa..27eb9b1 100755
 +    yield page.map((entry) => ({ ...entry.item, farmingHistoryTurnId: entry.turnId }));
    }
  }
- function isUuidV7(id) {
-@@ -52070,6 +52769,11 @@ var hooksTrustParamsParser = external_exports.object({
+ async function* standardHistoryItems(pages) {
+@@ -54119,6 +54818,11 @@
    cwd: external_exports.string().trim().min(1),
    hooks: external_exports.array(external_exports.object({ key: external_exports.string().min(1), currentHash: external_exports.string().min(1) })).min(1)
  });
@@ -1333,16 +1331,16 @@ index f44e3aa..27eb9b1 100755
 +  clientMessageId: external_exports.string().optional()
 +}).passthrough();
  function createAcpAgentRouter(createAgent) {
-   let codexAcpServer = null;
-   const getAgent = () => {
-@@ -52087,8 +52791,8 @@ function createAcpAgentRouter(createAgent) {
+   return {
+     connect(stream, options) {
+@@ -54194,8 +54898,8 @@
        }
      });
    };
--  const v1Agent = agent({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(connection.client), connection.signal)).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(CODEX_HOOKS_LIST_METHOD, hooksListParamsParser, (ctx) => getAgent().listHooks(ctx.params.cwd)).onRequest(CODEX_HOOKS_TRUST_METHOD, hooksTrustParamsParser, (ctx) => getAgent().trustHooks(ctx.params.cwd, ctx.params.hooks)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent().sessionIndex.rename(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, true)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params));
--  const v2Agent = agent2({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(new AcpV2Connection(connection.client)), connection.signal)).onRequest(methods2.agent.initialize, (ctx) => getAgent().initializeV2(ctx.params)).onRequest(methods2.agent.session.new, (ctx) => getAgent().newSessionV2(ctx.params)).onRequest(methods2.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods2.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods2.agent.session.resume, (ctx) => getAgent().resumeSessionV2(ctx.params)).onRequest(methods2.agent.session.fork, (ctx) => getAgent().forkSessionV2(ctx.params)).onRequest(methods2.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods2.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOptionV2(ctx.params)).onRequest(methods2.agent.auth.login, (ctx) => getAgent().authenticateV2(ctx.params, ctx.requestId)).onRequest(methods2.agent.auth.logout, (ctx) => getAgent().logoutV2(ctx.params)).onRequest(methods2.agent.session.prompt, (ctx) => getAgent().promptV2(ctx.params, ctx.signal)).onNotification(methods2.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest(methods2.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods2.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods2.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent().sessionIndex.rename(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, true)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params));
-+  const v1Agent = agent({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(connection.client), connection.signal)).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(CODEX_HOOKS_LIST_METHOD, hooksListParamsParser, (ctx) => getAgent().listHooks(ctx.params.cwd)).onRequest(CODEX_HOOKS_TRUST_METHOD, hooksTrustParamsParser, (ctx) => getAgent().trustHooks(ctx.params.cwd, ctx.params.hooks)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent().sessionIndex.rename(ctx.params)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest("_farming/related/list", external_exports.object({ parentSessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().listRelatedSessions(ctx.params)).onRequest("_farming/related/read", external_exports.object({ parentSessionId: external_exports.string().trim().min(1), sessionId: external_exports.string().trim().min(1), maxTurns: external_exports.number().int().min(1).max(200), cursor: external_exports.string().max(4096).nullable().optional() }), (ctx) => getAgent().readRelatedSession(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().archiveSession(ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params));
-+  const v2Agent = agent2({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(new AcpV2Connection(connection.client)), connection.signal)).onRequest(methods2.agent.initialize, (ctx) => getAgent().initializeV2(ctx.params)).onRequest(methods2.agent.session.new, (ctx) => getAgent().newSessionV2(ctx.params)).onRequest(methods2.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods2.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods2.agent.session.resume, (ctx) => getAgent().resumeSessionV2(ctx.params)).onRequest(methods2.agent.session.fork, (ctx) => getAgent().forkSessionV2(ctx.params)).onRequest(methods2.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods2.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOptionV2(ctx.params)).onRequest(methods2.agent.auth.login, (ctx) => getAgent().authenticateV2(ctx.params, ctx.requestId)).onRequest(methods2.agent.auth.logout, (ctx) => getAgent().logoutV2(ctx.params)).onRequest(methods2.agent.session.prompt, (ctx) => getAgent().promptV2(ctx.params, ctx.signal)).onNotification(methods2.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest(methods2.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods2.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods2.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent().extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent().extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent().sessionIndex.rename(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().archiveSession(ctx.params)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent().sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params));
+-  const v1Agent = agent({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(connection.client), connection.signal)).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => setup(ctx.params.sessionId, ctx.requestId, () => getAgent(ctx.params).loadSession(ctx.params), ctx.signal)).onRequest(methods.agent.session.fork, (ctx) => getAgent(ctx.params).forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent(ctx.params).deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => setup(ctx.params.sessionId, ctx.requestId, () => getAgent(ctx.params).resumeSession(ctx.params), ctx.signal)).onRequest(methods.agent.session.close, (ctx) => getAgent(ctx.params).closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent(ctx.params).setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent(ctx.params).setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent(ctx.params).prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent(ctx.params).extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent(ctx.params).extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent(ctx.params).extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(CODEX_HOOKS_LIST_METHOD, hooksListParamsParser, (ctx) => getAgent().listHooks(ctx.params.cwd)).onRequest(CODEX_HOOKS_TRUST_METHOD, hooksTrustParamsParser, (ctx) => getAgent().trustHooks(ctx.params.cwd, ctx.params.hooks)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent(ctx.params).extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.rename(ctx.params)).onRequest(SESSION_BATCH_GET_METHOD, sessionBatchGetParamsParser, (ctx) => getAgent().sessionIndex.batchGet(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.setArchived(ctx.params, true)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params));
+-  const v2Agent = agent2({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(new AcpV2Connection(connection.client)), connection.signal)).onRequest(methods2.agent.initialize, (ctx) => getAgent().initializeV2(ctx.params)).onRequest(methods2.agent.session.new, (ctx) => getAgent().newSessionV2(ctx.params)).onRequest(methods2.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods2.agent.session.delete, (ctx) => getAgent(ctx.params).deleteSession(ctx.params)).onRequest(methods2.agent.session.resume, (ctx) => setup(ctx.params.sessionId, ctx.requestId, () => getAgent(ctx.params).resumeSessionV2(ctx.params), ctx.signal)).onRequest(methods2.agent.session.fork, (ctx) => getAgent(ctx.params).forkSessionV2(ctx.params)).onRequest(methods2.agent.session.close, (ctx) => getAgent(ctx.params).closeSession(ctx.params)).onRequest(methods2.agent.session.setConfigOption, (ctx) => getAgent(ctx.params).setSessionConfigOptionV2(ctx.params)).onRequest(methods2.agent.auth.login, (ctx) => getAgent().authenticateV2(ctx.params, ctx.requestId)).onRequest(methods2.agent.auth.logout, (ctx) => getAgent().logoutV2(ctx.params)).onRequest(methods2.agent.session.prompt, (ctx) => getAgent(ctx.params).promptV2(ctx.params, ctx.signal)).onNotification(methods2.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest(methods2.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods2.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods2.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent(ctx.params).extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent(ctx.params).extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent(ctx.params).extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.rename(ctx.params)).onRequest(SESSION_BATCH_GET_METHOD, sessionBatchGetParamsParser, (ctx) => getAgent().sessionIndex.batchGet(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.setArchived(ctx.params, true)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params));
++  const v1Agent = agent({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(connection.client), connection.signal)).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => setup(ctx.params.sessionId, ctx.requestId, () => getAgent(ctx.params).loadSession(ctx.params), ctx.signal)).onRequest(methods.agent.session.fork, (ctx) => getAgent(ctx.params).unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent(ctx.params).deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => setup(ctx.params.sessionId, ctx.requestId, () => getAgent(ctx.params).resumeSession(ctx.params), ctx.signal)).onRequest(methods.agent.session.close, (ctx) => getAgent(ctx.params).closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent(ctx.params).setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent(ctx.params).setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params, ctx.requestId)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent(ctx.params).prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent(ctx.params).extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent(ctx.params).extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent(ctx.params).extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(CODEX_HOOKS_LIST_METHOD, hooksListParamsParser, (ctx) => getAgent().listHooks(ctx.params.cwd)).onRequest(CODEX_HOOKS_TRUST_METHOD, hooksTrustParamsParser, (ctx) => getAgent().trustHooks(ctx.params.cwd, ctx.params.hooks)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent(ctx.params).extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.rename(ctx.params)).onRequest(SESSION_BATCH_GET_METHOD, sessionBatchGetParamsParser, (ctx) => getAgent().sessionIndex.batchGet(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).archiveSession(ctx.params)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params)).onRequest(LEGACY_GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent(ctx.params).extMethod(LEGACY_GOAL_CONTROL_METHOD, ctx.params)).onRequest("_farming/related/list", external_exports.object({ parentSessionId: external_exports.string().trim().min(1) }), (ctx) => getAgent().listRelatedSessions(ctx.params)).onRequest("_farming/related/read", external_exports.object({ parentSessionId: external_exports.string().trim().min(1), sessionId: external_exports.string().trim().min(1), maxTurns: external_exports.number().int().min(1).max(200), cursor: external_exports.string().max(4096).nullable().optional() }), (ctx) => getAgent().readRelatedSession(ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent(ctx.params).extMethod(STEER_METHOD, ctx.params));
++  const v2Agent = agent2({ name: package_default.name }).onConnect((connection) => attachAgent(createAgent(new AcpV2Connection(connection.client)), connection.signal)).onRequest(methods2.agent.initialize, (ctx) => getAgent().initializeV2(ctx.params)).onRequest(methods2.agent.session.new, (ctx) => getAgent().newSessionV2(ctx.params)).onRequest(methods2.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods2.agent.session.delete, (ctx) => getAgent(ctx.params).deleteSession(ctx.params)).onRequest(methods2.agent.session.resume, (ctx) => setup(ctx.params.sessionId, ctx.requestId, () => getAgent(ctx.params).resumeSessionV2(ctx.params), ctx.signal)).onRequest(methods2.agent.session.fork, (ctx) => getAgent(ctx.params).forkSessionV2(ctx.params)).onRequest(methods2.agent.session.close, (ctx) => getAgent(ctx.params).closeSession(ctx.params)).onRequest(methods2.agent.session.setConfigOption, (ctx) => getAgent(ctx.params).setSessionConfigOptionV2(ctx.params)).onRequest(methods2.agent.auth.login, (ctx) => getAgent().authenticateV2(ctx.params, ctx.requestId)).onRequest(methods2.agent.auth.logout, (ctx) => getAgent().logoutV2(ctx.params)).onRequest(methods2.agent.session.prompt, (ctx) => getAgent(ctx.params).promptV2(ctx.params, ctx.signal)).onNotification(methods2.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest(methods2.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods2.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods2.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(SESSION_STEERING_METHOD, sessionSteerParamsParser, (ctx) => getAgent(ctx.params).extMethod(SESSION_STEERING_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent(ctx.params).extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(ASYNC_TASK_STOP_METHOD, asyncTaskStopParamsParser, (ctx) => getAgent(ctx.params).extMethod(ASYNC_TASK_STOP_METHOD, ctx.params)).onRequest(SESSION_RENAME_METHOD, sessionRenameParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.rename(ctx.params)).onRequest(SESSION_BATCH_GET_METHOD, sessionBatchGetParamsParser, (ctx) => getAgent().sessionIndex.batchGet(ctx.params)).onRequest(SESSION_ARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).archiveSession(ctx.params)).onRequest(SESSION_UNARCHIVE_METHOD, sessionArchiveParamsParser, (ctx) => getAgent(ctx.params).sessionIndex.setArchived(ctx.params, false)).onRequest(SESSION_LIST_SUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.subscribeList(ctx.params)).onRequest(SESSION_LIST_UNSUBSCRIBE_METHOD, sessionListSubscriptionParamsParser, (ctx) => getAgent().sessionIndex.unsubscribeList(ctx.params));
    return agentProtocolRouter().withV1(v1Agent).withV2(v2Agent);
  }
  

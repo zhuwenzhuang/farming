@@ -264,11 +264,13 @@ async function copyRegularFile(source, destination, sourceStat) {
  * Only regular files and symbolic links are accepted. Every regular file is
  * byte-copied, never linked, and retains its executable permission bits.
  */
-export async function copyGitFileManifest({ repoRoot, cloneRoot, manifest }) {
+export async function copyGitFileManifest({ repoRoot, cloneRoot, manifest, deletedManifest = Buffer.alloc(0) }) {
+  const deleted = new Set(parseGitFileManifest(deletedManifest));
   const records = [];
   for (const relativePath of parseGitFileManifest(manifest)) {
     const source = resolveContainedPath(repoRoot, relativePath, 'Source manifest');
     const destination = resolveContainedPath(cloneRoot, relativePath, 'Lane manifest');
+    if (deleted.has(relativePath)) continue;
     const sourceStat = await lstat(source);
     if (!sourceStat.isFile() && !sourceStat.isSymbolicLink()) {
       throw new Error(
@@ -436,7 +438,13 @@ export async function prepareLaneExecutionCopy({
     ['-C', repoRoot, 'ls-files', '-co', '--exclude-standard', '-z'],
   );
 
-  await copyGitFileManifest({ repoRoot, cloneRoot, manifest });
+  // The cached index still lists unstaged deletions (for example an upgraded
+  // vendor patch). Exclude only Git-declared deletions; unexpected missing
+  // manifest inputs must still fail the copy.
+  const { stdout: deletedManifest } = await runOwnedCommand(
+    spawnChild, ownedChildren, 'git', ['-C', repoRoot, 'ls-files', '--deleted', '-z'],
+  );
+  await copyGitFileManifest({ repoRoot, cloneRoot, manifest, deletedManifest });
   await inheritGeneratedRuntimeArtifacts({ repoRoot, cloneRoot });
 
   // Replace shared directories with symlinks to the (already-built) source.

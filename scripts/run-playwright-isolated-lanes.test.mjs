@@ -269,6 +269,7 @@ test('prepareLaneExecutionCopy creates isolated clones that do not leak writes b
     mkdirSync(path.join(sandbox, 'node_modules'));
     mkdirSync(path.join(sandbox, 'dist'));
     writeFileSync(path.join(sandbox, 'src', 'app.ts'), 'export const app = "hello";\n');
+    writeFileSync(path.join(sandbox, 'src', 'removed.txt'), 'removed in working tree\n');
     writeFileSync(path.join(sandbox, 'src', 'executable.sh'), '#!/bin/sh\necho farming\n');
     chmodSync(path.join(sandbox, 'src', 'executable.sh'), 0o755);
     writeFileSync(path.join(sandbox, 'src', 'link-target.txt'), 'source link target\n');
@@ -279,6 +280,7 @@ test('prepareLaneExecutionCopy creates isolated clones that do not leak writes b
     git(['-C', sandbox, 'add', '-A']);
     git(['-C', sandbox, 'commit', '-m', 'initial']);
 
+    rmSync(path.join(sandbox, 'src', 'removed.txt'));
     writeFileSync(path.join(sandbox, 'src', 'app.ts'), 'export const app = "modified wip";\n');
     writeFileSync(path.join(sandbox, 'untracked.txt'), 'untracked wip content\n');
 
@@ -313,6 +315,8 @@ test('prepareLaneExecutionCopy creates isolated clones that do not leak writes b
     assert.equal(readFileSync(path.join(cloneB, 'src', 'app.ts'), 'utf8'), 'export const app = "modified wip";\n');
     assert.equal(readFileSync(path.join(cloneA, 'untracked.txt'), 'utf8'), 'untracked wip content\n');
     assert.equal(readFileSync(path.join(cloneB, 'untracked.txt'), 'utf8'), 'untracked wip content\n');
+    assert.equal(existsSync(path.join(cloneA, 'src', 'removed.txt')), false);
+    assert.equal(existsSync(path.join(cloneB, 'src', 'removed.txt')), false);
     assert.equal(spawnedCommands.includes('rsync'), false);
     assert.equal(lstatSync(path.join(cloneA, 'src', 'link.txt')).isSymbolicLink(), true);
     assert.equal(readlinkSync(path.join(cloneA, 'src', 'link.txt')), 'link-target.txt');
@@ -358,6 +362,7 @@ test('prepareLaneExecutionCopy creates isolated clones that do not leak writes b
     assert.equal(existsSync(path.join(cloneB, 'snapshots', 'lane-a-only.png')), false);
     const laneBStatus = git(['-C', cloneB, 'status', '--porcelain']).stdout;
     assert.match(laneBStatus, / M src\/app\.ts/);
+    assert.match(laneBStatus, / D src\/removed\.txt/);
     assert.match(laneBStatus, /\?\? untracked\.txt/);
     assert.equal(laneBStatus.includes('lane-a-only.png'), false);
 

@@ -9,7 +9,7 @@ import { projectAcpTranscript } from '../../src/components/code/acp/acp-entry-pr
 test('packaged Codex adapter displays native input while preserving local echoes and distinct receipts', { timeout: 15000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-native-input-'));
   const runtime = new AcpRuntime({ resolveLaunch: () => ({ command: process.execPath,
-    args: [path.resolve('dist/acp/codex-acp-2.3.0.mjs')], version: 'test' }) });
+    args: [path.resolve('dist/acp/codex-acp-2.5.0.mjs')], version: 'test' }) });
   try {
     await runtime.prepareAgent({
       agentId: 'receiver', provider: 'codex', cwd: root, projectWorkspace: root,
@@ -42,7 +42,7 @@ for (const order of ['before', 'after']) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-steer-input-'));
     const gate = path.join(root, 'complete-goal');
     const runtime = new AcpRuntime({ resolveLaunch: () => ({ command: process.execPath,
-      args: [path.resolve('dist/acp/codex-acp-2.3.0.mjs')], version: 'test' }) });
+      args: [path.resolve('dist/acp/codex-acp-2.5.0.mjs')], version: 'test' }) });
     const waitFor = async (predicate: () => boolean) => {
       const deadline = Date.now() + 5000;
       while (!predicate()) {
