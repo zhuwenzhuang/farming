@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import readline from 'readline';
+import { setTimeout as delay } from 'node:timers/promises';
 import { killOwnedProcessGroup, registerConfigProcessGroup, unregisterConfigProcessGroup } from '../config-process-ownership.cjs';
 import { readServerProcessIdentity } from '../server-process-identity.cjs';
 import { Readable, Writable } from 'stream';
@@ -49,6 +50,7 @@ import {
   normalizeAgyToolArgs
 } from '../agy-conversation-store.cjs';
 import { fileURLToPath } from 'url';
+import { listAgyRelatedSessions, readAgyRelatedHistory } from '../agy-related-sessions.cjs';
 
 type AgyModeId = 'bypassPermissions' | 'agent_decides' | 'plan';
 type AgyEffortLevel = 'high' | 'medium' | 'low' | 'xhigh' | 'max';
@@ -78,6 +80,8 @@ interface AgyBridgeSessionState {
   cancelled: boolean;
   stopChild: (() => Promise<void>) | null;
   additionalDirectories: string[];
+  announcedChildren: Map<string, string>;
+  relatedSync: Promise<void>;
 }
 
 const DEFAULT_AGY_MODELS: Array<{ value: string; name: string; description?: string }> = [
@@ -464,6 +468,7 @@ class AgyAcpAgent {
         version: '1'
       },
       agentCapabilities: {
+        _meta: { relatedSessionRead: { version: 1, method: '_session/related/read', listMethod: '_session/related/list' } },
         loadSession: true,
         promptCapabilities: {
           image: true,
@@ -522,6 +527,8 @@ class AgyAcpAgent {
       steeredCurrentCycle: false,
       stopChild: null,
       additionalDirectories: [],
+      announcedChildren: new Map(),
+      relatedSync: Promise.resolve(),
       cancelled: false
     };
     this.sessions.set(normalizedId, created);
@@ -569,6 +576,7 @@ class AgyAcpAgent {
     if (params.mcpServers?.length) throw new Error('Antigravity Chat does not support ACP MCP injection; configure integrations in its Agent Home');
     const session = this.ensureSession(params.sessionId, params.cwd);
     await this.replayTranscriptHistory(session, false);
+    await this.syncRelatedSessions(session);
     this.setAdditionalDirectories(session, params);
     this.scheduleAvailableCommandsUpdate(session.sessionId);
     return {
@@ -581,6 +589,7 @@ class AgyAcpAgent {
     if (params.mcpServers?.length) throw new Error('Antigravity Chat does not support ACP MCP injection; configure integrations in its Agent Home');
     const session = this.ensureSession(params.sessionId, params.cwd);
     await this.replayTranscriptHistory(session);
+    await this.syncRelatedSessions(session);
     this.setAdditionalDirectories(session, params);
     this.scheduleAvailableCommandsUpdate(session.sessionId);
     return {
@@ -664,6 +673,20 @@ class AgyAcpAgent {
   }
 
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (method === '_session/related/list' || method === '_session/related/read') {
+      try {
+        const parent = typeof params.parentSessionId === 'string' ? this.sessions.get(params.parentSessionId) : undefined;
+        if (!parent) throw new Error('Unknown Antigravity parent session');
+        await this.syncRelatedSessions(parent);
+        if (method === '_session/related/list') {
+          return { sessionId: parent.sessionId, children: await listAgyRelatedSessions(this.options.agyHomePath, parent.sessionId) };
+        }
+        if (typeof params.sessionId !== 'string') throw new Error('Invalid Antigravity related session identity');
+        return await readAgyRelatedHistory(this.options.agyHomePath, parent.sessionId, params.sessionId, params.cursor, params.maxTurns);
+      } catch (error) {
+        throw RequestError.internalError(undefined, error instanceof Error ? error.message : 'Antigravity related session read failed');
+      }
+    }
     if (method !== '_session/steering') {
       throw new Error(`Unsupported extension method: ${method}`);
     }
@@ -714,6 +737,31 @@ class AgyAcpAgent {
       'logs',
       'transcript.jsonl'
     );
+  }
+
+  private async syncRelatedSessions(session: AgyBridgeSessionState): Promise<void> {
+    const sync = session.relatedSync.then(async () => {
+      const children = await listAgyRelatedSessions(this.options.agyHomePath, session.sessionId);
+      for (const child of children) {
+        if (this.sessions.get(session.sessionId) !== session) return;
+        if (session.announcedChildren.get(child.sessionId) === child.title) continue;
+        // Announce ownership before exposing a link. This is a read-only native
+        // child, never another process for Farming to load, resume or cancel.
+        await this.client.notify('session/update', { sessionId: session.sessionId, update: {
+          sessionUpdate: 'subagent_update', sessionId: child.sessionId, title: child.title,
+          capabilities: { history: {} }, state: null,
+        } });
+        await this.client.notify('session/update', { sessionId: session.sessionId, update: {
+          sessionUpdate: 'tool_call', toolCallId: `agy-child:${child.sessionId}`, title: child.title,
+          kind: 'other', status: 'completed',
+          _meta: { subagent_session_info: { session_id: child.sessionId, historyRead: true },
+            farming: { nativeSubagent: true, state: 'unknown' } },
+        } });
+        session.announcedChildren.set(child.sessionId, child.title);
+      }
+    });
+    session.relatedSync = sync.catch(() => {});
+    await sync;
   }
 
   private async replayTranscriptHistory(session: AgyBridgeSessionState, replay = true): Promise<void> {
@@ -992,6 +1040,17 @@ class AgyAcpAgent {
       crlfDelay: Infinity
     });
 
+    // Child registration can appear while agy is silent (or emits an unknown
+    // step subtype). One serial observer per owned prompt keeps discovery live.
+    const relatedObserver = new AbortController();
+    const relatedWatch = (async (): Promise<never> => {
+      for (;;) {
+        relatedObserver.signal.throwIfAborted();
+        await this.syncRelatedSessions(session);
+        await delay(1000, undefined, { signal: relatedObserver.signal });
+      }
+    })();
+
     const processStreamPromise = (async () => {
       for await (const line of rl) {
         const trimmed = line.trim();
@@ -1182,7 +1241,8 @@ class AgyAcpAgent {
     void processStreamPromise.catch(() => { void session.stopChild?.().catch(() => {}); });
     try {
       if (identity && configDir) registerConfigProcessGroup(configDir, 'agy-turn', identity);
-      const [{ code, signal }] = await Promise.all([exit, processStreamPromise]);
+      const [{ code, signal }] = await Promise.race([Promise.all([exit, processStreamPromise]), relatedWatch]);
+      await this.syncRelatedSessions(session);
       if (session.cancelled) return 'cancelled';
       if (session.steeredCurrentCycle || session.pendingSteers.length > 0) {
         if (injectSystemPrompt && !session.systemPromptInjected) {
@@ -1220,6 +1280,7 @@ class AgyAcpAgent {
       if (injectSystemPrompt) session.systemPromptInjected = true;
       return 'end_turn';
     } finally {
+      relatedObserver.abort();
       try {
         await session.stopChild?.();
         // A failed turn may still have persisted its input. Reconcile that
@@ -1308,7 +1369,14 @@ export function runAgyAcpBridge(argv: string[] = process.argv.slice(2)): void {
         return value as Record<string, unknown>;
       },
     }, ({ params }) => bridge.extMethod('_session/steering', params))
+    .onRequest('_session/related/list', { parse: parseRelatedParams }, ({ params }) => bridge.extMethod('_session/related/list', params))
+    .onRequest('_session/related/read', { parse: parseRelatedParams }, ({ params }) => bridge.extMethod('_session/related/read', params))
     .connect(stream);
+}
+
+function parseRelatedParams(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw RequestError.invalidParams('Related session params must be an object');
+  return value as Record<string, unknown>;
 }
 
 if (require.main === module) {

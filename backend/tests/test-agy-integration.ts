@@ -425,6 +425,31 @@ if (!fs.existsSync(dbPath)) {
 }
 
 const text = args[args.indexOf('-p') + 1] || '';
+if (text.includes('FOUR_NATIVE_CHILDREN')) {
+  const children = path.join(agyHome, 'brain', conversationId, '.system_generated', 'subagents');
+  fs.mkdirSync(children, { recursive: true });
+  for (let i = 0; i < 4; i++) {
+    const child = conversationId + '-child-' + i;
+    fs.writeFileSync(path.join(children, child + '.json'), JSON.stringify({
+      conversationId: child, subagentDescriptor: { typeName: 'self', role: 'Analyzer ' + i },
+      state: 'SUBAGENT_STATE_ALIVE', spawnStepIndex: 59,
+    }));
+    const logs = path.join(agyHome, 'brain', child, '.system_generated', 'logs');
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(path.join(logs, 'transcript_full.jsonl'), [
+      { type: 'USER_INPUT', content: 'Analyze query ' + i },
+      { type: 'PLANNER_RESPONSE', status: 'DONE', content: 'Analysis result ' + i },
+    ].map(value => JSON.stringify(value)).join('\\n') + '\\n');
+  }
+  // Stay silent after registering the children until the test observes them.
+  // Discovery cannot depend on model output or a guessed wire step subtype.
+  const release = path.join(agyHome, 'release-children');
+  const deadline = Date.now() + 10000;
+  while (!fs.existsSync(release)) {
+    if (Date.now() > deadline) throw new Error('Children were not observed while agy was silent');
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
 if (text.includes('PEER_RECOVERY')) {
   const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
   fs.mkdirSync(logs, { recursive: true });
@@ -753,6 +778,44 @@ console.log(JSON.stringify({
       { type: 'text', text: 'Hello Antigravity' },
     ]);
     assert.strictEqual(firstTurn.stopReason, 'end_turn');
+
+    const childTurn = runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'FOUR_NATIVE_CHILDREN' }]);
+    void childTurn.catch(() => {});
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const children = runtime.getSession('agent-agy-test-1').entries.filter((entry: { id: string }) => entry.id.startsWith('agy-child:'));
+      if (children.length === 4) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.strictEqual(runtime.getSession('agent-agy-test-1').entries.filter((entry: { id: string }) => entry.id.startsWith('agy-child:')).length, 4,
+      'children must be announced even while the provider stream is silent');
+    fs.writeFileSync(path.join(agyHome, 'release-children'), 'continue');
+    await childTurn;
+    const childInventory = await runtime.listSubagents('agent-agy-test-1');
+    assert.strictEqual(childInventory.children.length, 4, 'same spawn index must retain four distinct children');
+    for (const child of childInventory.children) {
+      assert.strictEqual(child.state, 'unknown', 'ALIVE must not invent foreground activity');
+      assert.strictEqual(child.readable, true);
+      const history = await runtime.getSubagentTranscriptSessionForRead('agent-agy-test-1', child.sessionId);
+      assert.strictEqual(history.canCancel, false);
+      assert.strictEqual(history.state, 'unknown', 'parent completion must not settle a child');
+      assert(history.entries.map(entrySummary).some((line: string) => line.includes('Analysis result')));
+    }
+    await assert.rejects(runtime.getSubagentTranscriptSessionForRead('agent-agy-test-1', 'unrelated-session'), /not a child/);
+    await Promise.all([runtime.listSubagents('agent-agy-test-1'), runtime.listSubagents('agent-agy-test-1')]);
+    assert.strictEqual(runtime.getSession('agent-agy-test-1').entries.filter((entry: { id: string }) => entry.id.startsWith('agy-child:')).length, 4);
+
+    // A fresh adapter must reconstruct child identity without prompting agy or
+    // manufacturing a separate child conversation database.
+    await runtime.unregisterAgentAndWait('agent-agy-test-1');
+    await runtime.prepareAgent({
+      agentId: 'agent-agy-test-1', provider: 'agy', executable: fakeAgyScript, configDir,
+      cwd: workspaceDir, projectWorkspace: workspaceDir, providerHomeId: 'default', providerHomePath: agyHome,
+      sessionId: prepared.sessionId, historyMode: 'load', farmingSystemPrompt: 'FARMING_BOOTSTRAP_MARKER',
+    });
+    assert.strictEqual((await runtime.listSubagents('agent-agy-test-1')).children.length, 4);
+    assert(!fs.existsSync(path.join(agyHome, 'conversations', childInventory.children[0].sessionId + '.db')));
+    // The fixture has no parent transcript. Start the ordinary scenario anew.
+    await runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'Hello Antigravity' }]);
 
     const snapshotAfterFirst = runtime.getSession('agent-agy-test-1');
     const transcriptTexts = snapshotAfterFirst.entries.map(entrySummary);

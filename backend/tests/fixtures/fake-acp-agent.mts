@@ -2263,6 +2263,28 @@ class FakeAgent {
       await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Review group ready.' } } });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('agy registry children')) {
+      for (let index = 0; index < 4; index++) {
+        const child = `${params.sessionId}-agy-${index}`;
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
+          sessionUpdate: 'subagent_update', sessionId: child, title: `Analyzer ${index}`, state: null, capabilities: {},
+        } });
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
+          sessionUpdate: 'tool_call', toolCallId: `agy-child:${child}`, title: `Analyzer ${index}`, kind: 'other', status: 'completed',
+          _meta: { subagent_session_info: { session_id: child }, farming: { nativeSubagent: true, state: 'unknown' } },
+        } });
+        await client.notify('session/update', { sessionId: child, update: {
+          sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `Analyze query ${index}` },
+        } });
+        await client.notify('session/update', { sessionId: child, update: {
+          sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Analysis result ${index}` },
+        } });
+      }
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Four native children discovered.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('typed native child')) {
       const childSessionId = `${params.sessionId}-typed-child`;
       const reuse = promptText.includes('reuse typed native child');

@@ -213,6 +213,15 @@ and unknown activity cannot synthesize child outcomes. Fresh bounded inventory
 is used when negotiated; unavailable inventory is an error, not an empty list.
 History reads verify ancestry and do not start, load, resume or cancel Sessions.
 
+Antigravity discovers native children from the owning parent's structured child
+registry, keyed by conversation identity rather than spawn-step index or display
+name. Live updates, history loading and fresh inventory reads reconcile these
+associations through the shared child protocol. Related history is read-only and
+bounded; cursors are bound to parent, child and history file identity. Registry
+`ALIVE` means existence, not current activity, so activity remains unknown until
+the provider supplies authoritative foreground state. Neither child input nor
+cancellation is advertised without provider support.
+
 Related history is bounded by turns, items and bytes, with identity-bound cursors.
 Presentation segments must not trim an already bounded provider page again.
 Native children keep one identity across resumed Turns; stale output from an older
