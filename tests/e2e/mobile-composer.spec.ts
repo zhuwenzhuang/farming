@@ -118,10 +118,10 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await page.evaluate(() => document.fonts.ready)
       await expectUnfocusedComposerClearance()
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-long-blurred.png`), animations: 'disabled', caret: 'hide' })
-      // Confirm editor-owned selection before deletion; DOM-only select-all can
-      // still be awaiting the rich editor's selectionchange transaction.
+      // Prepare the geometry fixture through the same selection owner used
+      // above; host keyboard modifiers differ from an emulated phone's platform.
       await input.focus()
-      await input.press('ControlOrMeta+a')
+      await selectText(input, 0, longDraft.length)
       await expect.poll(() => selection(input)).toEqual([0, longDraft.length])
       await input.press('Backspace')
       await expectValue(input, '')
