@@ -118,7 +118,13 @@ for (const runtime of ['chat', 'terminal'] as const) {
       await page.evaluate(() => document.fonts.ready)
       await expectUnfocusedComposerClearance()
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-long-blurred.png`), animations: 'disabled', caret: 'hide' })
-      await input.fill('')
+      // Confirm editor-owned selection before deletion; DOM-only select-all can
+      // still be awaiting the rich editor's selectionchange transaction.
+      await input.focus()
+      await input.press('ControlOrMeta+a')
+      await expect.poll(() => selection(input)).toEqual([0, longDraft.length])
+      await input.press('Backspace')
+      await expectValue(input, '')
       await expect.poll(() => scrollInput.evaluate(element => element.clientHeight)).toBeLessThanOrEqual(shortHeight + 1)
       await expectUnfocusedComposerClearance()
       await page.screenshot({ path: testInfo.outputPath(`mobile-${runtime}-${appearance}-empty-blurred.png`), animations: 'disabled', caret: 'hide' })

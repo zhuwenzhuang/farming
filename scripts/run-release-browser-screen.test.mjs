@@ -196,7 +196,8 @@ test('shared menu surfaces and native Antigravity children retain their focused 
 });
 
 test('CRT transcript projection, Pi launch fixture and menu contract regressions retain focused owners', () => {
-  for (const filename of ['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'tests/e2e/crt-markdown.spec.ts']) {
+  for (const filename of ['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'tests/e2e/crt-markdown.spec.ts',
+    'tests/e2e/skin-switching.spec.ts']) {
     const plan = selectBrowserScreen([filename]);
     assert.deepEqual(plan.unmapped, []);
     assert.deepEqual(plan.lanes.map(lane => lane.script), ['release:fast-screen:crt-markdown']);

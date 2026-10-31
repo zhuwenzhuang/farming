@@ -1103,7 +1103,10 @@ test('previews structured Chat and closes a CRT session when another viewer kill
   await expect(chatCard).toBeVisible()
   await expect(chatPreview).toHaveAttribute('data-preview-kind', 'chat')
   await expect(chatPreview.locator('[data-preview-role="user"]')).toContainText('rich timeline')
-  await expect(chatPreview.locator('[data-preview-role="assistant"]')).toContainText('Rich ACP timeline complete.')
+  await expect(chatPreview.locator('[data-preview-role="assistant"] .agent-chat-preview-text')).toHaveText([
+    'I found the display boundary and am checking the typed ACP content.',
+    'Rich ACP timeline complete.',
+  ])
   const previewLayout = await chatPreview.evaluate((element) => {
     const trail = element.querySelector<HTMLElement>('.agent-chat-preview-trail')
     const text = element.querySelector<HTMLElement>('.agent-chat-preview-text')
