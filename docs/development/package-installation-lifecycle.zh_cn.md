@@ -215,6 +215,9 @@ npm 缓存与默认 Package Image 存储也位于安装目录内，包括首次�
 源码仓库中，但不进入发布包。npm 镜像排除重复的 SheetJS 浏览器构建，以及 ACP SDK
 测试、类型声明和调试映射；保留运行时模块、字符编码表、协议 Schema 和许可证。
 
+镜像检查按 SDK 声明的依赖契约加载运行时导出。未使用的实验性 MCP Server 集成保留文件，
+仅在其明确声明的可选 Peer 已安装时加载；缺少必需依赖或已安装 Peer 损坏仍会导致校验失败。
+
 - **Source Checkout** 遵循该仓库的源码与 Package Manager 工作流。
 - **npm Installation** 可以使用应用内更新和不可变 Package Image。
 - **App Bundle** 从 Release Pipeline 获得已准备 Dependency。

@@ -40,6 +40,11 @@ Terminal is the primary focus surface. Structured Chat preserves ordered user,
 process, and result information without reconstructing ACP entries. Session
 headers use the same Agent-title priority as Farming Code.
 
+Consecutive assistant messages retain their individual text and images in
+transcript order. A later notice or answer must not replace an earlier response
+when no user message separates them, including after switching from Code or
+reopening the Session.
+
 ## Keyboard And Dialogs
 
 Primary actions are keyboard reachable and remain visible as concise hints.

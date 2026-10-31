@@ -76,6 +76,39 @@ test('renders CRT Agent replies as safe GFM while keeping user messages literal'
   expect(colors.keyword).not.toBe(colors.answer)
 })
 
+test('preserves consecutive assistant answers and notices when opening and reloading CRT Chat', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'crt-consecutive-assistant')
+  fs.mkdirSync(workspace, { recursive: true })
+  const transcript = {
+    protocol: 'acp', state: 'idle', updatedAt: 'consecutive-assistant-snapshot',
+    entries: [
+      { id: 'request', type: 'message', role: 'user', content: [{ type: 'text', text: 'Historical request' }] },
+      { id: 'answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: '**Complete historical answer.** HISTORY_END' }] },
+      { id: 'notice', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Configuration notice after the answer.' }] },
+      { id: 'follow-up', type: 'message', role: 'user', content: [{ type: 'text', text: 'Follow-up request' }] },
+      { id: 'ack', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Follow-up acknowledged.' }] },
+    ],
+  }
+  await page.route(/\/acp-transcript(?:\?.*)?$/, route => route.fulfill({
+    json: { transcript, hasMoreBefore: false },
+  }))
+  await openCrtAcpAgent(page, workspace)
+
+  for (let read = 0; read < 2; read += 1) {
+    if (read > 0) await page.reload({ waitUntil: 'domcontentloaded' })
+    const messages = page.locator('.crt-structured-transcript .crt-structured-message')
+    await expect(messages).toHaveText([
+      'Historical request',
+      'Complete historical answer. HISTORY_END',
+      'Configuration notice after the answer.',
+      'Follow-up request',
+      'Follow-up acknowledged.',
+    ])
+    await expect(messages.nth(1).locator('strong')).toHaveText('Complete historical answer.')
+    await expect(page.locator('.crt-structured-error')).toHaveCount(0)
+  }
+})
+
 test('renders native user image blocks without exposing base64 transcript text', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'crt-image-attachment')
   fs.mkdirSync(workspace, { recursive: true })

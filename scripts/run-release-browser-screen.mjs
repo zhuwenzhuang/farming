@@ -13,6 +13,8 @@ const definitions = [
   ['interaction', 'release:fast-screen:interaction'],
   ['permissions', 'release:fast-screen:permissions'],
   ['mobile-menus', 'release:fast-screen:mobile-menus'],
+  ['ui-contract-oracles', 'release:fast-screen:ui-contract-oracles'],
+  ['crt-markdown', 'release:fast-screen:crt-markdown'],
   ['agy-children', 'release:fast-screen:agy-children'],
   ['language-server', 'release:fast-screen:language-server'],
   ['sidebar', 'release:fast-screen:sidebar-mobile'],
@@ -62,7 +64,12 @@ export function selectBrowserScreen(files) {
     if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);
     if (/^tests\/e2e\/(backend-connection-status|mermaid-module-recovery|background-chat-continuity)\.spec\.ts$/.test(filename)) select(['interaction']);
     if (filename === 'tests/e2e/quote-selection.spec.ts') select(['quoted-side', 'interaction']);
-    if (['backend/provider-adapters.cts', 'tests/e2e/default-agent-permissions.spec.ts'].includes(filename)) select(['permissions']);
+    if (['backend/provider-adapters.cts', 'tests/e2e/default-agent-permissions.spec.ts',
+      'tests/e2e/fixtures/pi'].includes(filename)) select(['permissions']);
+    if (['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js',
+      'tests/e2e/crt-markdown.spec.ts'].includes(filename)) select(['crt-markdown']);
+    if (['tests/e2e/additional-user-scenarios.spec.ts', 'tests/e2e/dark-mode-skin.spec.ts',
+      'tests/e2e/mobile-human-story.spec.ts'].includes(filename)) select(['ui-contract-oracles']);
     if (['shared/appearance-themes.json', 'src/styles/tokens.css', 'src/components/code/CodeOverlays.tsx',
       'src/components/code/menu-model.ts', 'src/components/code/useWorkspaceContextMenu.ts',
       'tests/e2e/iphone-mobile-layout.spec.ts'].includes(filename)) select(['mobile-menus']);

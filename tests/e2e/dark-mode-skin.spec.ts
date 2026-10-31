@@ -402,6 +402,9 @@ test.describe('Farming Code appearance skins', () => {
     const bashAgentId = await createControlAgent(page, 'bash', projectDir)
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${bashAgentId}"]`)).toBeVisible()
+    // Shell prompts need not include the working directory on every host.
+    await page.getByTestId('code-composer-input').fill('pwd')
+    await page.getByTestId('code-composer-input').press('Enter')
     await expect.poll(async () => terminalRows(page, bashAgentId, 80).then(rows => rows.join('').includes(path.basename(projectDir)))).toBe(true)
     await expectTerminalAppearance(page, bashAgentId, 'dark')
     await chooseAppearance(page, 'Light')
@@ -485,7 +488,7 @@ test.describe('Farming Code appearance skins', () => {
     await page.keyboard.press('Escape')
     await chooseAppearance(page, 'Paper')
     await agentRow.click({ button: 'right' })
-    await expect(page.getByTestId('code-agent-context-menu')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
+    await expect(page.getByTestId('code-agent-context-menu')).toHaveCSS('background-color', 'rgb(255, 254, 250)')
     await page.keyboard.press('Escape')
     await chooseAppearance(page, 'Dark')
 

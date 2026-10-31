@@ -260,7 +260,7 @@ test.describe('mobile Farming Code user story', () => {
     await expect.poll(() => requestedModes).toEqual(['chat', 'terminal'])
   })
 
-  test('keeps mobile actions compact and moves settings out of the three-dot menu', async ({ page }) => {
+  test('keeps mobile actions compact and opens Settings from the page overflow menu', async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
     })
@@ -277,9 +277,13 @@ test.describe('mobile Farming Code user story', () => {
     await expect(mobileOptions.getByRole('menuitem', { name: 'Chat' })).toHaveCount(0)
     await expect(mobileOptions.getByRole('menuitem', { name: 'Terminal' })).toHaveCount(0)
     await expect(mobileOptions.getByRole('menuitem', { name: 'Share current page' })).toBeVisible()
-    await expect(mobileOptions).not.toContainText('Settings')
+    await expect(mobileOptions.getByRole('menuitem')).toHaveText(['Share current page', 'Settings'])
     await expect(page.getByTestId('code-mobile-more')).toHaveAttribute('aria-label', 'Open options')
-    await page.keyboard.press('Escape')
+    await mobileOptions.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+    await expect(mobileOptions).toHaveCount(0)
+    await expect(page.getByTestId('code-settings-panel')).toBeVisible()
+    await page.getByTestId('code-settings-panel').getByRole('button', { name: 'Back to navigation', exact: true }).click()
+    await expect(page.getByTestId('code-settings-panel')).toBeHidden()
     await expect(page.getByTestId('code-empty-workspace')).toContainText('Start or select an agent')
     const inactiveComposerInput = page.getByTestId('code-composer-input')
     await expect(inactiveComposerInput).toHaveAttribute('placeholder', 'Open an agent terminal first')

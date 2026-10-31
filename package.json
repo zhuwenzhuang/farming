@@ -52,6 +52,8 @@
     "index.html"
   ],
   "scripts": {
+    "release:fast-screen:ui-contract-oracles": "playwright test tests/e2e/additional-user-scenarios.spec.ts tests/e2e/dark-mode-skin.spec.ts tests/e2e/mobile-human-story.spec.ts --project=chromium --workers=1 --retries=0 --grep 'covers 14 additional mobile user-facing UI scenarios|applies and verifies the dark Codex skin across core surfaces|keeps mobile actions compact and opens Settings'",
+    "release:fast-screen:crt-markdown": "playwright test tests/e2e/crt-markdown.spec.ts --project=chromium --workers=1 --retries=0",
     "release:fast-screen:mobile-menus": "playwright test tests/e2e/iphone-mobile-layout.spec.ts --project=chromium --project=iphone-webkit --workers=1 --retries=0 --grep 'mobile overflow actions and distinct project menu'",
     "release:fast-screen:agy-children": "playwright test tests/e2e/agy-related-sessions.spec.ts --project=chromium --workers=1 --retries=0",
     "release:fast-screen:permissions": "playwright test tests/e2e/default-agent-permissions.spec.ts --project=chromium --workers=1 --retries=0",

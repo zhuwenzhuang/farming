@@ -185,6 +185,10 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-cli-release-packaging.ts'],
   },
   {
+    name: 'ACP SDK production exports and optional peers',
+    args: ['--import', 'tsx', 'backend/tests/test-npm-image-sdk-exports.ts'],
+  },
+  {
     name: 'Pi ACP fragmented UTF-8 record ownership',
     managedUpgrade: true,
     args: ['--import', 'tsx', 'backend/tests/test-pi-acp-vendor.ts'],

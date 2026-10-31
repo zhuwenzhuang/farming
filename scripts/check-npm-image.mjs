@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { checkAcpSdkExports } from './check-acp-sdk-exports.mjs';
 
 const root = path.resolve(process.argv[2]);
 const require = createRequire(path.join(root, 'package.json'));
@@ -31,11 +31,7 @@ for (const bookType of ['xlsx', 'biff8']) {
 }
 const tables = require('xlsx/dist/cpexcel.js');
 assert.equal(tables.utils.decode(936, tables.utils.encode(936, '中文')), '中文');
-// Exercise every retained SDK runtime export, not just its top-level entry.
+// Exercise retained SDK exports under their declared optional-peer contracts.
 const sdkRoot = path.join(root, 'node_modules/@agentclientprotocol/sdk');
-const sdk = JSON.parse(fs.readFileSync(path.join(sdkRoot, 'package.json'), 'utf8'));
-for (const target of Object.values(sdk.exports)) {
-  if (typeof target === 'object') await import(pathToFileURL(path.join(sdkRoot, target.import)).href);
-  else assert(fs.statSync(path.join(sdkRoot, target)).isFile());
-}
-console.log('Verified product/PWA icons, Excel and legacy code pages, and all ACP SDK runtime exports.');
+const sdkExports = await checkAcpSdkExports(sdkRoot);
+console.log(`Verified product/PWA icons, Excel and legacy code pages, and ${sdkExports.importedExports.length} ACP SDK runtime exports; optional integrations unavailable: ${sdkExports.unavailableOptionalExports.join(', ') || 'none'}.`);

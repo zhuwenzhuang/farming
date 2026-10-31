@@ -194,3 +194,18 @@ test('shared menu surfaces and native Antigravity children retain their focused 
   assert.deepEqual(plan.unmapped, []);
   assert.deepEqual(plan.lanes.map(lane => lane.name), ['mobile-menus', 'agy-children']);
 });
+
+test('CRT transcript projection, Pi launch fixture and menu contract regressions retain focused owners', () => {
+  for (const filename of ['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'tests/e2e/crt-markdown.spec.ts']) {
+    const plan = selectBrowserScreen([filename]);
+    assert.deepEqual(plan.unmapped, []);
+    assert.deepEqual(plan.lanes.map(lane => lane.script), ['release:fast-screen:crt-markdown']);
+  }
+  assert.deepEqual(selectBrowserScreen(['tests/e2e/fixtures/pi']).lanes.map(lane => lane.name), ['permissions']);
+  for (const filename of ['tests/e2e/additional-user-scenarios.spec.ts', 'tests/e2e/dark-mode-skin.spec.ts',
+    'tests/e2e/mobile-human-story.spec.ts']) {
+    const plan = selectBrowserScreen([filename]);
+    assert.deepEqual(plan.unmapped, []);
+    assert(plan.lanes.some(lane => lane.script === 'release:fast-screen:ui-contract-oracles'));
+  }
+});

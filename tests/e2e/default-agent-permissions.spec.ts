@@ -92,9 +92,9 @@ for (const provider of ['codex', 'claude', 'qoder', 'qwen', 'opencode', 'pi', 'a
         const response = await page.request.post('/farming/api/control/agents', { data: {
           command: provider, workspace: workspaceRoot, agentRuntimeMode: runtime, ...options,
         } })
-        const body = await response.json() as { agentId?: string }
+        const body = await response.json() as { agentId?: string, error?: string }
         if (body.agentId) ownedAgentIds.add(body.agentId)
-        expect(response.ok()).toBe(true)
+        expect(response.ok(), body.error).toBe(true)
         expect(body.agentId).toBeTruthy()
         return body.agentId!
       }

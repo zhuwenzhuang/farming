@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+printf 'Fake Pi ready\n'
+
+while IFS= read -r line; do
+  printf 'received: %s\n' "$line"
+  printf 'Pi message handled\n'
+done

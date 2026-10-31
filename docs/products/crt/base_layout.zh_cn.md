@@ -33,6 +33,9 @@ Terminal Replay State Machine 或 Agent Lifecycle。
 Terminal 是主要 Focus Surface。Structured Chat 保留有序 User、Process 与 Result，不重建 ACP
 Entry。Session Header 使用与 Farming Code 相同的 Agent Title Priority。
 
+连续的 Assistant 消息按 Transcript 顺序保留各自的文本和图片。即使中间没有 User 消息，
+后到的提示或回答也不能替换先前的回答；从 Code 切换或重新打开 Session 后仍须保持这一行为。
+
 ## Keyboard 与 Dialog
 
 Primary Action 必须支持键盘，并以简洁 Hint 保持可见。Focus、Escape、Confirm、Cancel 与

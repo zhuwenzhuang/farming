@@ -6339,7 +6339,9 @@ function structuredTranscriptTurns(transcript) {
         }
         if (entry.role !== 'assistant')
             return;
-        if (!current) {
+        // Distinct assistant entries (including later notices) must not replace
+        // an earlier response or its images in the same user turn.
+        if (!current || current.finalMessage || (current.resultImages?.length || 0) > 0) {
             current = { id: entry.id || `assistant-${turns.length}`, userMessage: '', finalMessage: '' };
             turns.push(current);
         }

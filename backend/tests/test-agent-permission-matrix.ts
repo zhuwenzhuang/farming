@@ -97,6 +97,10 @@ test('every ACP provider has an explicit Terminal bypass launch contract', () =>
   const agents = getSupportedAgents().filter(agent => providers.includes(agent.name));
   assert.deepEqual(agents.map(agent => agent.name).sort(), Object.keys(flags).sort());
   for (const agent of agents) {
+    const adapter = listProviderAdapters().find(candidate => candidate.id === agent.name)!;
+    const fixtureName = agent.name === 'codex' ? 'fake-codex' : adapter.executable;
+    assert.doesNotThrow(() => fs.accessSync(path.resolve(__dirname, '../../tests/e2e/fixtures', fixtureName), fs.constants.X_OK),
+      `${agent.name}: browser Terminal tests must have an executable fixture instead of using a system installation`);
     const launch = resolveLaunchCommand(agent.name, { dangerouslySkipPermissions: true });
     for (const flag of flags[agent.name]) assert.ok(launch.args.includes(flag), `${agent.name}: ${flag}`);
     const restricted = resolveLaunchCommand(agent.name, { dangerouslySkipPermissions: false });

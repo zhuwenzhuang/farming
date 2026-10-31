@@ -329,6 +329,11 @@ The npm image omits duplicate SheetJS browser builds and ACP SDK test suites,
 declarations and debug maps; runtime modules, code-page tables, schemas and
 license notices remain available.
 
+Image checks load SDK runtime exports under their declared dependency contracts.
+The unused experimental MCP server integration retains its files but is loaded
+only when its explicitly optional peer is installed; missing required dependencies
+or broken installed peers still fail verification.
+
 - **Source checkout** follows the repository and package-manager workflow of
   that checkout.
 - **npm installation** may use in-app update and immutable Package Images.

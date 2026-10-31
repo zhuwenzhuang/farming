@@ -213,10 +213,15 @@ assert.deepStrictEqual(structuredTranscriptTurns({
 	  id: 'user-0',
 	  userMessage: 'First request',
 	  userImages: [],
+	  finalMessage: 'Working',
+	  resultImages: [],
+	}, {
+	  id: 'assistant-1',
+	  userMessage: '',
 	  finalMessage: 'First answer',
 	  resultImages: [],
 	}, {
-	  id: 'user-1',
+	  id: 'user-2',
 	  userMessage: 'Second request',
 	  userImages: [],
 	  finalMessage: 'Second answer',
@@ -224,6 +229,30 @@ assert.deepStrictEqual(structuredTranscriptTurns({
     status: 'completed',
     stopReason: undefined,
 	}]);
+
+const consecutiveAssistantSnapshot = {
+  state: 'idle',
+  stopReason: 'end_turn',
+  entries: [
+    { id: 'answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Complete historical answer' }] },
+    { id: 'notice', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Configuration notice' }] },
+    { id: 'image', type: 'message', role: 'assistant', content: [{ type: 'image', url: '/answer.png', mimeType: 'image/png' }] },
+    { id: 'hidden', type: 'message', role: 'assistant', internal: true, content: [{ type: 'text', text: 'Hidden' }] },
+    { id: 'empty', type: 'message', role: 'assistant', content: [] },
+    { id: 'caption', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Image caption' }] },
+  ],
+};
+const originalSnapshot = JSON.stringify(consecutiveAssistantSnapshot);
+const consecutiveTurns = structuredTranscriptTurns(consecutiveAssistantSnapshot);
+assert.deepStrictEqual(consecutiveTurns.map(turn => turn.id), ['answer', 'notice', 'image', 'caption']);
+assert.deepStrictEqual(consecutiveTurns.map(turn => turn.finalMessage), [
+  'Complete historical answer', 'Configuration notice', '', 'Image caption',
+]);
+assert.deepStrictEqual(consecutiveTurns[2].resultImages, consecutiveAssistantSnapshot.entries[2].content);
+assert.strictEqual(consecutiveTurns[3].status, 'completed');
+assert.strictEqual(consecutiveTurns[3].stopReason, 'end_turn');
+assert.deepStrictEqual(structuredTranscriptTurns(consecutiveAssistantSnapshot), consecutiveTurns);
+assert.strictEqual(JSON.stringify(consecutiveAssistantSnapshot), originalSnapshot);
 
 assert.deepStrictEqual(structuredTranscriptTurns({
   turns: [{ userMessage: 'Legacy request', finalMessage: 'Legacy answer' }],
