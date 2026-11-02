@@ -1,7 +1,7 @@
 import { projectAcpTranscript } from '../../src/components/code/acp/acp-entry-projection';
 import assert from 'node:assert/strict';
 import { AcpSessionState } from '../acp-session-state.cts';
-import { relatedSessionStatusLabel, relatedSessionIndicator } from '../../src/components/code/related-session-status';
+import { relatedSessionStatusLabel, relatedSessionIndicator, relatedSessionHasStatus } from '../../src/components/code/related-session-status';
 import { codeCopyForLanguage } from '../../src/components/code/copy';
 
 const state = new AcpSessionState({ provider: 'codex', sessionId: 'child' });
@@ -41,7 +41,15 @@ assert.equal(relatedSessionIndicator('child', 'running', copy).lifecycleStatus, 
 assert.equal(relatedSessionIndicator('child', 'completed', copy).statusIndicatorVisible, false);
 assert.equal(relatedSessionIndicator('child', 'waiting-for-input', copy).lifecycleStatus, 'pending');
 assert.equal(relatedSessionIndicator('child', 'failed', copy).failureMessage, 'Failed');
-assert.equal(relatedSessionIndicator('child', 'unknown', copy).statusIndicatorVisible, true);
+for (const unavailable of ['unknown', '', 'ALIVE', 'future-provider-state']) {
+  assert.equal(relatedSessionHasStatus(unavailable), false);
+  assert.equal(relatedSessionIndicator('child', unavailable, copy).statusIndicatorVisible, false);
+}
+for (const available of ['pendingInit', 'connecting', 'working', 'waiting-for-permission', 'waiting-for-input', 'idle', 'completed', 'failed', 'interrupted', 'closed']) {
+  assert.equal(relatedSessionHasStatus(available), true);
+}
+assert.equal(relatedSessionHasStatus('unknown', 'cancelled'), true);
+assert.equal(relatedSessionHasStatus('unknown', '', 'Provider failure'), true);
 
 // A historical window's trailing Turn remains partial: its page boundary is
 // neither completion evidence nor the Session's current activity/stop boundary.

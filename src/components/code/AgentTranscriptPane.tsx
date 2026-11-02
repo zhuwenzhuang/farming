@@ -13,7 +13,7 @@ import { useQuestionPresentation } from './acp/acp-elicitation-presentation'
 import { AcpQuestionContext, AcpTranscriptQuestion } from './acp/AcpTranscriptQuestion'
 import type { AcpPendingElicitation } from '@/types/agent'
 import type { AgentGoal } from '../../../shared/agent-goal'
-import { relatedSessionStatusLabel } from './related-session-status'
+import { relatedSessionStatusLabel, relatedSessionHasStatus } from './related-session-status'
 import {
   createContext,
   Fragment,
@@ -1144,6 +1144,7 @@ export function AgentTranscriptSubagentPreview({
   const openRelatedSession = useContext(RelatedSessionNavigation)
   const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
+  const available = relatedSessionHasStatus(transcript.state || '', transcript.stopReason, transcript.error)
   const status = relatedSessionStatusLabel(transcript.state || '', copy, transcript.stopReason, transcript.error)
   const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.filter(item => (
     !isAcpProgressUpdate(item) && !isAcpAnswerSegment(item) && item.type !== 'peer-receipt'
@@ -1154,11 +1155,12 @@ export function AgentTranscriptSubagentPreview({
   const fullscreenTriggerRef = useRef<HTMLButtonElement | null>(null)
   const fullscreenCloseRef = useRef<HTMLButtonElement | null>(null)
   const fullscreenDialogRef = useModalFocusScope<HTMLDivElement>({
-    open: fullscreen,
+    open: fullscreen && available,
     initialFocusRef: fullscreenCloseRef,
     returnFocusRef: fullscreenTriggerRef,
     onEscape: () => setFullscreen(false),
   })
+  if (!available) return null
   const entries = docked ? <AgentTranscriptReadOnly transcript={transcript} copy={copy} onQuoteInParent={onQuoteInParent} /> : (
     <div className="code-agent-transcript-subagent-entries">
       {transcript.turns.map((turn, index) => (

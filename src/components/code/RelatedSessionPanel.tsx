@@ -7,6 +7,7 @@ import { projectAcpTranscript, type AgentTranscript } from './acp/acp-entry-proj
 import type { RelatedSessionTarget } from './related-session-navigation'
 import { codeCopyForLanguage } from './copy'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
+import { relatedSessionHasStatus } from './related-session-status'
 
 export function RelatedSessionPanel({ target, active, refreshSignal, onClose, language, onQuoteInParent }: {
   target: RelatedSessionTarget
@@ -27,12 +28,13 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
   const epochRef = useRef(target.runtimeEpoch || '')
   const closeRef = useRef<HTMLButtonElement>(null)
   const chinese = language === 'zh-CN' || language === 'zh'
+  const unavailable = target.readable === false || Boolean(transcript && !relatedSessionHasStatus(transcript.state || '', transcript.stopReason, transcript.error))
+  useEffect(() => { if (unavailable) onClose() }, [unavailable, onClose])
   useEffect(() => { closeRef.current?.focus({ preventScroll: true }) }, [])
   const refreshRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     if (target.readable === false) {
       setLoading(false)
-      setError(chinese ? '此 Provider 未提供子会话内容读取能力。' : 'This provider does not expose the subagent transcript.')
       return
     }
     setTranscript(null)
@@ -87,6 +89,7 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
   }, [target.parentAgentId, target.sessionId, target.runtimeEpoch, target.readable, limit, cursor, chinese])
   useEffect(() => { if (!cursor) refreshRef.current?.() }, [refreshSignal, cursor])
   useEffect(() => { refreshRef.current?.() }, [readVersion])
+  if (unavailable) return null
   return (
     <aside className="code-related-session-panel" data-testid="code-related-session-panel" aria-label={target.title}>
       <header className="code-related-session-header">

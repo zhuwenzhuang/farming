@@ -233,6 +233,15 @@ bounded; cursors are bound to parent, child and history file identity. Registry
 the provider supplies authoritative foreground state. Neither child input nor
 cancellation is advertised without provider support.
 
+User-facing native child rows and transcript previews require a recognized,
+authoritative status; navigation rows also require readable history. Unknown or
+unsupported status does not produce a pending dot, a child count, or an empty
+disclosure control. A fresh transcript read that confirms unavailable status
+closes an already open child pane without changing the parent or child runtime.
+Later authoritative status can make the child visible again. This presentation
+filter preserves backend associations and history for ownership and cleanup;
+it never infers completion from answer text or hides explicit failures.
+
 Related history is bounded by turns, items and bytes, with identity-bound cursors.
 Presentation segments must not trim an already bounded provider page again.
 Native children keep one identity across resumed Turns; stale output from an older
