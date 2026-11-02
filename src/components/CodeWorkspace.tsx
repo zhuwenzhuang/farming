@@ -630,10 +630,14 @@ export function CodeWorkspace({
     resume: identity => sessionResumeController.resume(identity),
     reconcile: identity => sessionResumeController.reconcile(identity),
     getAgents: () => agents.map(agent => ({ ...agent, workspace: projectWorkspaceForAgent(agent) })),
-    activate: (id, options) => onActivateTerminal(id, options),
+    activate: (id, options) => {
+      setRetainedAgentSource(null)
+      agentOpeningReturnRef.current = null
+      onActivateTerminal(id, options)
+    },
   })
   const agentOpeningController = agentOpening.controller
-  const agentOpeningBusy = agentOpening.state !== null && agentOpening.state.phase !== 'ready'
+  const agentOpeningBusy = agentOpening.state !== null
   const onWorkspaceViewChange = useCallback((view: WorkspaceView) => {
     leaveAgentOpeningRef.current()
     onCancelPendingTerminalOpen()

@@ -105,10 +105,14 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         await row(page, entry, index).click()
         await expect.poll(() => requests).toBe(1)
         gate.resolve()
-        await expect(opening).toHaveAttribute('data-phase', 'ready')
+        await expect(opening).toHaveCount(0)
         await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
-        await page.getByTestId('code-agent-opening-back').click()
-        await assertSource(page, entry)
+        await expect(page.getByTestId('code-agent-opening-back')).toHaveCount(0)
+        await expect(page.getByTestId('code-side-view-panel')).toHaveCount(0)
+        await test.info().attach(`agent-opened-${entry}-${appearance}`, {
+          body: await page.getByTestId('code-main').screenshot(),
+          contentType: 'image/png',
+        })
         await expect(page.getByTestId('code-file-editor')).toBeHidden()
         expect(requests).toBe(1)
       } finally { gate.resolve(); await f.cleanup() }
@@ -169,7 +173,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
         contentType: 'image/png',
       })
       await opening.getByRole('button', { name: 'Retry', exact: true }).click()
-      await expect(opening).toHaveAttribute('data-phase', 'ready')
+      await expect(opening).toHaveCount(0)
       expect(posts).toBe(3)
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     } finally { await f.cleanup() }
@@ -190,11 +194,11 @@ test('A then B with B completing first never jumps back; leaving a request prote
     await row(page, 'search', 1).click()
     await expect.poll(() => routes.length).toBe(2)
     await routes[1].fulfill({ json: { agentId: b } })
-    await expect(page.getByTestId('code-agent-opening')).toHaveAttribute('data-phase', 'ready')
+    await expect(page.getByTestId('code-agent-opening')).toHaveCount(0)
     await routes[0].fulfill({ json: { agentId: a } })
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${b}"]`)).toBeVisible()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${a}"]`)).toBeHidden()
-    await page.getByTestId('code-agent-opening-back').click()
+    await page.getByTestId('code-nav-search').click()
     await row(page, 'search', 2).click()
     await expect.poll(() => routes.length).toBe(3)
     await page.getByTestId('code-nav-history').click()
@@ -240,7 +244,8 @@ test('HTTP before live state has a bounded wait; checking recovers without anoth
     await page.clock.fastForward(31_000)
     await expect(opening).toHaveAttribute('data-phase', 'failed')
     await opening.getByRole('button', { name: 'Check status' }).click()
-    await expect(opening).toHaveAttribute('data-phase', 'ready')
+    await expect(opening).toHaveCount(0)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     expect(posts).toBe(1)
   } finally { holdState = false; for (const send of release.splice(0)) send(); await f.cleanup() }
 })
@@ -272,8 +277,8 @@ test('running Agent opens from Search with mouse or Enter without a resume mutat
     await page.getByTestId('code-search-filter-agents').click()
     await page.getByTestId('code-search-result').click()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
-    await expect(page.getByTestId('code-agent-opening')).toHaveAttribute('data-phase', 'ready')
-    await page.getByTestId('code-agent-opening-back').click()
+    await expect(page.getByTestId('code-agent-opening')).toHaveCount(0)
+    await page.getByTestId('code-nav-search').click()
     await page.getByRole('combobox', { name: 'Search projects, agents, or files' }).press('Enter')
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     expect(posts).toBe(0)
@@ -356,7 +361,7 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qwen']) {
     try {
       await openSource(page, 'search')
       await page.getByRole('combobox', { name: 'Search projects, agents, or files' }).press('Enter')
-      await expect(page.getByTestId('code-agent-opening')).toHaveAttribute('data-phase', 'ready')
+      await expect(page.getByTestId('code-agent-opening')).toHaveCount(0)
       expect(sourceOverrides).toBeGreaterThan(0)
       await expect.poll(() => reads).toBeGreaterThan(0)
       await expect(page.getByTestId('code-file-editor')).toBeHidden()
@@ -367,8 +372,7 @@ for (const provider of ['codex', 'claude', 'opencode', 'pi', 'qwen']) {
       await alert.getByRole('button', { name: /Retry/i }).click()
       await expect.poll(() => reads).toBeGreaterThan(1)
       await expect(alert).toBeHidden()
-      await page.getByTestId('code-agent-opening-back').click()
-      await assertSource(page, 'search')
+      await expect(page.getByTestId('code-agent-opening-back')).toHaveCount(0)
     } finally { transcript.resolve(); await f.cleanup() }
   })
 }

@@ -127,9 +127,12 @@ confirmed lineage. Inventory fallback must reconcile the inventory and transient
 selection from the same state snapshot, including chained replacements while a
 request remains pending; it must not select an unrelated Agent between them.
 
-The target page composes the shared side-view Back control (a labeled variant
+The pending or failed target page composes the shared side-view Back control (a labeled variant
 retains the source name) and the same recovery-action recipe as Search errors.
 It does not define a separate set of button states for session recovery.
+Successful activation settles the viewing intent and releases the retained source
+panel and return control. The normal Agent view has no persistent Search or History
+return header; those views remain accessible through workspace navigation.
 
 | State / trigger | Effect and exit |
 | --- | --- |
@@ -139,7 +142,7 @@ It does not define a separate set of button states for session recovery.
 | Known rejection | Keep the target page and an explicit retry action |
 | Transport failure, timeout, or ambiguous server failure | Keep an uncertain outcome; offer a bounded, read-only status check, never automatically repeat the mutation |
 | Another activation or navigation away | Revoke the old viewing intent, without stopping the Agent; late operations may reconcile membership but cannot navigate |
-| Back to Search or History | Restore the source query, filter/page, selection, and scroll; restore focus only as part of this explicit return |
+| Back to Search or History while opening or after failure | Restore the source query, filter/page, selection, and scroll; restore focus only as part of this explicit return |
 
 Same-session concurrent resumes join one operation. Different sessions may
 complete in any order, but only the current viewing intent can activate a pane.

@@ -66,12 +66,18 @@ async function run() {
     const mount = async (links: ReadOnlyShareStore, authority: TokenAuth) => {
       const tickets = new QrShareTicketStore();
       const app = express();
+      // Model an ingress whose directory redirect drops query parameters.
+      app.use((req, res, next) => {
+        if (req.path === '/farm') return res.redirect(308, '/farm/');
+        next();
+      });
       app.use('/farm/s', createReadOnlyShareEntryRouter(links, authority, '/farm'));
       app.use(authority.middleware());
       app.use('/farm/api/share/qr-ticket', createQrShareRouter(authority, tickets, {
         authEnabled: true, basePath: '/farm', fallbackPort: 0, readOnlyLinks: links,
       }));
       app.post('/farm/api/mutate', (_req, res) => res.json({ mutated: true }));
+      app.get('/farm/', (req, res) => res.json({ target: req.query }));
       const server = await new Promise<Server>(resolve => {
         const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
       });
@@ -87,6 +93,16 @@ async function run() {
     const result = await create(owner);
     assert.equal(result.status, 200);
     const share = await result.json();
+    const ownerEntry = await fetch(share.fullAccessUrl);
+    assert.equal(ownerEntry.status, 200, 'a fresh recipient must authenticate without a cookie');
+    assert.equal(new URL(ownerEntry.url).pathname, '/farm/');
+    assert.match(ownerEntry.headers.get('set-cookie')!, /HttpOnly/);
+    assert.deepEqual((await ownerEntry.json()).target, {
+      ftarget: 'file', path: '/workspace/项目/分享.md', line: '12', token: auth.getToken(),
+    });
+    const invalidEntry = new URL(share.fullAccessUrl);
+    invalidEntry.searchParams.set('token', 'invalid-token');
+    assert.equal((await fetch(invalidEntry)).status, 401, 'invalid credentials must still be rejected');
     assert.equal(share.readOnlyUrl, share.longUrl);
     assert(share.readOnlyExpiresAt > Date.now() + 23 * 60 * 60 * 1000);
     assert(share.expiresAt <= Date.now() + 5 * 60 * 1000);
@@ -106,6 +122,7 @@ async function run() {
       assert.equal(response.headers.get('cache-control'), 'no-store');
       assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
       const location = new URL(response.headers.get('location')!, origin);
+      assert.equal(location.pathname, '/farm/', 'read-only redemption must also avoid the ingress redirect');
       assert.equal(location.searchParams.get('path'), '/workspace/项目/分享.md');
       assert.equal(location.searchParams.get('line'), '12');
       assert.equal(location.searchParams.has('token'), false);

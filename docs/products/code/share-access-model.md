@@ -140,6 +140,12 @@ frontend keeps that token in the visible URL so reloads, copied URLs, and instal
 app handoffs retain owner access. The HTTP-only cookie remains an alternate
 authenticated transport, but does not replace the URL credential.
 
+Generated entry links and share-redemption redirects use the base path with a
+trailing slash, avoiding an extra directory redirect at the reverse proxy.
+Proxies that redirect an older entry URL must preserve its complete query string,
+including credentials and contextual targets; fresh recipients cannot rely on an
+existing authentication cookie.
+
 When an unauthenticated browser opens an HTML entry route without a valid token or
 cookie, Farming responds with a `401` tap-to-compose passphrase gate instead of a raw
 JSON error body. The gate splits the active passphrase along `-` into dynamic rows,

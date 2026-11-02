@@ -12,7 +12,6 @@
   background: var(--code-bg-surface);
 }
 
-.code-agent-opening.ready { flex: 0 0 auto; }
 .code-agent-opening-header { padding: 12px 20px; }
 .code-agent-opening-body { max-width: 820px; margin: 24px auto; padding: 0 24px; overflow-wrap: anywhere; }
 .code-agent-opening-body h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; outline: none; }

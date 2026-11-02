@@ -14,7 +14,7 @@ export type AgentOpeningTarget = {
 export type AgentOpeningState = {
   intent: number
   target: AgentOpeningTarget
-  phase: 'resuming' | 'checking' | 'waiting' | 'ready' | 'failed'
+  phase: 'resuming' | 'checking' | 'waiting' | 'failed'
   agentId?: string
   uncertain?: boolean
   message?: string
@@ -116,7 +116,7 @@ export class AgentOpeningController {
     }
     // Commit synchronously from observed backend state: no second, unfenced
     // pending-open queue may outlive this intent in the parent application.
-    this.publish({ ...state, phase: 'ready' })
+    this.publish(null)
     this.ports.activate(agent.id, { focusTerminal: state.target.focusTerminal })
   }
 }

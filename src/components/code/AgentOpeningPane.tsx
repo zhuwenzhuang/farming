@@ -13,22 +13,20 @@ export function AgentOpeningPane({ state, copy, onBack, onRetry, onCheck }: {
 }) {
   const heading = useRef<HTMLHeadingElement>(null)
   const surface = useRef<HTMLElement>(null)
-  const ready = state.phase === 'ready'
   const failed = state.phase === 'failed'
-  useInteractionLayer({ enabled: !ready, elements: () => [surface.current], onDismiss: onBack, dismissOnPointerOutside: false })
+  useInteractionLayer({ enabled: true, elements: () => [surface.current], onDismiss: onBack, dismissOnPointerOutside: false })
   useLayoutEffect(() => {
-    if (!ready) heading.current?.focus({ preventScroll: true })
-  }, [state.intent, ready])
-  if (ready && state.target.source === 'projects') return null
+    heading.current?.focus({ preventScroll: true })
+  }, [state.intent])
   return (
-    <section ref={surface} className={`code-agent-opening ${ready ? 'ready' : ''}`} data-testid="code-agent-opening" data-phase={state.phase}>
+    <section ref={surface} className="code-agent-opening" data-testid="code-agent-opening" data-phase={state.phase}>
       <header className="code-agent-opening-header">
         <button type="button" className="code-side-view-back with-label" onClick={onBack} data-testid="code-agent-opening-back">
           <ArrowLeftGlyph />
           <span>{copy.back}{state.target.source === 'search' ? ` · ${copy.search}` : state.target.source === 'history' ? ` · ${copy.history}` : ''}</span>
         </button>
       </header>
-      {!ready && <div className="code-agent-opening-body">
+      <div className="code-agent-opening-body">
         <h2 ref={heading} tabIndex={-1}>{state.target.title}</h2>
         <p className="code-agent-opening-identity">{state.target.workspace}</p>
         {state.target.identity && <p className="code-agent-opening-identity">{state.target.identity.provider} · {state.target.identity.providerHomeId || 'default'} · {state.target.identity.sessionId}</p>}
@@ -43,7 +41,7 @@ export function AgentOpeningPane({ state, copy, onBack, onRetry, onCheck }: {
           </>}
         </div>
         <p className="code-agent-opening-note">{copy.agentOpeningLeaveNote}</p>
-      </div>}
+      </div>
     </section>
   )
 }

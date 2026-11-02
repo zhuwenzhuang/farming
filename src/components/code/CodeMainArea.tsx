@@ -828,7 +828,7 @@ export function CodeMainArea({
   // whole object without depending on it — it only reruns on activeAgent?.id.
   const activeAgentRef = useRef(activeAgent)
   activeAgentRef.current = activeAgent
-  const openingBusy = agentOpening !== null && agentOpening.phase !== 'ready'
+  const openingBusy = agentOpening !== null
   const sideView = activeView !== 'projects' ? activeView : agentOpening?.target.source === 'search' || agentOpening?.target.source === 'history' ? agentOpening.target.source : null
   const browserWorkspaceVisible = !openingBusy && activeView === 'projects' && activeBrowserResource !== null
   const computerWorkspaceVisible = !openingBusy && activeView === 'projects' && activeComputerResource !== null
