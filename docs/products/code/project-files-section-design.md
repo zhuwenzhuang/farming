@@ -125,9 +125,16 @@ not present older disk-version semantic results as current.
 Chat file references describe navigation targets, not current filesystem health.
 Explicit Markdown file links (including `file:///` with `#L23` or `#L23-L30`)
 and structured file references retain their link presentation once their target
-is parsed. Opening uses Farming's authorized file viewer at the first cited line;
-it never requests browser-local files. Missing or inaccessible targets produce
+is parsed. Chat, Markdown preview and Terminal links share exact-path navigation:
+the backend's authorized read determines whether the target is a file or directory.
+Files open in the viewer at the first cited line; directories expand in Files using
+the returned canonical path, including Project roots and trailing slashes. Each new
+navigation invalidates older pending results; failures cannot activate stale targets.
+It never requests browser-local files. Missing or inaccessible explicit links produce
 visible failure without repository search or substitution of a same-named file.
+Only Terminal shorthand retains its bounded search fallback. A directory in another
+mounted Project uses that Project; directory navigation does not mount new Projects
+or broaden filesystem access.
 External URLs retain normal safe Markdown handling.
 
 Inferred inline-code paths remain authored code until a bounded backend check

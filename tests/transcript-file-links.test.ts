@@ -18,6 +18,16 @@ import {
 
 const WORKSPACE_ROOT = '/repo'
 
+test('explicit directory hrefs preserve bare names, roots and encoded spaces without inferring prose', () => {
+  for (const [href, filePath] of [['gluten', 'gluten'], ['目录', '目录'], ['my%20folder', 'my folder'], ['.', '.'], ['./', '.'], ['/repo', '.'], ['file:///repo', '.']]) {
+    assert.deepEqual(transcriptFileTargetFromHref(href!, WORKSPACE_ROOT), { filePath, target: {} })
+  }
+  assert.equal(transcriptFileTargetFromText('gluten', WORKSPACE_ROOT), null)
+  for (const href of ['#section', 'javascript:alert(1)', 'data:text/html,test', 'bad%00name']) {
+    assert.equal(transcriptFileTargetFromHref(href, WORKSPACE_ROOT), null)
+  }
+})
+
 test('Markdown file URLs preserve source anchors before URL normalization', () => {
   for (const prefix of ['file:///repo/', '/repo/', '']) {
     for (const suffix of ['#L371', '#L371-L372', '#L371-372']) {

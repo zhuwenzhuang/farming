@@ -22,6 +22,7 @@ export interface WorkspaceFileOpenTarget {
   sourceAgentId?: string
   transient?: boolean
   focusEditor?: boolean
+  /** Exact navigation is the default; only Terminal shorthand opts into search with false. */
   suppressSearchOnMiss?: boolean
   gitStatus?: WorkspaceFile['gitStatus']
   gitStatusLabel?: string

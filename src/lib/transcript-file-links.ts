@@ -128,19 +128,27 @@ function exactTranscriptPathTarget(text: string, requireKnownFileType = true) {
     && match.length === encoded.length
     && match.pathTarget
   ))
-  if (!exact?.pathTarget) return null
-  const decodedPath = decodeFileUrlPath(exact.pathTarget.path)
+  // An authored href establishes path identity; Terminal heuristics deliberately
+  // reject bare directory names and must not turn those links into browser URLs.
+  const pathTarget = exact?.pathTarget ?? (!requireKnownFileType && !/[\0\r\n/#?:]/.test(encoded)
+    ? { path: encoded, lineNumber: undefined, column: undefined, endColumn: undefined }
+    : null)
+  if (!pathTarget) return null
+  const decodedPath = decodeFileUrlPath(pathTarget.path)
+  if (/[\0\r\n]/.test(decodedPath)) return null
   if (/^[a-z][a-z\d+.-]*:/i.test(decodedPath) && !/^[a-z]:[\\/]/i.test(decodedPath)) return null
   if (requireKnownFileType && !transcriptFileBasenameLooksValid(decodedPath)) return null
-  return { ...exact.pathTarget, path: decodedPath }
+  return { ...pathTarget, path: decodedPath }
 }
 
 function resolveTranscriptFileTarget(text: string, workspaceRoot: string | undefined, requireKnownFileType: boolean) {
   const trimmed = text.trim()
   if (!trimmed || trimmed.startsWith('#') || isBareDomainTranscriptHref(trimmed)) return null
+  if (!requireKnownFileType && (trimmed === '.' || trimmed === './')) return { filePath: '.', target: {} }
   const pathTarget = exactTranscriptPathTarget(trimmed, requireKnownFileType)
   if (!pathTarget) return null
-  const filePath = terminalTargetFilePath(pathTarget.path, workspaceRoot || '')
+  const relativePath = terminalTargetFilePath(pathTarget.path, workspaceRoot || '')
+  const filePath = relativePath === '' && !requireKnownFileType && workspaceRoot ? '.' : relativePath
   if (!filePath && !pathTarget.path.startsWith('/')) return null
   const globalFilePath = !filePath && pathTarget.path.startsWith('/')
     ? normalizeGlobalWorkspaceFilePath(pathTarget.path)

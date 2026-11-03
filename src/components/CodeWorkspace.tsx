@@ -1003,7 +1003,6 @@ export function CodeWorkspace({
     leaveAgentOpeningRef.current()
     onCancelPendingTerminalOpen()
   }))
-  const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
   const mobileShareRequestFenceRef = useRef(new LatestRequestFence())
   const directShareRequestFenceRef = useRef(new LatestRequestFence())
   const shareTargetRestoreAttemptsRef = useRef(0)
@@ -3556,6 +3555,17 @@ export function CodeWorkspace({
   ), [])
 
   const resolveAbsoluteWorkspaceFileTarget = useCallback(async (absolutePath: string, sourceAgentId?: string) => {
+    // A directory in an already mounted Project needs no file-only mount request.
+    const mountedWorkspace = [...projectWorkspacesRef.current]
+      .sort((left, right) => right.length - left.length)
+      .find(workspace => workspaceRelativePath(absolutePath, workspace) !== null)
+    if (mountedWorkspace) {
+      return {
+        identity: resolveWorkspaceFileIdentity(projectFilesWorkspaceId(mountedWorkspace), sourceAgentId),
+        filePath: workspaceRelativePath(absolutePath, mountedWorkspace) || '.',
+        globalRoot: false,
+      }
+    }
     if (!readOnly) {
       try {
         const workspace = await requestProjectMountForFile(absolutePath)
@@ -3809,131 +3819,6 @@ export function CodeWorkspace({
     }
   }, [resolveWorkspaceFileIdentity])
 
-  const openTerminalPathTarget = useCallback((agentId: string, target: TerminalPathOpenTarget) => {
-    const identity = resolveWorkspaceFileIdentity(
-      target.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId,
-      agentId,
-    )
-    const filePath = target.globalRoot
-      ? normalizeGlobalWorkspaceFilePath(target.path)
-      : terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
-    if (!filePath) return
-
-    const requestLease = terminalPathOpenRequestRef.current.begin()
-    const intentLease = workspaceFileOpenRequestRef.current.begin()
-    const requestedOpenTarget = openTargetForTerminalPath(target)
-    const openTarget: WorkspaceFileOpenTarget = {
-      ...requestedOpenTarget,
-      ...(target.globalRoot ? { globalRoot: true } : {}),
-      ...(target.exactExternal ? { exactExternal: true, revealInTree: false } : {}),
-      sourceAgentId: identity.sourceAgentId,
-    }
-
-    const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget) => {
-      const file = await resolveWorkspaceFile(identity.filesId, resolvedPath, {
-        exactExternal: target.exactExternal,
-        workspaceRoot: identity.workspaceRoot,
-      })
-      if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
-      await openProjectFile(identity.filesId, file, resolvedTarget, undefined, intentLease)
-    }
-
-    const revealResolvedDirectory = (resolvedPath: string) => {
-      if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
-      revealWorkspaceFileInExplorer(identity.filesId, resolvedPath, 'directory')
-    }
-
-    const openResolvedPathMatch = async (match: WorkspaceFileSearchMatch) => {
-      if (match.entryType === 'directory') {
-        revealResolvedDirectory(match.path)
-        return
-      }
-      await openResolvedFile(match.path)
-    }
-
-    const revealSearch = () => {
-      if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
-      focusWorkspaceFilesSearch(identity.filesId, filePath)
-    }
-
-    void (async () => {
-      if (target.exactExternal) {
-        try {
-          const resolvedTarget = await resolveAbsoluteWorkspaceFileTarget(
-            workspaceShareAbsolutePath('/', filePath),
-            identity.sourceAgentId,
-          )
-          if (!requestLease.isCurrent() || !intentLease.isCurrent() || !resolvedTarget) return
-          const file = await resolveWorkspaceFile(resolvedTarget.identity.filesId, resolvedTarget.filePath, {
-            exactExternal: resolvedTarget.globalRoot,
-            workspaceRoot: resolvedTarget.identity.workspaceRoot,
-          })
-          if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
-          await openProjectFile(resolvedTarget.identity.filesId, file, {
-            ...(requestedOpenTarget ?? {}),
-            ...(resolvedTarget.globalRoot
-              ? { globalRoot: true, exactExternal: true, revealInTree: false }
-              : {}),
-            sourceAgentId: resolvedTarget.identity.sourceAgentId,
-          }, undefined, intentLease)
-          return
-        } catch (error) {
-          if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
-          setCopyNotice({
-            id: Date.now(),
-            kind: 'error',
-            message: error instanceof Error ? error.message : 'Failed to open external file',
-          })
-        }
-        return
-      }
-      try {
-        await fetchWorkspaceTree(identity.filesId, filePath)
-        revealResolvedDirectory(filePath)
-        return
-      } catch {
-        // Fall through to file open for normal files.
-      }
-
-      try {
-        await openResolvedFile(filePath)
-        return
-      } catch {
-        // Fall through to path search for basename-only or shortened paths.
-      }
-
-      try {
-        const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
-        if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
-        const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
-        if (pathMatches.length === 1) {
-          const match = pathMatches[0]
-          if (!match) return
-          await openResolvedPathMatch(match)
-          return
-        }
-
-        const fileMatches = uniqueTerminalFileSearchMatches(results.matches)
-        if (pathMatches.length === 0 && fileMatches.length === 1) {
-          const match = fileMatches[0]
-          if (!match) return
-          await openResolvedFile(match.path, !target.lineNumber && match.kind === 'content' ? {
-            lineNumber: match.lineNumber,
-            column: match.ranges[0] ? match.ranges[0].start + 1 : undefined,
-            endColumn: match.ranges[0] ? Math.max(match.ranges[0].start + 1, match.ranges[0].end + 1) : undefined,
-            sourceAgentId: identity.sourceAgentId,
-            revealInTree: true,
-          } : openTarget)
-          return
-        }
-      } catch {
-        // Search failures still leave the user in the Files search UI.
-      }
-
-      revealSearch()
-    })()
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
-
   const selectOpenWorkspaceFile = useCallback((
     agentId: string,
     filePath: string,
@@ -4026,16 +3911,17 @@ export function CodeWorkspace({
       await openResolvedFile(resolvedFilePath, resolvedTarget)
     } catch {
       if (!intentLease.isCurrent()) return
-      if (resolvedTarget?.suppressSearchOnMiss) {
-        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.searchFileOpenFailed(resolvedFilePath) })
-        return
-      }
       try {
-        await fetchWorkspaceTree(filesId, resolvedFilePath)
+        const directory = await fetchWorkspaceTree(filesId, resolvedFilePath)
         if (!intentLease.isCurrent()) return
-        revealWorkspaceFileInExplorer(filesId, resolvedFilePath, 'directory')
+        revealWorkspaceFileInExplorer(filesId, directory.path, 'directory')
       } catch {
         if (!intentLease.isCurrent()) return
+        // An exact directory is valid even when fuzzy search is forbidden.
+        if (resolvedTarget?.suppressSearchOnMiss !== false) {
+          setCopyNotice({ id: Date.now(), kind: 'error', message: copy.searchFileOpenFailed(resolvedFilePath) })
+          return
+        }
         try {
           const results = await searchWorkspaceFiles(filesId, resolvedFilePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
           if (!intentLease.isCurrent()) return
@@ -4055,7 +3941,7 @@ export function CodeWorkspace({
           if (pathMatches.length === 0 && fileMatches.length === 1) {
             const match = fileMatches[0]
             if (match?.path) {
-              await openResolvedFile(match.path, !target && match.kind === 'content' ? {
+              await openResolvedFile(match.path, !target?.lineNumber && match.kind === 'content' ? {
                 lineNumber: match.lineNumber,
                 column: match.ranges[0] ? match.ranges[0].start + 1 : undefined,
                 endColumn: match.ranges[0] ? Math.max(match.ranges[0].start + 1, match.ranges[0].end + 1) : undefined,
@@ -4067,13 +3953,28 @@ export function CodeWorkspace({
         } catch {
           // Fall through to a visible Files search when resolution fails.
         }
-        if (!resolvedTarget?.suppressSearchOnMiss) {
-          if (!intentLease.isCurrent()) return
-          focusWorkspaceFilesSearch(filesId, resolvedFilePath)
-        }
+        if (!intentLease.isCurrent()) return
+        focusWorkspaceFilesSearch(filesId, resolvedFilePath)
       }
     }
   }, [copy, setCopyNotice, focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+
+  // All path entry points share exact resolution and one navigation lease.
+  // Only Terminal shorthand may fall back to search.
+  const openTerminalPathTarget = useCallback((agentId: string, target: TerminalPathOpenTarget) => {
+    const identity = resolveWorkspaceFileIdentity(agentId, agentId)
+    const filePath = target.globalRoot
+      ? normalizeGlobalWorkspaceFilePath(target.path)
+      : terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
+    if (!filePath) return
+    void openWorkspaceFilePath(agentId, filePath, {
+      ...openTargetForTerminalPath(target),
+      suppressSearchOnMiss: Boolean(target.exactExternal),
+      ...(target.globalRoot ? { globalRoot: true } : {}),
+      ...(target.exactExternal ? { exactExternal: true } : {}),
+      sourceAgentId: identity.sourceAgentId,
+    })
+  }, [openWorkspaceFilePath, resolveWorkspaceFileIdentity])
 
   const openGlobalSearchFile = useCallback(async (match: GlobalWorkspaceFileSearchMatch) => {
     if (globalFileOpenMatchRef.current?.key === match.key) return
@@ -4460,7 +4361,6 @@ export function CodeWorkspace({
 
   const backToAgentFromFile = useCallback((agentId: string) => {
     workspaceFileOpenRequestRef.current.invalidate()
-    terminalPathOpenRequestRef.current.invalidate()
     setFileRevealRequest(null)
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')

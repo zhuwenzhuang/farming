@@ -2174,10 +2174,12 @@ function PerformanceObservedTranscriptMarkdown({
 
 function AgentTranscriptProgressUpdate({
   item,
+  turn,
   markdownComponents,
   copy,
 }: {
   item: AgentTranscriptProcessItem
+  turn: Pick<AgentTranscriptTurn, 'status' | 'stopReason'>
   markdownComponents: Components
   copy: CodeCopy
 }) {
@@ -2210,7 +2212,8 @@ function AgentTranscriptProgressUpdate({
       >
         <LocalRenderFault surface="transcript-markdown" identity={item.id}>
           <PerformanceObservedTranscriptMarkdown
-            status={item.status}
+            status={turn.status}
+            stopReason={turn.stopReason}
             components={markdownComponents}
           >{progressText}</PerformanceObservedTranscriptMarkdown>
         </LocalRenderFault>
@@ -3104,6 +3107,7 @@ function AgentTranscriptTurnView({
                   <AgentTranscriptProgressUpdate
                     key={item.id}
                     item={item}
+                    turn={turn}
                     markdownComponents={markdownComponents}
                     copy={copy}
                   />
@@ -3175,6 +3179,7 @@ function AgentTranscriptTurnView({
                     <AgentTranscriptProgressUpdate
                       key={entry.item.id}
                       item={entry.item}
+                      turn={turn}
                       markdownComponents={markdownComponents}
                       copy={copy}
                     />

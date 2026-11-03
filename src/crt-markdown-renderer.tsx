@@ -172,6 +172,7 @@ function MermaidBlock({ source, pending }: { source: string; pending?: PendingRi
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const followOutputRef = useRef(false)
   const state = useMermaidRender({ source, id: renderId, pending, config: crtMermaidConfig, renderer: renderCrtMermaid })
+  const diagramHtml = useMemo(() => ({ __html: state.diagram?.svg || '' }), [state.diagram?.svg])
   useLayoutEffect(() => {
     const container = figureRef.current?.closest<HTMLElement>('#terminal-output')
     if (followOutputRef.current && container) container.scrollTop = container.scrollHeight
@@ -194,7 +195,7 @@ function MermaidBlock({ source, pending }: { source: string; pending?: PendingRi
       {state.status !== 'ready' && <div className="crt-markdown-mermaid-loading" role="status">
         {state.status === 'streaming' ? 'GENERATING DIAGRAM…' : state.status === 'interrupted' ? 'DIAGRAM INCOMPLETE' : 'RENDERING DIAGRAM…'}
       </div>}
-      {state.diagram && <div ref={canvasRef} className="crt-markdown-mermaid-canvas" dangerouslySetInnerHTML={{ __html: state.diagram.svg }} />}
+      {state.diagram && <div ref={canvasRef} className="crt-markdown-mermaid-canvas" dangerouslySetInnerHTML={diagramHtml} />}
     </>}
   </figure>
 }
