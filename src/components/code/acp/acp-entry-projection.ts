@@ -104,6 +104,7 @@ export interface AgentTranscriptCollaboration {
   receiverThreadIds?: string[]
   agentsStates?: Record<string, AgentTranscriptCollaborationState>
   threadId?: string
+  agentName?: string
   agentPath?: string
   activity?: string
 }
@@ -606,7 +607,7 @@ function errorTitle(kind: string) {
   return 'Agent error'
 }
 
-function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | undefined {
+function entryCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | undefined {
   const codex = record(record(entry._meta).codex)
   const collaboration = record(codex.collaboration)
   if (Object.keys(collaboration).length > 0) {
@@ -641,6 +642,12 @@ function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | un
       activity: stringValue(subagent.activity),
     }
   }
+  const sessionId = stringValue(record(record(entry._meta).subagent_session_info).session_id)
+  if (sessionId) {
+    // A native association establishes identity, not execution or completion.
+    // Use the shared collaboration surface even without Codex activity metadata.
+    return { kind: 'activity', threadId: sessionId, agentName: stringValue(entry.title), activity: 'recorded' }
+  }
   return undefined
 }
 
@@ -666,7 +673,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   if (entry.type === 'tool') {
     const subagent = record(record(entry._meta).subagent_session_info)
     const contextCompaction = record(entry._meta).contextCompaction === true
-    const collaboration = codexCollaboration(entry)
+    const collaboration = entryCollaboration(entry)
     const terminalIds = list(entry.content).map(record)
       .filter(block => block.type === 'terminal' && block.terminalId)
       .map(block => stringValue(block.terminalId))

@@ -2282,8 +2282,12 @@ class FakeAgent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('agy registry children')) {
-      for (let index = 0; index < 4; index++) {
+      const live = promptText.includes('live');
+      for (let index = 0; index < (live ? 5 : 4); index++) {
         const child = `${params.sessionId}-agy-${index}`;
+        if (live) await client.notify('session/update', { sessionId: params.sessionId, update: {
+          sessionUpdate: 'tool_call', toolCallId: `invoke-${index}`, title: 'invoke_subagent', kind: 'other', status: 'in_progress',
+        } });
         await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'subagent_update', sessionId: child, title: `Analyzer ${index}`, state: null, capabilities: {},
         } });
@@ -2299,8 +2303,16 @@ class FakeAgent {
         } });
       }
       await client.notify('session/update', { sessionId: params.sessionId, update: {
-        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Four native children discovered.' },
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: live ? 'Five native children discovered.' : 'Four native children discovered.' },
       } });
+      if (live) {
+        await new Promise<void>(resolve => {
+          const deadline = setTimeout(resolve, 60_000);
+          cancelledSessions.set(params.sessionId, () => { clearTimeout(deadline); resolve(); });
+        });
+        cancelledSessions.delete(params.sessionId);
+        return { stopReason: 'cancelled' };
+      }
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('typed native child')) {
