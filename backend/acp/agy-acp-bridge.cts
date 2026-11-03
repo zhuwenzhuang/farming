@@ -42,7 +42,7 @@ import {
   agyExplicitHomeCliArgs,
   cleanAgyUserInputText,
   didAgyCurrentTurnCompleteCleanly,
-  isAgyHistoricalResultError,
+  isAgySupersededResultError,
   readAgyLatestUserStepIndex,
   ensureAgyConversationDatabase,
   hasAgyConversationDatabase,
@@ -1026,7 +1026,7 @@ class AgyAcpAgent {
     let stderrText = '';
     let resultFailure = '';
     let resultReceived = false;
-    let historicalResultCandidate = false;
+    let supersededResultCandidate = false;
 
     child.stderr?.on('data', chunk => {
       stderrText = (stderrText + String(chunk)).slice(-65_536);
@@ -1189,7 +1189,7 @@ class AgyAcpAgent {
               didAgyCurrentTurnCompleteCleanly(this.options.agyHomePath, session.sessionId, previousUserStepIndex);
             if (!recoveredCleanTurn) {
               resultFailure = topLevelError || nestedError || `Antigravity turn failed: ${resultStatus}`;
-              historicalResultCandidate = !isCliDirect && !topLevelError && resultStatus === 'ERROR' && Boolean(nestedError);
+              supersededResultCandidate = !isCliDirect && !topLevelError && resultStatus === 'ERROR' && Boolean(nestedError);
             }
           }
           const commandObj =
@@ -1262,8 +1262,8 @@ class AgyAcpAgent {
         }
         return 'steered';
       }
-      if (code === 0 && !signal && historicalResultCandidate && resultFailure
-        && await isAgyHistoricalResultError(this.options.agyHomePath, session.sessionId, previousUserStepIndex, resultFailure)) {
+      if (code === 0 && !signal && supersededResultCandidate && resultFailure
+        && await isAgySupersededResultError(this.options.agyHomePath, session.sessionId, previousUserStepIndex, resultFailure)) {
         resultFailure = '';
       }
       if (code !== 0 || signal || resultFailure || !resultReceived) {

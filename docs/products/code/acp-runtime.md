@@ -127,12 +127,15 @@ continuing the same native conversation. Interrupted tools retain an explicit
 failure with unconfirmed completion; continuation cannot turn them into success.
 Model and effort slash changes become active only after a successful native result
 and clean process exit, then publish the confirmed configuration to the UI.
-Its CLI can return a conversation-wide historical error in a later print result.
-The adapter may reconcile that result only after clean process exit, a newly
-persisted input and completed response, no current-turn error or unfinished step,
-and an exact error match in native history before that input. Missing, conflicting
-or oversized evidence preserves failure. This never retries input, suppresses a
-current provider failure, or rewrites the original failed Turn.
+Its CLI can retain an earlier error in a print result even after native recovery.
+The adapter reconciles that result only after clean process exit, exactly one new
+persisted input, a completed response, no unfinished step, and an exact error
+match in native history. Errors within the current turn additionally require
+every error to be a recognized transport failure and the native transcript to
+confirm a final response after them, with no further tool calls. Account and
+unrecognized failures remain failures. The admission boundary and steps must
+remain unchanged during verification; missing, conflicting or oversized evidence
+preserves failure. This never retries input or rewrites an earlier failed Turn.
 
 Permission and elicitation requests have independent identity and validity.
 Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
