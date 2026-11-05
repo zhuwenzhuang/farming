@@ -13,9 +13,44 @@ test('phone source wraps long lines without changing desktop preference @iphone-
   await page.addInitScript(() => localStorage.setItem('farming.code.fileEditor.wordWrap', '0'))
   const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace: workspaceRoot } })
   expect(response.ok()).toBeTruthy()
+  let speculativeMounts = 0
+  await page.route('**/api/projects/mount-file', async route => {
+    speculativeMounts++
+    await route.continue()
+  })
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    let inventoryReady = false
+    const delayed: Array<string | Buffer> = []
+    server.onMessage(message => {
+      const type = JSON.parse(message.toString()).type as string
+      if (!inventoryReady && (type === 'state' || type === 'state-delta')) {
+        delayed.push(message)
+        if (delayed.length === 1) setTimeout(() => {
+          inventoryReady = true
+          for (const queued of delayed) socket.send(queued)
+          delayed.length = 0
+        }, 750)
+      } else socket.send(message)
+    })
+  })
   await page.goto(`/farming/?${new URLSearchParams({ ftarget: 'file', path: filePath })}`)
   const input = page.getByTestId('code-file-touch-source').getByRole('textbox')
-  await expect(input).toHaveValue(text)
+  try {
+    await expect(input).toHaveValue(text)
+  } catch (error) {
+    const diagnosticPath = testInfo.outputPath('touch-viewport.json')
+    fs.writeFileSync(diagnosticPath, JSON.stringify(await page.evaluate(() => ({
+      width: window.innerWidth,
+      clientWidth: document.documentElement.clientWidth,
+      coarse: window.matchMedia('(pointer: coarse)').matches,
+      compactTouch: window.matchMedia('(max-width: 980px) and (pointer: coarse)').matches,
+      maxTouchPoints: navigator.maxTouchPoints,
+    }))))
+    await testInfo.attach('touch-viewport', { contentType: 'application/json', path: diagnosticPath })
+    throw error
+  }
+  expect(speculativeMounts, 'mounted Project ownership must settle before considering global file access').toBe(0)
   const compact = page.viewportSize()!
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.evaluate(value => {
@@ -43,6 +78,30 @@ test('phone source wraps long lines without changing desktop preference @iphone-
   await expect(input).toHaveValue(text)
   expect(await input.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
   expect(await page.evaluate(() => localStorage.getItem('farming.code.fileEditor.wordWrap'))).toBe('0')
+})
+
+test('file deep link reports unavailable inventory without opening an external file @iphone-human', async ({ page, workspaceRoot, isMobile, browserName }) => {
+  test.skip(!isMobile || browserName !== 'chromium', 'Android inventory failure recovery')
+  const filePath = path.join(workspaceRoot, 'inventory-unavailable.txt')
+  fs.writeFileSync(filePath, 'Project-owned content')
+  const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace: workspaceRoot } })
+  expect(response.ok()).toBeTruthy()
+  let speculativeMounts = 0
+  await page.route('**/api/projects/mount-file', async route => {
+    speculativeMounts++
+    await route.continue()
+  })
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    server.onMessage(message => {
+      const type = JSON.parse(message.toString()).type as string
+      if (type !== 'state' && type !== 'state-delta') socket.send(message)
+    })
+  })
+  await page.goto(`/farming/?${new URLSearchParams({ ftarget: 'file', path: filePath })}`)
+  await expect(page.getByText(`Unable to locate shared path: ${filePath}`, { exact: true })).toBeVisible()
+  await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+  expect(speculativeMounts).toBe(0)
 })
 
 // Native Ubuntu and the Playwright image choose different generic sans/mono

@@ -42,6 +42,8 @@ Absolute-file entry points share backend worktree resolution. A proven containin
 worktree uses the normal Project file path; files outside repositories use bounded
 read-only global access. An external file has no invented Explorer target. Desktop
 Reveal requires authoritative local-backend capability, not a hostname guess.
+Shared file links wait for complete Project and Agent inventories before deciding
+ownership; an inventory that stays unavailable ends in a bounded visible failure.
 
 Every file-open entry point shares one navigation intent across Projects. Repeated
 opens of the same pending file share its read and merge current viewing intent;

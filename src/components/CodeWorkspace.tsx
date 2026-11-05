@@ -4105,6 +4105,9 @@ export function CodeWorkspace({
     target: WorkspaceShareTarget,
     allowFileFallback = false,
   ) => {
+    // A partial inventory cannot prove that an absolute file is external.
+    // Keep the bounded share-restore attempt pending until both owners settle.
+    if (!agentInventoryComplete || (target.kind !== 'agent' && !projectWorkspacesLoaded)) return false
     const intentLease = target.kind === 'agent'
       ? undefined
       : workspaceFileOpenRequestRef.current.begin()
@@ -4209,6 +4212,7 @@ export function CodeWorkspace({
     }
   }, [
     activeAgents,
+    agentInventoryComplete,
     clearSearch,
     closeContextMenu,
     closeSidebarForMobile,
@@ -4216,6 +4220,7 @@ export function CodeWorkspace({
     onWorkspaceViewChange,
     openProjectFile,
     projectWorkspaces,
+    projectWorkspacesLoaded,
     revealWorkspaceFileInExplorer,
     resolveAbsoluteWorkspaceFileTarget,
     resolveWorkspaceFile,
