@@ -31,6 +31,7 @@ Project 边界，即使 Git 操作属于外层 worktree。Git 拥有 worktree，
 所有绝对文件入口复用后端 worktree 解析。已证明所属 worktree 时走普通 Project 路径；
 仓库外文件走有界只读全局访问，不伪造 Explorer 目标。桌面 Reveal 需要权威本地后端能力，
 不能从主机名猜测。
+全局只读访问不会把文件系统根目录挂载为 Project。
 分享文件链接等待 Project 和 Agent 清单完整后再判定归属；清单持续不可用时，
 必须在有限等待后明确报错。
 

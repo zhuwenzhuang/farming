@@ -522,6 +522,8 @@ function run() {
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified' }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', revealInTree: true }), true);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', revealInTree: false }), false);
+  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ revealInTree: true, globalRoot: true }), false);
+  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ revealInTree: true, exactExternal: true }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', focusEditor: true }), false);
   assert.deepStrictEqual(workspaceFileOpenTargetForChange({
     path: 'src/App.tsx',

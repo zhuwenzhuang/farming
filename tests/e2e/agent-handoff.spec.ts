@@ -406,7 +406,7 @@ test('captures Chinese handoff walkthrough', async ({ page, workspaceRoot }, tes
   const destinationId = (await response.json()).agentId as string
   await expect(dialog).toBeHidden()
   await expect(page.getByText('这是界面演示响应：交接提示已送达。新 Agent 应先阅读原会话，说明理解，再等待你的指示。', { exact: true })).toBeVisible()
-  expect((await page.request.post(`/farming/api/control/agents/${destinationId}/title`, { data: { title: '交接会话 · Claude' } })).ok()).toBeTruthy()
+  expect((await page.request.patch(`/farming/api/agents/${destinationId}`, { data: { customTitle: '交接会话 · Claude' } })).ok()).toBeTruthy()
   await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${destinationId}"]`)).toContainText('交接会话 · Claude')
   await expect(sourceRow).toBeVisible()
   const context = page.getByTestId('code-agent-handoff-context')

@@ -3496,9 +3496,10 @@ export function CodeWorkspace({
       )),
     )
     // A read-only share may expose an active Agent whose workspace is not in the
-    // guest's persisted Project list. Opening that Agent's file is observational
-    // and must not attempt the owner-only Project mount mutation first.
-    if (identity.workspaceRoot && !projectAlreadyMounted && !readOnly) {
+    // guest's persisted Project list. Neither a share nor global read-only file
+    // access may invent Project membership by mounting the filesystem root.
+    const globalFile = isGlobalWorkspaceFilesAgentId(identity.filesId)
+    if (identity.workspaceRoot && !globalFile && !projectAlreadyMounted && !readOnly) {
       try {
         const mountedWorkspace = await mountProject(identity.workspaceRoot, signal)
         if (!requestLease.isCurrent()) return
@@ -3518,7 +3519,7 @@ export function CodeWorkspace({
       }
     }
     throwIfProjectMountAborted(signal)
-    if (projectWorkspace || identity.sourceAgent) {
+    if (!globalFile && (projectWorkspace || identity.sourceAgent)) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
         : projectWorkspaceForAgent(identity.sourceAgent!))
