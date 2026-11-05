@@ -851,6 +851,19 @@ export function CodeSidebar({
               </button>
             </>
           )}
+          {sidebarPinAvailable && (
+            <button
+              type="button"
+              className="code-sidebar-pin-toggle"
+              data-testid="code-sidebar-pin-toggle"
+              aria-label={copy.pinSidebar}
+              aria-pressed={sidebarPinned}
+              title={sidebarPinned ? copy.unpinSidebar : copy.pinSidebar}
+              onClick={onToggleSidebarPinned}
+            >
+              {sidebarPinned ? <AgentUnpinIcon /> : <AgentPinIcon />}
+            </button>
+          )}
           <button
             type="button"
             className="code-sidebar-toggle"
@@ -1030,19 +1043,6 @@ export function CodeSidebar({
               || appModeDialogOpen
             }
           />
-          {sidebarPinAvailable && (
-            <button
-              type="button"
-              className="code-sidebar-options code-sidebar-pin-toggle"
-              data-testid="code-sidebar-pin-toggle"
-              aria-label={copy.pinSidebar}
-              aria-pressed={sidebarPinned}
-              title={sidebarPinned ? copy.unpinSidebar : copy.pinSidebar}
-              onClick={onToggleSidebarPinned}
-            >
-              {sidebarPinned ? <AgentUnpinIcon /> : <AgentPinIcon />}
-            </button>
-          )}
           <div className="code-product-row">
             <button
               ref={productMarkRef}
