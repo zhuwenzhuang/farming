@@ -103,30 +103,75 @@ function run() {
       'read-only',
     );
 
-    let readOnlyRedirectStatus = 0;
-    let readOnlyRedirectHeaders: Record<string, string | string[]> = {};
-    auth.middleware()({
-      headers: { host: 'localhost' },
-      method: 'GET',
-      url: `/farming/?agent=agent-1&token=${encodeURIComponent(readOnlyToken)}`,
-    }, {
-      end() {},
-      setHeader(name, value) {
-        readOnlyRedirectHeaders[name] = value;
-      },
-      writeHead(status, headers = {}) {
-        readOnlyRedirectStatus = status;
-        readOnlyRedirectHeaders = { ...readOnlyRedirectHeaders, ...headers };
-      },
-    }, () => {
-      assert.fail('a read-only query credential should redirect after setting its cookie');
-    });
-    assert.strictEqual(readOnlyRedirectStatus, 302);
-    assert.strictEqual(readOnlyRedirectHeaders.Location, '/farming/?agent=agent-1');
-    assert.match(
-      readOnlyRedirectHeaders['Set-Cookie'],
-      new RegExp(`^${instanceCookieName}=${encodeCookieToken(readOnlyToken)}; Path=/farming;`),
-    );
+    for (const credential of [token, readOnlyToken]) {
+      for (const method of ['GET', 'HEAD']) {
+        // Repeat without cookies to model reopening the same URL after cookie loss.
+        for (let visit = 0; visit < 2; visit += 1) {
+          const request: { headers: { host: string }; method: string; url: string; authAccessMode?: string } = {
+            headers: { host: 'localhost' },
+            method,
+            url: `/farming/?agent=agent-1&token=${encodeURIComponent(credential)}`,
+          };
+          const originalUrl = request.url;
+          const headers: Record<string, string> = {};
+          let nextCalled = false;
+          auth.middleware()(request, {
+            end() { assert.fail('valid query credentials must reach the requested route'); },
+            setHeader(name, value) { headers[name] = value; },
+            writeHead() { assert.fail('query credentials must not cause a redirect'); },
+          }, () => { nextCalled = true; });
+          assert.strictEqual(nextCalled, true);
+          assert.strictEqual(request.url, originalUrl);
+          assert.strictEqual(request.authAccessMode, credential === token ? 'owner' : 'read-only');
+          assert.match(
+            headers['Set-Cookie'],
+            new RegExp(`^${instanceCookieName}=${encodeCookieToken(credential)}; Path=/farming;`),
+          );
+        }
+      }
+    }
+
+    for (const credential of [token, readOnlyToken]) {
+      for (const pathname of ['/farming/', '/farming/code/', '/farming/crt/', '/farming/review', '/farming/review/', '/farming/error-preview/']) {
+        let status = 0;
+        const headers: Record<string, string | string[]> = {};
+        auth.middleware()({
+          headers: { host: 'localhost', cookie: `${instanceCookieName}=${encodeCookieToken(credential)}` },
+          method: 'GET', url: `${pathname}?view=compact`,
+        }, {
+          end() {},
+          setHeader(name, value) { headers[name] = value; },
+          writeHead(code, values = {}) { status = code; Object.assign(headers, values); },
+        }, () => { assert.fail('a tokenless entry should restore its exact cookie credential'); });
+        assert.strictEqual(status, 302);
+        const target = new URL(String(headers.Location), 'https://example.test');
+        assert.strictEqual(target.searchParams.get('token'), credential);
+        assert.strictEqual(target.searchParams.get('view'), 'compact');
+        assert.strictEqual(target.pathname, pathname);
+        assert.strictEqual(headers['Referrer-Policy'], 'no-referrer');
+      }
+    }
+    for (const invalid of ['', 'invalid']) {
+      let status = 0;
+      auth.middleware()({
+        headers: { host: 'localhost', cookie: `${instanceCookieName}=${encodeCookieToken(token)}` },
+        method: 'GET', url: `/farming/?${new URLSearchParams({ token: invalid })}`,
+      }, {
+        end() {}, setHeader() {}, writeHead(code) { status = code; },
+      }, () => { assert.fail('an invalid explicit token must not fall back to an owner cookie'); });
+      assert.strictEqual(status, 401);
+    }
+    for (const pathname of ['/farming/api/settings', '/farming/preview/index.html', '/farming/assets/entry.js']) {
+      let nextCalled = false;
+      auth.middleware()({
+        headers: { host: 'localhost', cookie: `${instanceCookieName}=${encodeCookieToken(token)}` },
+        method: 'GET', url: pathname,
+      }, {
+        end() { assert.fail('non-entry routes must not redirect'); }, setHeader() {},
+        writeHead() { assert.fail('credentials must not be added to resource URLs'); },
+      }, () => { nextCalled = true; });
+      assert.strictEqual(nextCalled, true);
+    }
 
     let readOnlyGetNextCalled = false;
     auth.middleware()({
@@ -422,7 +467,6 @@ function run() {
       cookieName: 'farming_net_token',
       cookiePath: '/farming-net',
       farmingDir: netConfigDir,
-      redirectQueryToken: true,
       token: 'private-net-token',
     });
     assert.strictEqual(netAuth.getCookieName(), 'farming_net_token');
@@ -448,11 +492,11 @@ function run() {
     }, () => {
       redirectNextCalled = true;
     });
-    assert.strictEqual(redirectStatus, 302);
-    assert.strictEqual(redirectHeaders.Location, '/farming-net/?mode=compact');
+    assert.strictEqual(redirectStatus, 0);
+    assert.strictEqual(redirectHeaders.Location, undefined);
     assert.match(redirectHeaders['Set-Cookie'], /^farming_net_token=private-net-token; Path=\/farming-net;/);
-    assert.strictEqual(redirectEnded, true);
-    assert.strictEqual(redirectNextCalled, false);
+    assert.strictEqual(redirectEnded, false);
+    assert.strictEqual(redirectNextCalled, true);
     assert.strictEqual(netAuth.verifyWebSocket({
       headers: { cookie: 'farming_token=wrong; farming_net_token=private-net-token' },
       url: '/farming-net/ws',
@@ -500,7 +544,7 @@ function run() {
       assert.fail('a valid Farming Net pass should redirect before reaching the application');
     });
     assert.strictEqual(passStatus, 302);
-    assert.strictEqual(passHeaders.Location, '/farming/?mode=compact');
+    assert.strictEqual(passHeaders.Location, '/farming/?mode=compact&token=target-private-token');
     assert.strictEqual(passHeaders['Cache-Control'], 'no-store');
     assert.match(
       passHeaders['Set-Cookie'],

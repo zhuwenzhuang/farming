@@ -6,7 +6,7 @@ import type { PerformanceTrace } from '../../shared/interaction-performance'
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import type { AcpSessionRevisionMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { dispatchLanguageServerRefresh } from '../../extensions/language-server/frontend/refresh-dispatch'
-import { getStartupAccessToken } from '@/lib/auth-url'
+import { getCurrentAccessToken } from '@/lib/auth-url'
 import { appWsUrl } from '@/lib/base-path'
 import { reconcileTerminalFenceError } from '@/lib/terminal-fence-error-recovery'
 import {
@@ -848,12 +848,9 @@ export function useWebSocket() {
       pendingAccessMessagesRef.current = []
       setState(prev => prev.accessMode === 'unknown' ? prev : { ...prev, accessMode: 'unknown' })
       let wsUrl = appWsUrl()
-      const startupToken = getStartupAccessToken()
-      // Attach token from cookie for mobile WS compatibility
-      const tokenMatch = document.cookie.match(/(?:^|;\s*)farming_token=([^;]+)/)
-      const token = startupToken || tokenMatch?.[1] || ''
+      const token = getCurrentAccessToken()
       if (token) {
-        wsUrl += `?token=${token}`
+        wsUrl += `?${new URLSearchParams({ token })}`
       }
       const ws = new WebSocket(wsUrl)
       activeSocket = ws

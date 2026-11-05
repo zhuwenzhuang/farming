@@ -33,6 +33,9 @@ The default config directory is `~/.farming-net`. On first start, Farming Net cr
 
 Use `FARMING_NET_CONFIG_DIR` to isolate another registry, `FARMING_NET_TOKEN` to supply a fixed portal token, or `FARMING_NET_DISABLE_AUTH=1` only for a trusted local smoke test. The default listener is `0.0.0.0:6693` at `/farming-net/`.
 
+The portal keeps an explicit `?token=...` in the address bar after authentication,
+so the same URL can be reopened even if its login cookie has been cleared.
+
 ## Registry
 
 Edit `~/.farming-net/instances.json` and refresh the page; the server reloads it on every registry request, so ordinary link changes do not require a restart.
@@ -101,7 +104,7 @@ The target must run a Farming build that supports Farming Net passes. Create `~/
 
 The trust `audience` must exactly match the instance `id` in the portal registry. Trust is opt-in per target; copying only the public key does not expose the signing key or the target's normal Farming token. Trust-file changes are reloaded on each pass verification.
 
-After a valid pass reaches the target, Farming sets its normal `farming_token` HttpOnly cookie and immediately redirects to the same URL without the pass. A pass is valid for at most 60 seconds, defaults to 30 seconds, is scoped to one target, and can be exchanged only once per running target process. The normal Farming token never travels through the portal, registry API, or link URL.
+After a valid pass reaches the target, Farming sets its instance-scoped HttpOnly cookie and redirects to the same URL with the target token in place of the pass. Reloads and installed-app startup therefore retain access without depending on that cookie. A pass is valid for at most 60 seconds, defaults to 30 seconds, is scoped to one target, and can be exchanged only once per running target process. The target token is supplied only by the target; it never travels through the portal or registry API.
 
 ## Security Boundary
 

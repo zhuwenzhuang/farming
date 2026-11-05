@@ -151,7 +151,7 @@ function wsUrl(baseUrl: string): string {
   const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   const basePath = url.pathname.replace(/\/$/, '');
   const token = url.searchParams.get('token') || '';
-  return `${protocol}//${url.host}${basePath}/ws${token ? `?token=${token}` : ''}`;
+  return `${protocol}//${url.host}${basePath}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 }
 
 async function fetchJson(baseUrl: string, suffix: string): Promise<Record<string, unknown>> {

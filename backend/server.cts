@@ -909,13 +909,13 @@ function withLaunchCapabilities<T extends { name: string }>(agents: T[]) {
 
 // iOS can fetch installed-web-app metadata outside the authenticated page
 // request, without preserving its cookie or token query. Product artwork stays
-// public; only an explicit valid owner query personalizes the no-store manifest.
+// public; only an explicit valid query credential personalizes the no-store manifest.
 const publicProductAssetsDir = path.join(staticAppDir, 'farming-2');
 const publicProductManifestPath = path.join(publicProductAssetsDir, 'site.webmanifest');
 app.get(routePath(BASE_PATH, '/farming-2/site.webmanifest'), (req, res) => {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const requestToken = requestUrl.searchParams.get('token');
-  if (!authEnabled || !requestToken || !tokenAuth.verify(requestToken)) {
+  if (!authEnabled || !requestToken || tokenAuth.accessForToken(requestToken) === 'none') {
     res.sendFile(publicProductManifestPath);
     return;
   }
@@ -968,6 +968,7 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   res.redirect(302, entryPathWithQuery(ticket.targetQuery, {
     authEnabled,
     basePath: BASE_PATH,
+    token: ticket.token,
   }));
 });
 
@@ -1058,10 +1059,22 @@ if (BASE_PATH) {
   app.use('/farming-2', express.static(path.join(staticAppDir, 'farming-2'), { index: false }));
 }
 const crtEntryPath = routePath(BASE_PATH, '/crt');
+app.get([routePath(BASE_PATH, '/index.html'), `${crtEntryPath}/index.html`], (req, res) => {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.redirect(302, `${url.pathname.slice(0, -'index.html'.length)}${url.search}`);
+});
 app.get(crtEntryPath, (req, res) => {
   if (req.path.endsWith('/')) {
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(path.join(crtFrontendDir, 'index.html'));
+    fs.readFile(path.join(crtFrontendDir, 'index.html'), 'utf8', (error: unknown, html: string) => {
+      if (error) {
+        res.status(500).send('Farming CRT entry is unavailable');
+        return;
+      }
+      res.setHeader('Cache-Control', authEnabled ? 'no-store' : 'no-cache');
+      const token = authEnabled ? tokenAuth.extractToken(req) : '';
+      res.send(appendIndexHtmlAssetToken(html, token));
+    });
     return;
   }
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -1141,14 +1154,14 @@ app.get([
       return;
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', authEnabled ? 'no-store' : 'no-cache');
     const rewrittenHtml = applyIndexHtmlAppearance(
       rewriteIndexHtmlForBasePath(html, BASE_PATH),
       configManager.getSettings().appearance
     );
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const requestToken = requestUrl.searchParams.has('token') ? tokenAuth.extractToken(req) : '';
-    const htmlWithAssetToken = authEnabled && requestToken && tokenAuth.verify(requestToken)
+    const htmlWithAssetToken = authEnabled && requestToken && tokenAuth.accessForToken(requestToken) !== 'none'
       ? appendIndexHtmlAssetToken(rewrittenHtml, requestToken)
       : rewrittenHtml;
     res.send(htmlWithAssetToken);
@@ -3214,8 +3227,7 @@ function startServer() {
     server.listen(PORT, () => {
       const token = tokenAuth.getToken();
       const localIPs = getLocalIPs();
-      const entryPath = BASE_PATH || '/';
-      const entrySuffix = authEnabled ? `${entryPath}?token=${token}` : entryPath;
+      const entrySuffix = entryPathWithQuery('', { authEnabled, basePath: BASE_PATH, token });
 
       console.log('');
       console.log('  Farming server running on:');

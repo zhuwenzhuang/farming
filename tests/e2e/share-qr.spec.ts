@@ -120,6 +120,15 @@ test.describe('workspace sharing', () => {
     await expect.poll(() => ticketRequests).toBe(2)
     await expect(fullAccessButton).toContainText('秋水轻摇岸-远山静入薄云间-一鹤过长天')
     await expect.poll(() => page.evaluate(() => new URL(window.location.href).searchParams.get('token'))).toBe('秋水轻摇岸-远山静入薄云间-一鹤过长天')
+    await expect.poll(async () => {
+      const href = await page.locator('link[rel="manifest"]').getAttribute('href')
+      return new URL(href!, page.url()).searchParams.get('token')
+    }).toBe('秋水轻摇岸-远山静入薄云间-一鹤过长天')
+    const reconnect = page.waitForEvent('websocket', {
+      predicate: socket => new URL(socket.url()).searchParams.get('token') === '秋水轻摇岸-远山静入薄云间-一鹤过长天',
+    })
+    await page.request.post('/farming/api/control/e2e/close-websockets')
+    await reconnect
     await expect.poll(() => popover.locator('svg[aria-label="QR code"]').innerHTML()).not.toBe(originalQr)
     await expect(page.getByTestId('code-share-copy-status')).toHaveAttribute('data-copy-state', 'copied')
     await expect(page.getByTestId('code-share-copy-status')).toContainText('2030')

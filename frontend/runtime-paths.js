@@ -15,11 +15,19 @@
     }
     function webSocketUrl() {
         const protocol = global.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${global.location.host}${path('/ws')}`;
+        return `${protocol}//${global.location.host}${navigationPath('/ws')}`;
+    }
+    function navigationPath(suffix = '/') {
+        const url = new URL(path(suffix), global.location.href);
+        const token = new URLSearchParams(global.location.search).get('token');
+        if (token)
+            url.searchParams.set('token', token);
+        return `${url.pathname}${url.search}${url.hash}`;
     }
     global.FarmingRuntimePaths = {
         basePath,
         path,
+        navigationPath,
         apiPath,
         webSocketUrl,
     };

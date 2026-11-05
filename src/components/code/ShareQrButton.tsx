@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type qrcode from 'qrcode-generator'
 import qrCodeModuleUrl from 'qrcode-generator?url'
 import { appPath } from '@/lib/base-path'
+import { refreshAccessManifest } from '@/lib/auth-url'
 import { RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import {
@@ -336,6 +337,7 @@ export function ShareQrButton({
         '',
         ownerUrlWithRotatedToken(window.location.href, credential.tokenLabel),
       )
+      refreshAccessManifest()
       if (rotationSeq !== rotationSeqRef.current) return
       ticketRef.current = null
       setTicket(null)

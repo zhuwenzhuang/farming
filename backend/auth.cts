@@ -34,7 +34,6 @@ interface TokenAuthOptions {
   farmingDir?: string;
   farmingNetPassVerifier?: FarmingNetPassVerifierLike | false;
   farmingNetTrustFile?: string;
-  redirectQueryToken?: boolean;
   timeZone?: string;
   token?: unknown;
   tokenLocale?: unknown;
@@ -979,7 +978,6 @@ class TokenAuth {
   cookieName: string;
   cookiePath: string;
   legacyCookieReadCompatible: boolean;
-  redirectQueryToken: boolean;
   tokenFile: string;
   token: string;
   tokenInfo: PoeticTokenInfo | null;
@@ -1003,7 +1001,6 @@ class TokenAuth {
     this.cookieName = explicitCookieName || farmingAuthCookieName(farmingDir);
     this.cookiePath = normalizeCookiePath(options.cookiePath ?? (this.basePath || '/'));
     this.legacyCookieReadCompatible = !explicitCookieName;
-    this.redirectQueryToken = options.redirectQueryToken === true;
     this.tokenFile = '';
     this.token = '';
     this.tokenInfo = null;
@@ -1310,7 +1307,7 @@ class TokenAuth {
   extractToken(req: AuthRequest): string | null {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const queryToken = url.searchParams.get('token');
-    if (queryToken) return queryToken;
+    if (url.searchParams.has('token')) return queryToken;
 
     const bearerToken = this.extractBearerToken(req);
     if (bearerToken !== null) return bearerToken;
@@ -1359,6 +1356,7 @@ class TokenAuth {
     const search = url.searchParams.toString();
     res.writeHead(302, {
       'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
       Location: `${url.pathname}${search ? `?${search}` : ''}`,
     });
     res.end();
@@ -1424,11 +1422,13 @@ class TokenAuth {
           : { valid: false };
         if (passResult.valid) {
           this.setAuthenticatedCookie(res);
+          url.searchParams.set('token', this.token);
           this.redirectWithoutQueryParameter(res, url, PASS_QUERY_PARAM);
           return;
         }
-        const cookieToken = this.extractCookieToken(req);
-        if (cookieToken && this.verify(cookieToken)) {
+        const existingToken = this.extractToken(req);
+        if (existingToken && this.verify(existingToken)) {
+          url.searchParams.set('token', existingToken);
           this.redirectWithoutQueryParameter(res, url, PASS_QUERY_PARAM);
           return;
         }
@@ -1454,6 +1454,21 @@ class TokenAuth {
       }
 
       const authorize = (accessMode: AuthAccessMode) => {
+        const entryPaths = ['', '/code', '/crt', '/review', '/error-preview'];
+        const isEntry = ['GET', 'HEAD'].includes(method)
+          && entryPaths.some(suffix => url.pathname.replace(/\/$/, '') === `${this.basePath}${suffix}`);
+        if (isEntry && token) {
+          res.setHeader('Referrer-Policy', 'no-referrer');
+          if (!url.searchParams.has('token')) {
+            url.searchParams.set('token', token);
+            res.writeHead(302, {
+              'Cache-Control': 'no-store',
+              Location: `${url.pathname}${url.search}${url.hash}`,
+            });
+            res.end();
+            return;
+          }
+        }
         const shareTicketPath = this.basePath
           ? `${this.basePath}/api/share/qr-ticket`
           : '/api/share/qr-ticket';
@@ -1475,18 +1490,11 @@ class TokenAuth {
         return next();
       };
 
-      // URL has token query param -> validate, set cookie, redirect
+      // Keep explicit URL credentials usable across reloads without a cookie.
       if (url.searchParams.has('token')) {
         const accessMode = this.accessForToken(token);
         if (token && accessMode !== 'none') {
           this.setAccessCookie(res, token);
-          if (
-            ['GET', 'HEAD'].includes(method)
-            && (this.redirectQueryToken || accessMode === 'read-only')
-          ) {
-            this.redirectWithoutQueryParameter(res, url, 'token');
-            return;
-          }
           return authorize(accessMode);
         }
       }

@@ -376,6 +376,7 @@ interface Window {
     path(suffix?: string): string;
     apiPath(suffix?: string): string;
     webSocketUrl(): string;
+    navigationPath(suffix?: string): string;
   };
   FarmingTerminalReplay?: FarmingTerminalReplay;
   FarmingTerminalBridge?: FarmingTerminalBridge;

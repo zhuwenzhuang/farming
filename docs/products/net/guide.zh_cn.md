@@ -32,6 +32,9 @@ npm run start:net
 
 可以用 `FARMING_NET_CONFIG_DIR` 隔离另一套注册表，用 `FARMING_NET_TOKEN` 指定固定门户 Token。`FARMING_NET_DISABLE_AUTH=1` 只允许用于可信本机冒烟。默认监听 `0.0.0.0:6693`，入口是 `/farming-net/`。
 
+门户鉴权成功后会保留地址栏中显式携带的 `?token=...`，即使登录 Cookie 被清除，
+也可以通过原链接重新进入。
+
 ## 注册表
 
 编辑 `~/.farming-net/instances.json` 后刷新页面即可。Server 会在每次读取注册表时重新加载文件，所以普通链接变更不需要重启。
@@ -100,7 +103,7 @@ Instance ID 只能使用字母、数字、`.`、`_` 或 `-`。Endpoint Scope 可
 
 Trust 文件里的 `audience` 必须与门户注册表中的 Instance `id` 完全一致。每个目标都需要主动信任门户；仅复制公钥不会泄露门户私钥，也不会暴露目标原有的 Farming Token。每次校验通行证时都会重新读取 Trust 文件。
 
-目标收到有效通行证后，会设置自己正常使用的 `farming_token` HttpOnly Cookie，并立刻重定向到不含通行证的同一个 URL。通行证最长不超过 60 秒，默认 30 秒，只对一个目标生效，并且在目标进程的一次运行期间只能兑换一次。目标原有 Farming Token 不会经过门户、注册表 API 或链接 URL。
+目标收到有效通行证后，会设置实例隔离的 HttpOnly Cookie，并将 URL 中的通行证替换为目标 Token 后跳转，使刷新和桌面应用启动不依赖 Cookie。通行证最长不超过 60 秒，默认 30 秒，只对一个目标生效，并且在目标进程的一次运行期间只能兑换一次。目标 Token 只由目标提供，不会经过门户或注册表 API。
 
 ## 安全边界
 

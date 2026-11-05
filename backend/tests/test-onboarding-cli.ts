@@ -15,7 +15,8 @@ async function run() {
   await new Promise<void>(resolve => occupied.listen(0, '127.0.0.1', resolve));
   const address = occupied.address();
   assert(address && typeof address !== 'string');
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, FARMING_CONFIG_DIR: config, FARMING_DISABLE_AUTH: '1', FARMING_SKIP_RUNTIME_PREPARE: '1', FARMING_SESSION_ENGINE: 'local', NODE_ENV: 'test', FARMING_START_STABILITY_MS: '20' };
+  const token = 'spring&moon+#=?春水';
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, FARMING_CONFIG_DIR: config, FARMING_DISABLE_AUTH: '0', FARMING_TOKEN: token, FARMING_BASE_PATH: '/custom/farm', FARMING_SKIP_RUNTIME_PREPARE: '1', FARMING_SESSION_ENGINE: 'local', NODE_ENV: 'test', FARMING_START_STABILITY_MS: '20' };
   delete env.PORT;
   delete env.FARMING_PORT;
   const cli = (args: string[]) => promisify(execFile)(process.execPath, ['backend/farming-app-cli.cjs', ...args], { env, timeout: 40_000 });
@@ -30,6 +31,12 @@ async function run() {
       const started = await cli(['daemon', '--port', String(address.port)]);
       assert(!started.stdout.includes('obsolete'), 'old log access URLs must never be printed');
       assert.equal((started.stdout.match(/Local:/g) || []).length, 1, 'only this launch may print access URLs');
+      const printedUrl = started.stdout.match(/Local:\s+(https?:\/\/\S+)/)?.[1];
+      assert(printedUrl, 'startup should print a usable local entry URL');
+      const entry = new URL(printedUrl);
+      assert.equal(entry.pathname, '/custom/farm/');
+      assert.equal(entry.searchParams.get('token'), token);
+      assert.equal((await fetch(entry)).status, 200, 'the printed link must work without a cookie');
     }
     await cli(['stop']);
     console.log('CLI rejects occupied ports promptly, exposes its version, and prints only current startup URLs');

@@ -349,7 +349,7 @@ function createReadOnlyShareEntryRouter(
         return;
       }
       auth.setAccessCookie(res, link.token);
-      res.redirect(302, entryPathWithQuery(link.targetQuery, { basePath }));
+      res.redirect(302, entryPathWithQuery(link.targetQuery, { basePath, authEnabled: true, token: link.token }));
     } catch {
       res.status(503).send('Farming share link is temporarily unavailable. Try again later.');
     }

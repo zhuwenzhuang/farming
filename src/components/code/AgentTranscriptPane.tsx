@@ -76,7 +76,7 @@ import {
   fetchWorkspaceGitWorktrees,
   rawWorkspaceFileUrl,
 } from '@/lib/workspace-files'
-import { appPath } from '@/lib/base-path'
+import { appNavigationPath, appPath } from '@/lib/base-path'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
 import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -2397,11 +2397,11 @@ function AgentTranscriptPatchResultCard({
     }
     if (!workspaceRoot) return
     const params = new URLSearchParams({ root: workspaceRoot })
-    window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
+    window.open(appNavigationPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
   }, [copy.agentTranscriptUnavailable, detailedChanges, hasCompleteEmbeddedDiff, items, onLoadPatchChanges, source, workspaceRoot])
   const handleGitDiff = useCallback(() => {
     if (!workspaceRoot || gitDiffTarget.kind === 'unavailable') return
-    window.open(appPath(`/review?${transcriptGitDiffSearchParams(workspaceRoot, gitDiffTarget).toString()}`), '_blank', 'noopener,noreferrer')
+    window.open(appNavigationPath(`/review?${transcriptGitDiffSearchParams(workspaceRoot, gitDiffTarget).toString()}`), '_blank', 'noopener,noreferrer')
   }, [gitDiffTarget, workspaceRoot])
   const summaryContent = (
     <>

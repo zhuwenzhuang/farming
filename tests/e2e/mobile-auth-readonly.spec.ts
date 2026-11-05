@@ -55,6 +55,114 @@ async function reopenMobileNavigationFromFile(page: Page) {
   await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toBeVisible()
 }
 
+test('retains explicit tokens and QR desktop startup without login cookies', async ({ page, browser }, testInfo) => {
+  test.skip(process.env.FARMING_PLAYWRIGHT_AUTH !== '1', 'Requires isolated token authentication')
+  await openAuthenticatedOwner(page)
+  expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+  await page.context().clearCookies()
+  const reopenedOwner = await page.reload({ waitUntil: 'domcontentloaded' })
+  expect(reopenedOwner?.ok()).toBeTruthy()
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+
+  const share = await page.request.post('/farming/api/share/qr-ticket', { data: {} })
+  expect(share.ok()).toBeTruthy()
+  const { readOnlyUrl, shortUrl, code } = await share.json() as { readOnlyUrl: string; shortUrl: string; code: string }
+  const recipient = await mobileContext(browser, testInfo.project.name.endsWith('webkit') ? 'iphone' : 'android')
+  try {
+    const guest = await recipient.newPage()
+    await guest.goto(shortUrl)
+    await expect(guest.getByTestId('app-shell')).toBeVisible()
+    expect(new URL(guest.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+    const manifestHref = await guest.locator('link[rel="manifest"]').getAttribute('href')
+    expect(manifestHref).toBeTruthy()
+    const manifestUrl = new URL(manifestHref!, guest.url())
+    const manifestResponse = await guest.request.get(manifestUrl.toString())
+    expect(manifestResponse.ok()).toBeTruthy()
+    const manifest = await manifestResponse.json() as { start_url: string }
+    const desktopUrl = new URL(manifest.start_url, manifestUrl)
+    expect(desktopUrl.searchParams.get('token')).toBe(OWNER_TOKEN)
+    await recipient.clearCookies()
+    expect((await guest.goto(desktopUrl.toString()))?.ok()).toBeTruthy()
+    await expect(guest.getByTestId('app-shell')).toBeVisible()
+    await expect(guest.getByTestId('code-read-only-share-banner')).toHaveCount(0)
+    expect(new URL(guest.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+    expect((await guest.goto(shortUrl))?.status()).toBe(410)
+    await recipient.clearCookies()
+    await guest.goto(readOnlyUrl)
+    await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
+    const cookie = (await recipient.cookies()).find(item => item.name.startsWith('farming_token'))
+    expect(cookie).toBeTruthy()
+    const token = decodeURIComponent(cookie!.value)
+    expect(new URL(guest.url()).searchParams.get('token')).toBe(token)
+    const readOnlyManifestHref = await guest.locator('link[rel="manifest"]').getAttribute('href')
+    const readOnlyManifestUrl = new URL(readOnlyManifestHref!, guest.url())
+    const readOnlyManifest = await (await guest.request.get(readOnlyManifestUrl.toString())).json() as { start_url: string }
+    expect(new URL(readOnlyManifest.start_url, readOnlyManifestUrl).searchParams.get('token')).toBe(token)
+    const queryUrl = new URL('/farming/', guest.url())
+    queryUrl.searchParams.set('token', token)
+    await recipient.clearCookies()
+    const opened = await guest.goto(queryUrl.toString())
+    expect(opened?.ok()).toBeTruthy()
+    await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
+    expect(new URL(guest.url()).searchParams.get('token')).toBe(token)
+    await recipient.clearCookies()
+    expect((await guest.reload())?.ok()).toBeTruthy()
+    await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
+    expect(new URL(guest.url()).searchParams.get('token')).toBe(token)
+    const denied = await guest.request.post('/farming/api/settings', { data: { appearance: 'dark' } })
+    expect(denied.status()).toBe(403)
+    const delegatedResponse = await guest.request.post('/farming/api/share/qr-ticket', { data: {} })
+    expect(delegatedResponse.ok()).toBeTruthy()
+    const delegated = await delegatedResponse.json() as { shortUrl: string }
+    await recipient.clearCookies()
+    await guest.goto(delegated.shortUrl)
+    await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
+    expect(new URL(guest.url()).searchParams.get('token')).toMatch(/^farming-ro-v1\./)
+  } finally {
+    await recipient.close()
+    await page.request.delete(`/farming/api/share/qr-ticket/${encodeURIComponent(code)}`)
+  }
+})
+
+test('retains credentials through Code CRT and recovery navigation', async ({ page }) => {
+  test.skip(process.env.FARMING_PLAYWRIGHT_AUTH !== '1', 'Requires isolated token authentication')
+  await openAuthenticatedOwner(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByTestId('code-sidebar-options').click()
+  await page.getByTestId('code-settings-skin-crt').click()
+  await expect(page.locator('body')).toHaveAttribute('id', 'farming-crt')
+  expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+  const manifestHref = await page.locator('link[rel="manifest"]').getAttribute('href')
+  expect(new URL(manifestHref!, page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+  await page.getByRole('button', { name: '[S] SETTINGS', exact: true }).click()
+  await page.locator('#theme-list').getByText('Farming Code', { exact: true }).click()
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+
+  // Legacy shortcuts with a live cookie regain an explicit startup credential.
+  await page.goto('/farming/')
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+  for (const alias of ['/farming/index.html', '/farming/crt/index.html']) {
+    await page.context().clearCookies()
+    const response = await page.goto(`${alias}?token=${OWNER_TOKEN}`)
+    expect(response?.ok()).toBeTruthy()
+    expect(new URL(page.url()).pathname).toBe(alias.replace('index.html', ''))
+    expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+    const href = await page.locator('link[rel="manifest"]').getAttribute('href')
+    expect(new URL(href!, page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+  }
+  await page.goto(`/farming/error-preview?token=${OWNER_TOKEN}`)
+  await page.context().clearCookies()
+  await page.getByTestId('app-error-fallback').getByRole('button').click()
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
+  const invalid = await page.goto('/farming/?token=invalid')
+  expect(invalid?.status()).toBe(401)
+  await expect(page.getByTestId('app-shell')).toHaveCount(0)
+})
+
 test('enforces Owner and read-only authority across real mobile authentication', {
   tag: ['@critical-behavior', '@behavior-CODE-MOBILE-SHARE-AUTHORITY'],
 }, async ({ browser, page, workspaceRoot }, testInfo) => {
@@ -78,6 +186,7 @@ test('enforces Owner and read-only authority across real mobile authentication',
   const language = await page.request.post('/farming/api/settings', { data: { language: 'en' } })
   expect(language.ok()).toBeTruthy()
   const agentId = await createTerminalAgent(page, workspace)
+  await page.goto(`/farming/?${new URLSearchParams({ token: OWNER_TOKEN, agent: agentId })}`)
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
 
   const ownerTicket = await openMobileShare(page)
@@ -97,7 +206,7 @@ test('enforces Owner and read-only authority across real mobile authentication',
     expect(fullResponse?.ok()).toBeTruthy()
     await expect(fullPage.getByTestId('app-shell')).toBeVisible()
     await expect(fullPage.getByTestId('code-read-only-share-banner')).toHaveCount(0)
-    expect(new URL(fullPage.url()).searchParams.has('token')).toBe(false)
+    expect(new URL(fullPage.url()).searchParams.get('token')).toBe(OWNER_TOKEN)
     const ownerMutation = await fullPage.request.post(
       new URL('/farming/api/settings', fullPage.url()).toString(),
       { data: { appearance: 'paper' } },
@@ -142,7 +251,7 @@ test('enforces Owner and read-only authority across real mobile authentication',
     await expect(guestPage.getByRole('tab', { name: 'external-readonly.txt' })).toHaveCount(0)
     await expect(guestPage.getByTestId('code-copy-toast')).toContainText(/Unable to locate shared path|无法定位分享路径/)
     expect(mountFileRequests).toHaveLength(0)
-    expect(new URL(guestPage.url()).searchParams.has('token')).toBe(false)
+    expect(new URL(guestPage.url()).searchParams.get('token')).toMatch(/^farming-ro-v1\./)
     await guestPage.reload({ waitUntil: 'domcontentloaded' })
     await expect(guestPage.getByTestId('code-read-only-share-banner')).toBeVisible()
 

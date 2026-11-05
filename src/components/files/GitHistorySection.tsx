@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
-import { appPath } from '@/lib/base-path'
+import { appNavigationPath } from '@/lib/base-path'
 import { toGitHistoryItemViewModelArray } from '@/lib/git-history-graph'
 import { iconForFilePath } from '@/lib/file-icons'
 import {
@@ -353,7 +353,7 @@ function RepositoryGitHistorySection({
     if (!base) return
     const params = new URLSearchParams({ root: projectWorkspace, base, head: commit.id })
     if (filePath) params.append('path', filePath)
-    window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
+    window.open(appNavigationPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
   }
 
   const viewModels = useMemo(

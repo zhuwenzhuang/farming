@@ -211,6 +211,13 @@ async function run(): Promise<void> {
       '/',
       'disabled authentication must not leak an unused token into the entry URL',
     );
+    const specialToken = '春水&山月+#=?';
+    const startup = new URL(entryPathWithQuery('', {
+      authEnabled: true, basePath: '/custom/farm', token: specialToken,
+    }), 'https://farming.example');
+    assert.strictEqual(startup.pathname, '/custom/farm/');
+    assert.strictEqual(startup.searchParams.get('token'), specialToken);
+    assert.strictEqual(startup.hash, '');
 
     let callStart = calls.length;
     const ownerResponse = await postJson(endpoint, fileTarget, {

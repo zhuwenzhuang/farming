@@ -45,7 +45,6 @@ interface TokenAuthOptions {
   env: NodeJS.ProcessEnv;
   farmingDir: string;
   farmingNetPassVerifier: false;
-  redirectQueryToken: boolean;
   token: string;
 }
 
@@ -224,7 +223,6 @@ function createFarmingNetServer(options: FarmingNetServerOptions = {}): FarmingN
     env: authEnv,
     farmingDir: configDir,
     farmingNetPassVerifier: false,
-    redirectQueryToken: true,
     token: env.FARMING_NET_TOKEN || '',
   });
 
@@ -292,7 +290,7 @@ function createFarmingNetServer(options: FarmingNetServerOptions = {}): FarmingN
           return;
         }
         if (basePath && pathname === basePath) {
-          res.writeHead(302, { Location: `${basePath || ''}/` });
+          res.writeHead(302, { 'Cache-Control': 'no-store', Location: `${basePath || ''}/${url.search}` });
           res.end();
           return;
         }

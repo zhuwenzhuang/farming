@@ -1,7 +1,7 @@
 import '../frontend/reading-anchor.js'
 import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { appPath } from './lib/base-path'
+import { appNavigationPath, appPath } from './lib/base-path'
 import { isModuleLoadError } from './lib/module-load-error'
 import { installInteractionPerformance } from './lib/interaction-performance'
 import { rememberStartupAccessToken } from './lib/auth-url'
@@ -138,7 +138,7 @@ function prepareFailureDocument() {
 
 function reloadFromFailure() {
   if (errorPreviewRouteEnabled()) {
-    window.location.replace(appPath('/code/'))
+    window.location.replace(appNavigationPath('/code/'))
     return
   }
   if (!errorPreviewEnabled()) {
@@ -208,7 +208,7 @@ function ApplicationFailure({ error }: { error: unknown }) {
   return (
     <main style={pageStyle} data-testid="app-error-fallback" role="alert">
       <iframe
-        src={appPath('/crt/')}
+        src={appNavigationPath('/crt/')}
         title="Farming CRT recovery"
         data-testid="app-error-crt-background"
         aria-hidden="true"

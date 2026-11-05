@@ -3573,7 +3573,7 @@ function getUiThemeOptions() {
 
 function activateUiTheme(themeId: string) {
   if (themeId === FARMING_CODE_THEME.id) {
-    location.assign(requiredRuntimePaths().path('/code/'));
+    location.assign(requiredRuntimePaths().navigationPath('/code/'));
     return;
   }
   setTheme(themeId);

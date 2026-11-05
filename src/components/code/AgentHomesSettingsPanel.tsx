@@ -3,7 +3,7 @@ import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
-import { appPath } from '@/lib/base-path'
+import { appNavigationPath, appPath } from '@/lib/base-path'
 import {
   PET_SETTINGS_EVENT,
   REST_REMINDER_CUSTOM_MINUTES_MAX,
@@ -990,7 +990,7 @@ export function AgentHomesSettingsPanel({
                     data-testid="code-settings-skin-crt"
                     aria-pressed="false"
                     onClick={() => window.location.assign(
-                      `${appPath('/crt/')}${activeAgentId ? `?agent=${encodeURIComponent(activeAgentId)}` : ''}`,
+                      appNavigationPath(`/crt/${activeAgentId ? `?agent=${encodeURIComponent(activeAgentId)}` : ''}`),
                     )}
                   >{copy.farmingCrt}</button>
                 </div>

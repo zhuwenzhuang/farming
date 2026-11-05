@@ -87,15 +87,28 @@ async function run() {
     assert.strictEqual(unauthorized.status, 401);
 
     const login = await request(port, '/farming-net/?view=all&token=net-test-token');
-    assert.strictEqual(login.status, 302);
-    assert.strictEqual(login.headers.location, '/farming-net/?view=all');
+    assert.strictEqual(login.status, 200);
+    assert.strictEqual(login.headers.location, undefined);
+    assert.match(login.body, /<title>Farming Net<\/title>/);
     assert.match(login.headers['set-cookie'][0], /^farming_net_token=net-test-token; Path=\/farming-net;/);
 
+    const reopened = await request(port, '/farming-net/?view=all&token=net-test-token');
+    assert.strictEqual(reopened.status, 200, 'the original URL must reopen without a cookie');
+    assert.strictEqual(reopened.headers.location, undefined);
+
     const cookie = login.headers['set-cookie'][0].split(';')[0];
-    const index = await request(port, '/farming-net/', { Cookie: cookie });
+    const restored = await request(port, '/farming-net/', { Cookie: cookie });
+    assert.strictEqual(restored.status, 302);
+    assert.strictEqual(restored.headers.location, '/farming-net/?token=net-test-token');
+    const index = await request(port, restored.headers.location);
     assert.strictEqual(index.status, 200);
     assert.match(index.headers['content-security-policy'], /frame-ancestors 'none'/);
     assert.match(index.body, /<title>Farming Net<\/title>/);
+
+    const slash = await request(port, '/farming-net?view=all&token=net-test-token');
+    assert.strictEqual(slash.status, 302);
+    assert.strictEqual(slash.headers.location, '/farming-net/?view=all&token=net-test-token');
+    assert.strictEqual((await request(port, slash.headers.location)).status, 200);
 
     const registry = await request(port, '/farming-net/api/instances', { Cookie: cookie });
     assert.strictEqual(registry.status, 200);

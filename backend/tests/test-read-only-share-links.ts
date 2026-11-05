@@ -125,7 +125,7 @@ async function run() {
       assert.equal(location.pathname, '/farm/', 'read-only redemption must also avoid the ingress redirect');
       assert.equal(location.searchParams.get('path'), '/workspace/项目/分享.md');
       assert.equal(location.searchParams.get('line'), '12');
-      assert.equal(location.searchParams.has('token'), false);
+      assert.equal(auth.accessForToken(location.searchParams.get('token')), 'read-only');
       assert.match(response.headers.get('set-cookie')!, /HttpOnly/);
     }
     const cookie = opened[0].headers.get('set-cookie')!.split(';')[0];

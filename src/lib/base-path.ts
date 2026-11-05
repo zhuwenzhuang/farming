@@ -1,3 +1,5 @@
+import { getCurrentAccessToken } from './auth-url'
+
 declare global {
   interface Window {
     __FARMING_BASE_PATH__?: string
@@ -31,4 +33,11 @@ export function appPath(path = '/') {
 export function appWsUrl() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${location.host}${appPath('/ws')}`
+}
+
+export function appNavigationPath(path = '/') {
+  const url = new URL(appPath(path), window.location.origin)
+  const token = getCurrentAccessToken()
+  if (token) url.searchParams.set('token', token)
+  return `${url.pathname}${url.search}${url.hash}`
 }

@@ -1,4 +1,4 @@
-import { appPath } from '@/lib/base-path'
+import { appNavigationPath } from '@/lib/base-path'
 import { COMPACT_VIEWPORT_QUERY } from '@/lib/responsive-mode'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
@@ -394,7 +394,7 @@ export function ProjectFilesSection({
     if (change.type === 'directory') {
       const root = change.repositoryPath ? `${projectWorkspace}/${change.repositoryPath}` : projectWorkspace
       const params = new URLSearchParams({ root, scope: 'tracked' })
-      window.open(appPath(`/review?${params}`), '_blank', 'noopener,noreferrer')
+      window.open(appNavigationPath(`/review?${params}`), '_blank', 'noopener,noreferrer')
       return
     }
     void openFilePath(change.path, {

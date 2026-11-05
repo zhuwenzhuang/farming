@@ -52,7 +52,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
           const guest = await recipient.newPage()
           await guest.goto(ticket.readOnlyUrl)
           await expect(guest.getByTestId('code-read-only-share-banner')).toBeVisible()
-          expect(new URL(guest.url()).searchParams.has('token')).toBe(false)
+          expect(new URL(guest.url()).searchParams.get('token')).toMatch(/^farming-ro-v1\./)
           expect((await guest.request.post(new URL('/farming/api/settings', guest.url()).href, { data: { appearance: 'dark' } })).status()).toBe(403)
         } finally { await recipient.close() }
       }
@@ -85,7 +85,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
         await expect(guest.getByTestId('code-file-monaco')).toBeVisible()
         await expect.poll(() => guest.evaluate(() => window.__farmingFileEditorTest?.getPosition())).toEqual({ lineNumber: 120, column: 6 })
         await expect(guest.getByRole('button', { name: 'Save file', exact: true })).toHaveCount(0)
-        await expect.poll(() => new URL(guest.url()).search).toBe('')
+        await expect.poll(() => [...new URL(guest.url()).searchParams.keys()]).toEqual(['token'])
       } finally { await recipient.close() }
     })
   }

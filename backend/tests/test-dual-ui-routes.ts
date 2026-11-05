@@ -11,24 +11,35 @@ function run() {
   const runtimePathsSource = read('frontend/runtime-paths.js');
 
   const window: {
-    location: { pathname: string; protocol: string; host: string };
+    location: { pathname: string; protocol: string; host: string; href: string; search: string };
     FarmingRuntimePaths?: {
       basePath: string;
       apiPath(_pathname: string): string;
       webSocketUrl(): string;
+      navigationPath(path: string): string;
     };
   } = {
     location: {
       pathname: '/farming/crt/',
       protocol: 'https:',
       host: 'example.test',
+      href: 'https://example.test/farming/crt/',
+      search: '',
     },
   };
-  vm.runInNewContext(runtimePathsSource, { window });
+  vm.runInNewContext(runtimePathsSource, { window, URL, URLSearchParams });
   assert(window.FarmingRuntimePaths, 'runtime paths must be installed on the test window');
   assert.strictEqual(window.FarmingRuntimePaths.basePath, '/farming');
   assert.strictEqual(window.FarmingRuntimePaths.apiPath('/settings'), '/farming/api/settings');
   assert.strictEqual(window.FarmingRuntimePaths.webSocketUrl(), 'wss://example.test/farming/ws');
+  for (const token of ['春水&山月+#=?', 'rotated-token']) {
+    window.location.search = `?${new URLSearchParams({ token })}`;
+    assert.strictEqual(new URL(window.FarmingRuntimePaths.webSocketUrl()).searchParams.get('token'), token);
+    const navigation = new URL(window.FarmingRuntimePaths.navigationPath('/code/?agent=agent-1#view'), window.location.href);
+    assert.strictEqual(navigation.searchParams.get('token'), token);
+    assert.strictEqual(navigation.searchParams.get('agent'), 'agent-1');
+    assert.strictEqual(navigation.hash, '#view');
+  }
 
   const agentStateContext: {
     FarmingAgentState?: {

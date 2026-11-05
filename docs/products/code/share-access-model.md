@@ -111,10 +111,17 @@ be rotated from the share panel.
 Redeeming a QR short link consumes its ticket and stores exactly the ticket's
 credential in an HTTP-only cookie. Consequently, an owner-created QR grants full
 control, while a read-only visitor's QR remains read-only.
+The redirect also carries that same credential in `token`, so the opened page
+retains access without relying on the cookie. The installed-app manifest includes
+the same valid credential in its startup URL for adding the page to the home screen;
+read-only access keeps its original expiry and never becomes owner access.
 
 The copied short URL contains only an opaque code. Opening it resolves the stored
-read-only capability into an HTTP-only cookie and redirects to the application.
-Legacy read-only query URLs remain supported and are cleaned before the app loads.
+read-only capability into an HTTP-only cookie and redirects to the application
+with that same credential in `token`.
+Legacy read-only query URLs remain supported and retain their token after the app
+loads, so reopening the URL does not depend on an existing cookie. Token expiry and
+read-only restrictions still apply.
 
 Chat answer actions and the File Viewer expose a direct copy action for this same
 read-only short URL. A Chat action freezes the selected durable Turn identity rather
@@ -139,6 +146,13 @@ An owner startup URL carries the instance token so the entry assets can load. Th
 frontend keeps that token in the visible URL so reloads, copied URLs, and installed
 app handoffs retain owner access. The HTTP-only cookie remains an alternate
 authenticated transport, but does not replace the URL credential.
+
+Code, CRT, Review and recovery-page navigation preserve the current URL credential.
+Opening a known application entry with a valid cookie and no explicit token restores
+that same credential to the visible URL. This redirect never applies to APIs, previews
+or arbitrary resources, and an invalid explicit token cannot fall back to a cookie.
+Credential-bearing entry pages use no-referrer. WebSocket reconnects read the current
+URL, including after rotation, and encode credentials as query parameters.
 
 Generated entry links and share-redemption redirects use the base path with a
 trailing slash, avoiding an extra directory redirect at the reverse proxy.
@@ -176,7 +190,8 @@ the persisted records without renewing their lifetime. Corrupt or unavailable
 storage fails explicitly rather than creating an empty replacement store.
 
 Redemption verifies that the stored capability is still read-only, puts it in an
-HTTP-only cookie, and redirects through the existing contextual-location path.
+HTTP-only cookie, and redirects through the existing contextual-location path with
+the same read-only token.
 Unknown, expired, or invalid links return 410. HEAD checks do not set cookies or
 consume links. Responses use no-store and no-referrer. The old longUrl response
 field remains a compatibility alias for the new readOnlyUrl at the API boundary.
@@ -231,6 +246,8 @@ RFB transport cannot provide a server-verifiable view-only boundary.
 - A failed token rotation preserves the previous credential and visible share state.
   After a successful rotation, a later QR refresh failure still leaves the new token
   in the browser URL and full-control copy surface so the owner is not locked out.
+  The current page's install manifest also updates to the new token. Previously
+  installed shortcuts and copied URLs containing the revoked token must be replaced.
 - QR renderer loading has explicit loading, ready, and failed states. A failed
   renderer stays failed until the user retries; retry starts a new bounded load
   and never changes the ticket's permission or expiry.

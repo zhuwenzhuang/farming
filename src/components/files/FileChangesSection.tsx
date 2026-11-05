@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
-import { appPath } from '@/lib/base-path'
+import { appNavigationPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
 import { WORKSPACE_FILE_TREE_INDENT, WORKSPACE_FILE_TREE_ROOT_INDENT } from '@/lib/workspace-file-tree-row'
 import {
@@ -293,7 +293,7 @@ function FileChangeTreeRows({
 
 function openRepositoryReview(root: string, scope: 'tracked' | 'untracked') {
   const params = new URLSearchParams({ root, scope })
-  window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
+  window.open(appNavigationPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
 }
 
 function ChangesDisclosure({ collapsed, label, onToggle }: {
