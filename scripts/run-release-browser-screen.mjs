@@ -72,7 +72,8 @@ export function selectBrowserScreen(files) {
     if (['src/lib/transcript-file-links.ts', 'src/lib/workspace-open-files.ts',
       'tests/e2e/path-link-navigation.spec.ts'].includes(filename)) select(['identity-files', 'path-navigation']);
     if (['src/components/code/CodeSidebar.tsx', 'src/components/code/workspace-derived.ts',
-      'tests/e2e/file-editor-reveal.spec.ts', 'tests/e2e/terminal-regression-matrix.spec.ts'].includes(filename)) select(['path-navigation']);
+      'tests/e2e/file-editor-reveal.spec.ts', 'tests/e2e/external-file-project.spec.ts',
+      'tests/e2e/terminal-regression-matrix.spec.ts'].includes(filename)) select(['path-navigation']);
     if (filename === 'tests/e2e/model-matrix.spec.ts') select(['model-isolation']);
     // The separate live-provider composite remains mandatory for this case;
     // the early deterministic screen exercises its shared interaction owners.
