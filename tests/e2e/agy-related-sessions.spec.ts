@@ -34,6 +34,7 @@ test('agy native children are visible as collaboration during a mobile live turn
     await page.getByTestId('code-collaboration-open-details').click()
     const panel = page.getByTestId('code-related-session-panel')
     await expect(panel).toContainText('Analysis result 4')
+    await expect(panel.locator('.code-agent-transcript-subagent-status')).toHaveText('In progress')
     await expect(panel.getByTestId('code-acp-subagent-stop')).toHaveCount(0)
   } finally {
     await page.request.delete(`/farming/api/control/agents/${agentId}`)

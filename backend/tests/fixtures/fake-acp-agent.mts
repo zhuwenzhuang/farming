@@ -2289,11 +2289,12 @@ class FakeAgent {
           sessionUpdate: 'tool_call', toolCallId: `invoke-${index}`, title: 'invoke_subagent', kind: 'other', status: 'in_progress',
         } });
         await client.notify('session/update', { sessionId: params.sessionId, update: {
-          sessionUpdate: 'subagent_update', sessionId: child, title: `Analyzer ${index}`, state: null, capabilities: {},
+          sessionUpdate: 'subagent_update', sessionId: child, title: `Analyzer ${index}`,
+          state: live ? { state: 'running' } : null, capabilities: {},
         } });
         await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: `agy-child:${child}`, title: `Analyzer ${index}`, kind: 'other', status: 'completed',
-          _meta: { subagent_session_info: { session_id: child }, farming: { nativeSubagent: true, state: 'unknown' } },
+          _meta: { subagent_session_info: { session_id: child }, farming: { nativeSubagent: true, state: live ? 'working' : 'unknown' } },
         } });
         await client.notify('session/update', { sessionId: child, update: {
           sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `Analyze query ${index}` },
