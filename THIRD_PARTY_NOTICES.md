@@ -70,10 +70,11 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 User-directory installations select Node.js 22.23.2 from the platform-specific
 `node-linux-x64`, `node-linux-arm64`, `node-darwin-x64`, or
 `node-bin-darwin-arm64` npm carrier (MIT, with its included third-party licenses),
-and npm 12.1.0 (Artistic-2.0). The npm image includes the existing GNU C Library
-2.28 compatibility runtime (LGPL-2.1-or-later) under `dist/runtime/glibc228`;
-its notice identifies the pinned carrier and corresponding upstream source.
-The carrier also supplies GCC runtime libraries under GPL-3.0 with the GCC
+and npm 12.1.0 (Artistic-2.0). The npm image includes the GNU C Library
+2.28-10+deb10u4 compatibility runtime (LGPL-2.1-or-later) from the official Debian
+security archive under `dist/runtime/glibc228`. Its notice identifies the pinned
+build and source. The separately pinned carrier supplies only GCC runtime
+libraries under GPL-3.0 with the GCC
 Runtime Library Exception. License texts accompany the libraries and are
 preserved under `backend/data/LICENSE.glibc`, `LICENSE.gcc`, and
 `LICENSE.gcc-runtime`.

@@ -205,6 +205,14 @@ from the selected npm registry. A system Node.js, global npm prefix, root
 permission, and npm lifecycle scripts are not prerequisites. Linux x64 images
 carry the reviewed private glibc runtime for hosts with glibc 2.17–2.27.
 
+App bundles and npm images share one pinned compatibility-runtime recipe and
+archive digest. The loader and all glibc libraries must come from the same
+patched build; only GCC libraries come from the separate carrier. Preparation
+rejects mismatched explicit archives and caches, and Linux x64 preparation must
+pass a bounded reader/writer-lock contention check. App-bundle installation
+extracts into immutable archive-digest directories and publishes them atomically;
+upgrades never overwrite libraries in use or silently reuse an older runtime.
+
 The public setup presents separate download, install, change-directory, and start
 commands. The download must succeed before the user executes the script. `--dir`
 selects an installation directory and overrides `FARMING_INSTALL_ROOT`. Relative

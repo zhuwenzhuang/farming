@@ -43,6 +43,13 @@ CONFIG_DIR_VALUE="${FARMING_CONFIG_DIR:-}"
 SERVER_HOME_VALUE="${FARMING_SERVER_HOME:-}"
 USE_GLIBC_RUNTIME="${FARMING_USE_GLIBC_RUNTIME:-auto}"
 GLIBC_RUNTIME_ROOT="${FARMING_GLIBC_RUNTIME_ROOT:-${HOME}/.farming/glibc228}"
+GLIBC_RUNTIME_BASE_ROOT="${GLIBC_RUNTIME_ROOT}"
+# Saved launcher settings may point at a previous immutable archive identity.
+# Keep upgrades as siblings instead of nesting one release below another.
+if [[ "${GLIBC_RUNTIME_BASE_ROOT##*/}" =~ ^[0-9a-f]{64}$ ]] \
+  && [ "$(cat "${GLIBC_RUNTIME_BASE_ROOT}/.archive-sha256" 2>/dev/null || true)" = "${GLIBC_RUNTIME_BASE_ROOT##*/}" ]; then
+  GLIBC_RUNTIME_BASE_ROOT="$(dirname "${GLIBC_RUNTIME_BASE_ROOT}")"
+fi
 RUNTIME_BIN_DIR="${FARMING_RUNTIME_BIN_DIR:-${HOME}/.farming/runtime/bin}"
 STABLE_CLI_DIR="${FARMING_CLI_INSTALL_DIR:-${HOME}/.farming/bin}"
 SYSTEM_NODE_BIN="${FARMING_SYSTEM_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
@@ -118,33 +125,49 @@ ensure_glibc_runtime() {
   if ! use_glibc_runtime; then
     return 0
   fi
-  if [ -x "${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" ]; then
-    return 0
-  fi
-  local bundle="${INSTALL_DIR}/vendor/glibc228-lib.tar.gz"
-  if [ ! -f "${bundle}" ] && [ -f "${SOURCE_DIR}/vendor/glibc228-lib.tar.gz" ]; then
-    bundle="${SOURCE_DIR}/vendor/glibc228-lib.tar.gz"
+  local bundle="${SOURCE_DIR}/vendor/glibc228-lib.tar.gz"
+  if [ ! -f "${bundle}" ] && [ -f "${INSTALL_DIR}/vendor/glibc228-lib.tar.gz" ]; then
+    bundle="${INSTALL_DIR}/vendor/glibc228-lib.tar.gz"
   fi
   if [ ! -f "${bundle}" ]; then
     echo "Legacy glibc runtime was requested, but this release does not include vendor/glibc228-lib.tar.gz." >&2
     exit 1
   fi
-  local temp_dir
-  temp_dir="$(mktemp -d /tmp/farming-glibc.XXXXXX)"
-  tar --no-same-owner -xzf "${bundle}" -C "${temp_dir}"
+  local bundle_sha temp_dir
+  bundle_sha="$(sha256sum "${bundle}" | awk '{print $1}')"
+  # A new release must not reuse or replace libraries mapped by an older one.
+  case "${GLIBC_RUNTIME_BASE_ROOT}" in
+    */"${bundle_sha}") GLIBC_RUNTIME_ROOT="${GLIBC_RUNTIME_BASE_ROOT}" ;;
+    *) GLIBC_RUNTIME_ROOT="${GLIBC_RUNTIME_BASE_ROOT}/${bundle_sha}" ;;
+  esac
+  if [ -d "${GLIBC_RUNTIME_ROOT}" ]; then
+    if [ -x "${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" ] \
+      && [ "$(cat "${GLIBC_RUNTIME_ROOT}/.archive-sha256" 2>/dev/null || true)" = "${bundle_sha}" ]; then
+      return 0
+    fi
+    echo "Existing compatibility runtime has no matching identity: ${GLIBC_RUNTIME_ROOT}" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "${GLIBC_RUNTIME_ROOT}")"
+  temp_dir="$(mktemp -d "${GLIBC_RUNTIME_ROOT}.staging.XXXXXX")"
+  if ! tar --no-same-owner -xzf "${bundle}" -C "${temp_dir}"; then
+    rm -rf -- "${temp_dir}"
+    return 1
+  fi
   chmod -R u+rwX "${temp_dir}"
-  local loader
-  loader="$(find "${temp_dir}" -type f -name 'ld-2.28.so' | head -1 || true)"
-  if [ -z "${loader}" ]; then
+  if [ ! -x "${temp_dir}/lib/ld-2.28.so" ]; then
     rm -rf "${temp_dir}"
     echo "Legacy glibc runtime is missing ld-2.28.so: ${bundle}" >&2
     exit 1
   fi
-  mkdir -p "${GLIBC_RUNTIME_ROOT}"
-  rm -rf "${GLIBC_RUNTIME_ROOT}/lib"
-  cp -R "$(dirname "${loader}")" "${GLIBC_RUNTIME_ROOT}/lib"
-  chmod -R u+rwX "${GLIBC_RUNTIME_ROOT}/lib"
-  rm -rf "${temp_dir}"
+  printf '%s\n' "${bundle_sha}" > "${temp_dir}/.archive-sha256"
+  # rename() atomically publishes the complete runtime. A simultaneous winner
+  # is accepted only after checking the same immutable identity.
+  if ! mv -T "${temp_dir}" "${GLIBC_RUNTIME_ROOT}" 2>/dev/null; then
+    rm -rf -- "${temp_dir}"
+    [ -x "${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" ] \
+      && [ "$(cat "${GLIBC_RUNTIME_ROOT}/.archive-sha256" 2>/dev/null || true)" = "${bundle_sha}" ] || return 1
+  fi
 }
 
 write_managed_npm_launchers() {
@@ -414,7 +437,7 @@ Environment:
   FARMING_CONFIG_DIR=          # optional, custom settings/token directory
   FARMING_SERVER_HOME=         # optional, isolate Codex/Claude history for demos/tests
   FARMING_USE_GLIBC_RUNTIME=auto  # use a bundled legacy runtime on Linux glibc < 2.28
-  FARMING_GLIBC_RUNTIME_ROOT=  # optional extraction directory for that runtime
+  FARMING_GLIBC_RUNTIME_ROOT=  # optional parent of immutable runtime directories
   FARMING_NPM_PREFIX=${HOME}/.farming/npm  # managed prefix used by the legacy Linux bootstrap
   FARMING_RUNTIME_NPM_MIRROR=  # override the packaged mirror candidate; use off to disable
   FARMING_NODE_MAX_OLD_SPACE_SIZE=auto  # auto-detect from cgroup or system memory; 0 disables override

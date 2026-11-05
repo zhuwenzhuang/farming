@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "recipe": "glibc228-debian10u4-gcc-v1",
+  "archiveSha256": "dd16fdcde4a2f7b8b02079ff422d66e4bc672f73d85ec48115ae6ad3a0fd40e9",
+  "libc": {
+    "url": "https://archive.debian.org/debian-security/pool/updates/main/g/glibc/libc6_2.28-10+deb10u4_amd64.deb",
+    "sha256": "80b59743f7b47f0644d211d56918851404e66ab7fbba17e60e90664c12fc5822"
+  },
+  "gccCarrier": {
+    "url": "https://raw.githubusercontent.com/liuliping0315/glibc2.28_for_CentOS7/ba989d6b879b75bc3a823b53e684cdd3ab1bdbcd/lib.tgz",
+    "sha256": "eaf615e3d72b096bc603476a481730e39b5e01e47dc874ae05e535be1bc7fb89"
+  }
+}

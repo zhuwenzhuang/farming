@@ -145,6 +145,12 @@ Recovery 而不提交状态，也不准备 Immutable Installation Directory。�
 公开安装脚本从选定的 npm registry 下载 Farming 以及固定版本的 Node.js、npm。
 无需系统 Node.js、系统 npm 全局目录、root 权限或 npm 生命周期脚本。Linux x64
 Image 携带经过校验的私有 glibc 运行库，供 glibc 2.17–2.27 主机使用。
+
+App bundle 与 npm Image 共用固定的兼容运行库组装规则和归档摘要。加载器与全部 glibc
+库必须来自同一修复版本，独立载体只提供 GCC 库。准备过程拒绝摘要不匹配的显式归档和
+缓存；Linux x64 准备还必须通过有时限的读写锁竞争检查。App bundle 安装按归档摘要
+创建不可变目录并原子发布；升级不得覆盖使用中的库，也不得静默复用旧运行库。
+
 安装器并行下载选定的平台包、Node.js 和 npm，解压前校验 SHA-512；旧 Linux 使用平台包内的
 加载器启动 Node.js。已验证的平台包归档加入 npm 缓存，再由 npm 禁用脚本安装精确 Alias。
 
