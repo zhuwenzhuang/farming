@@ -1484,6 +1484,8 @@ async function runDesktopTerminalMatrix(
         ))).toBe(true)
         await expect(page.getByTestId('code-file-editor')).toBeVisible()
         await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
+        await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toHaveCount(0)
+        await expect(page.locator(`[data-testid="code-open-editor-row"][data-file-path="${externalFile.replace(/^\/+/, '')}"]`)).toHaveCount(0)
         await expect.poll(() => globalTreeRequests.length).toBe(globalTreeRequestCount)
         expect(globalProjectMounts.length).toBe(globalProjectMountCount)
         await expect.poll(async () => {

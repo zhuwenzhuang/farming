@@ -161,15 +161,38 @@ test('editor reveal expands and relocates the current file without rereading or 
   expect(fs.readFileSync(path.join(workspace, filePath), 'utf8')).toBe(original)
 })
 
-test('exact external files do not offer a Project-tree reveal action', async ({ page, workspaceRoot, isMobile }) => {
-  const externalFile = path.join(workspaceRoot, 'unmounted-external.md')
+test('exact external files do not offer a Project-tree reveal action or invent a Project on owner share startup', async ({ page, workspaceRoot, isMobile }, testInfo) => {
+  const externalFile = path.join(workspaceRoot, 'unmounted-external.txt')
   fs.writeFileSync(externalFile, '# External file\n')
+  const workspace = path.join(workspaceRoot, 'mounted-project')
+  fs.mkdirSync(workspace)
+  const response = await page.request.post('/farming/api/control/agents', { data: { command: 'bash', workspace } })
+  expect(response.ok()).toBeTruthy()
   const params = new URLSearchParams({ ftarget: 'file', path: externalFile, view: 'editor' })
   await page.goto(`/farming/?${params.toString()}`, { waitUntil: 'domcontentloaded' })
   const editor = page.getByTestId('code-file-editor')
   await expect(editor).toBeVisible()
-  await expect(editor).toContainText('unmounted-external.md')
+  await expect(editor).toContainText('unmounted-external.txt')
+  await expect(editor.getByTestId('code-file-editor-readonly-badge')).toBeVisible()
   await expect(editor.getByTestId('code-file-editor-reveal')).toHaveCount(0)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.body.dataset.appearance = value
+      document.documentElement.dataset.appearance = value
+    }, appearance)
+    const sidebar = page.getByTestId('code-sidebar')
+    if (await sidebar.evaluate(element => element.classList.contains('collapsed'))) await page.getByTestId('code-mobile-menu').click()
+    await expect(page.locator(`[data-testid="code-project-title"][data-project-id="${workspace}"]`)).toBeVisible()
+    await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toHaveCount(0)
+    await expect(page.getByTestId('code-open-editor-row')).toHaveCount(0)
+    await sidebar.screenshot({ path: testInfo.outputPath(`${appearance}-external-file-projects.png`), animations: 'disabled' })
+    if (isMobile) await closeSidebar(page)
+    await expect(editor.getByRole('tab', { selected: true })).toContainText('unmounted-external.txt')
+  }
+  const settingsResponse = await page.request.get('/farming/api/settings')
+  expect(settingsResponse.ok()).toBeTruthy()
+  const settings = await settingsResponse.json() as { settings: { projectWorkspaces: string[] } }
+  expect(settings.settings.projectWorkspaces).toEqual([workspace])
   if (isMobile) {
     await expect(editor.getByTestId('code-file-editor-share')).toBeHidden()
     await editor.getByTestId('code-file-editor-more').click()

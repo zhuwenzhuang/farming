@@ -88,7 +88,7 @@ import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
-import { stableProjectSourceAgentId } from './workspace-derived'
+import { projectWorkspaceForOpenFile, stableProjectSourceAgentId } from './workspace-derived'
 import { workspaceFileRevealScrollDelta } from '@/lib/workspace-file-view-model'
 import { claimProjectListScroll, invalidateProjectListScroll } from '@/lib/project-list-scroll-owner'
 import {
@@ -2180,7 +2180,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     ...(projectSourceAgent && !projectSourceAgent.isMain ? [projectSourceAgent.id] : []),
   ])
   const openFileBelongsToProject = (file: OpenWorkspaceFile) => (
-    file.workspaceRoot === project.workspace || projectFileContextIds.has(file.agentId)
+    Boolean(project.workspace) && projectWorkspaceForOpenFile(file, project.agents) === project.workspace
   )
   const activeProjectFile = openWorkspaceFile && openFileBelongsToProject(openWorkspaceFile)
     ? openWorkspaceFile

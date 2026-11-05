@@ -134,6 +134,18 @@ function run() {
   assert.strictEqual(openOnlyProjects[0].agents.length, 0);
   assert.strictEqual(openOnlyProjects[0].hasOpenFile, true);
   assert.strictEqual(openOnlyProjects[0].gitWorktree.branch, 'topic');
+  const externalFiles = [
+    openFile('wroot_global', 'outside/readme.md', { workspaceRoot: '/' }),
+    openFile('wroot_global', 'outside/source.md', { sourceAgentId: 'agent-1' }),
+    openFile('agent-1', 'outside/exact.md', { workspaceRoot: '/repo', exactExternal: true }),
+  ];
+  for (const file of externalFiles) {
+    assert.strictEqual(projectWorkspaceForOpenFile(file, [agent()]), '');
+  }
+  assert.deepStrictEqual(projectListProjectsForAgents([], [], {}, externalFiles, [agent()]), []);
+  const projectsWithExternalTabs = projectListProjectsForAgents([agent()], [], {}, externalFiles);
+  assert.deepStrictEqual(projectsWithExternalTabs.map(project => project.workspace), ['/repo']);
+  assert.strictEqual(projectsWithExternalTabs[0].hasOpenFile, undefined);
   const persistedEmptyProjects = projectListProjectsForAgents(
     [],
     [],
@@ -175,10 +187,11 @@ function run() {
     zombieCount: 2,
     maxAttentionScore: 88,
   });
-  const rootProject = projectListProjectsForAgents([], [], {}, [], [], ['/']);
+  const rootProject = projectListProjectsForAgents([], [], {}, externalFiles, [], ['/']);
   assert.strictEqual(rootProject.length, 1);
   assert.strictEqual(rootProject[0].workspace, '/');
   assert.strictEqual(rootProject[0].name, '/');
+  assert.strictEqual(rootProject[0].hasOpenFile, undefined);
   const pinnedProjects = projectListProjectsForAgents(
     [
       agent({ id: 'project-a', projectWorkspace: '/project-a', cwd: '/project-a' }),

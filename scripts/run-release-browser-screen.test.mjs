@@ -226,6 +226,8 @@ test('opening, native child state, rich content, paths and model isolation selec
     ['path-navigation', 'path-link-navigation.spec.ts', [
       'src/lib/transcript-file-links.ts', 'src/lib/workspace-open-files.ts', 'tests/e2e/path-link-navigation.spec.ts']],
     ['path-navigation', 'terminal-regression-matrix.spec.ts', ['tests/e2e/terminal-regression-matrix.spec.ts']],
+    ['path-navigation', 'file-editor-reveal.spec.ts', [
+      'src/components/code/CodeSidebar.tsx', 'src/components/code/workspace-derived.ts', 'tests/e2e/file-editor-reveal.spec.ts']],
     ['model-isolation', 'model-matrix.spec.ts', ['tests/e2e/model-matrix.spec.ts']],
   ];
   const { scripts } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -241,6 +243,7 @@ test('opening, native child state, rich content, paths and model isolation selec
   assert(scripts['release:fast-screen:rich-content'].includes('tests/e2e/rich-content-viewer.spec.ts'));
   assert(scripts['release:fast-screen:model-isolation'].includes('changing a Chat model preserves'));
   assert(scripts['release:fast-screen:path-navigation'].includes('desktop terminal handles copy, links, and editor integration'));
+  assert(scripts['release:fast-screen:path-navigation'].includes('exact external files'));
   assert(scripts['release:fast-screen:interaction'].includes('captures Chinese handoff walkthrough'));
   assert(scripts['release:fast-screen:agent-opening'].includes('a newer sidebar file intent'));
   assert(scripts['release:fast-screen:agent-opening'].includes('a new Agent dialog'));
