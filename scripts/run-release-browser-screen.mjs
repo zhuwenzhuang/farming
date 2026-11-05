@@ -27,6 +27,10 @@ const definitions = [
   ['structured-composer', 'release:fast-screen:structured-composer'],
   ['quoted-side', 'release:fast-screen:quoted-side'],
   ['dynamic-pinning', 'release:fast-screen:dynamic-pinning'],
+  ['agent-opening', 'release:fast-screen:agent-opening'],
+  ['rich-content', 'release:fast-screen:rich-content'],
+  ['path-navigation', 'release:fast-screen:path-navigation'],
+  ['model-isolation', 'release:fast-screen:model-isolation'],
 ];
 export function selectBrowserScreen(files) {
   const selected = new Set();
@@ -59,6 +63,15 @@ export function selectBrowserScreen(files) {
     if (/^src\/components\/code\/(QuotedContextCard|SubagentBody|SubagentPreparation|useSubagentOpening)\.|^tests\/e2e\/quoted-side-flow\.spec\.ts$/.test(filename)) select(['quoted-side']);
     if (['src/hooks/useWebSocket.ts', 'src/types/messages.ts'].includes(filename)) select(['interaction', 'wire-state', 'quoted-side']);
     if (['src/lib/dynamic-pinning.ts', 'tests/e2e/dynamic-pinning.spec.ts'].includes(filename)) select(['dynamic-pinning']);
+    if (['src/components/code/AgentOpeningPane.tsx', 'src/components/code/useAgentOpeningController.ts',
+      'tests/e2e/agent-opening-flow.spec.ts'].includes(filename)) select(['agent-opening']);
+    if (['src/components/code/NativeRelatedRows.tsx', 'src/components/code/RelatedSessionPanel.tsx',
+      'src/components/code/related-session-status.ts'].includes(filename)) select(['interaction', 'agy-children']);
+    if (['src/components/files/FileEditorMarkdownPreview.tsx', 'tests/e2e/mermaid-streaming-stability.spec.ts',
+      'tests/e2e/rich-content-viewer.spec.ts'].includes(filename)) select(['rich-content']);
+    if (['src/lib/transcript-file-links.ts', 'src/lib/workspace-open-files.ts',
+      'tests/e2e/path-link-navigation.spec.ts'].includes(filename)) select(['identity-files', 'path-navigation']);
+    if (filename === 'tests/e2e/model-matrix.spec.ts') select(['model-isolation']);
     // The separate live-provider composite remains mandatory for this case;
     // the early deterministic screen exercises its shared interaction owners.
     if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);
@@ -66,7 +79,7 @@ export function selectBrowserScreen(files) {
     if (filename === 'tests/e2e/quote-selection.spec.ts') select(['quoted-side', 'interaction']);
     if (['backend/provider-adapters.cts', 'tests/e2e/default-agent-permissions.spec.ts',
       'tests/e2e/fixtures/pi'].includes(filename)) select(['permissions']);
-    if (['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js',
+    if (['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'src/crt-markdown-renderer.tsx',
       'tests/e2e/crt-markdown.spec.ts', 'tests/e2e/skin-switching.spec.ts'].includes(filename)) select(['crt-markdown']);
     if (['tests/e2e/additional-user-scenarios.spec.ts', 'tests/e2e/dark-mode-skin.spec.ts',
       'tests/e2e/mobile-human-story.spec.ts'].includes(filename)) select(['ui-contract-oracles']);
