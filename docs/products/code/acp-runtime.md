@@ -226,6 +226,9 @@ Only authoritative child evidence settles a child: parent completion/cancellatio
 and unknown activity cannot synthesize child outcomes. Fresh bounded inventory
 is used when negotiated; unavailable inventory is an error, not an empty list.
 History reads verify ancestry and do not start, load, resume or cancel Sessions.
+Standard child-session associations appear in the shared Chat collaboration
+surface as well as the sidebar, without requiring provider-specific activity
+metadata. A recorded association or completed tool does not prove child activity.
 
 Antigravity discovers native children from the owning parent's structured child
 registry, keyed by conversation identity rather than spawn-step index or display

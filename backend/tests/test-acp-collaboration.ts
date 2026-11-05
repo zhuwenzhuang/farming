@@ -11,6 +11,29 @@ const {
   acpCollaborationActivityFeed,
 } = require('../../src/components/code/acp/acp-collaboration.ts');
 
+// Native child associations must reach the same collaboration surface as
+// provider-specific activity, including while invoke tools remain in progress.
+for (const provider of ['agy', 'claude', 'test-provider']) {
+  const entries = Array.from({ length: 5 }, (_, index) => acpTranscriptToolEntry({
+    id: `native-child-${index}`, type: 'tool', kind: 'other', status: 'completed',
+    title: index === 0 ? 'Expr, String/JSON & UDTF Optimizer' : `Analyzer ${index}`,
+    _meta: { subagent_session_info: { session_id: `child-${index}` } },
+  }));
+  const native = projectAcpTranscript({ provider, sessionId: 'parent', state: 'working', entries: [
+    { id: 'invoke', type: 'tool', title: 'invoke_subagent', status: 'in_progress' },
+    ...entries,
+  ] });
+  const items = native.turns[0].processItems;
+  const events = acpCollaborationEvents(items);
+  assert.strictEqual(events.length, 5, 'standard child associations must render as collaboration');
+  assert.strictEqual(events[0].name, entries[0].title, 'native titles are labels, not slash-separated paths');
+  assert(events.every(event => event.action === 'recorded'), 'association is not evidence of child execution');
+  assert(acpCollaborationAgents(items).every(agent => agent.status === 'unknown'),
+    'completed association tools must not settle native children');
+  assert.strictEqual(items[0].collaboration, undefined, 'tool names alone cannot establish child identity');
+  assert.deepStrictEqual(items.slice(1).map(item => item.subagentSessionId), entries.map((_, index) => `child-${index}`));
+}
+
 const compactActivity = acpTranscriptToolEntry({
   id: 'activity-review',
   type: 'tool',

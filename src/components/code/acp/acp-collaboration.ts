@@ -98,7 +98,7 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
     const collaboration = item.collaboration
     if (!collaboration) continue
     if (collaboration.kind === 'activity' && collaboration.threadId) {
-      nameByThread.set(collaboration.threadId, displayAgentName(collaboration.agentPath || '', collaboration.threadId))
+      nameByThread.set(collaboration.threadId, collaboration.agentName || displayAgentName(collaboration.agentPath || '', collaboration.threadId))
       const action = activityAction(String(collaboration.activity || '').toLowerCase())
       if (action) activityActions.add(`${collaboration.threadId}:${action}`)
       continue
