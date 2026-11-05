@@ -288,13 +288,13 @@ async function resultFor(method, params) {
   }
   if (method === 'model/list') {
     return {
-      data: [{
-        id: 'gpt-5.6',
-        model: 'gpt-5.6',
+      data: (process.env.FARMING_TEST_MODEL_MATRIX === '1' ? ['gpt-5.6', 'gpt-6-astra'] : ['gpt-5.6']).map(model => ({
+        id: model,
+        model,
         upgrade: null,
         upgradeInfo: null,
         availabilityNux: null,
-        displayName: 'GPT-5.6',
+        displayName: model.toUpperCase(),
         description: 'test model',
         hidden: false,
         supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }],
@@ -304,8 +304,8 @@ async function resultFor(method, params) {
         additionalSpeedTiers: [],
         serviceTiers: [],
         defaultServiceTier: null,
-        isDefault: true,
-      }],
+        isDefault: model === 'gpt-5.6',
+      })),
       nextCursor: null,
     };
   }
