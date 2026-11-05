@@ -516,6 +516,7 @@ async function run() {
     assert.strictEqual(handoffStart.options.providerHomeId, 'personal');
     assert.strictEqual(handoffStart.options.projectWorkspace, '/source/repo');
     assert.strictEqual(handoffStart.options.parentAgentId, 'handoff-source');
+    assert.strictEqual(handoffStart.options.inheritTitleFromAgentId, 'handoff-source');
     const handoffInputs = calls.filter(call => call.type === 'sendComposerMessage');
     assert.strictEqual(handoffInputs.length, 1, 'concurrent handoff must send the reading prompt once');
     assert.deepStrictEqual(handoffInputs[0].options, { requestId: 'handoff-test', delivery: 'prompt' });

@@ -693,6 +693,42 @@ async function run() {
     manager.acpRuntime.prepareAgent = originalClaudePrepareAgent;
     manager.acpRuntime.deleteSession = originalClaudeDeleteSession;
 
+    const handoffSourceId = await startAgent(manager, 'codex', repo, { wantsMain: false });
+    const handoffSource = manager.agents.get(handoffSourceId);
+    handoffSource.adaptiveTitle = 'Investigate query latency';
+    const handoffOptions = { wantsMain: false, inheritTitleFromAgentId: handoffSourceId };
+    const handoffIds = await Promise.all([
+      startAgent(manager, 'claude', repo, handoffOptions),
+      startAgent(manager, 'codex', repo, handoffOptions),
+    ]);
+    assert.deepStrictEqual(handoffIds.map(id => manager.agents.get(id).customTitle).sort(), [
+      'Investigate query latency(1)', 'Investigate query latency(2)',
+    ], 'concurrent cross-provider handoffs inherit the effective source title with distinct suffixes');
+    const sameTitleForkSource = await startAgent(manager, 'bash', repo, {
+      wantsMain: false, customTitle: 'Investigate query latency',
+    });
+    const handoffFork = await manager.forkAgent(sameTitleForkSource, 'same-worktree');
+    assert.strictEqual(handoffFork.error, undefined);
+    assert.strictEqual(manager.agents.get(handoffFork.agentId).customTitle, 'Investigate query latency(3)',
+      'fork and handoff share the occupied title namespace');
+    const explicitHandoff = await startAgent(manager, 'claude', repo, {
+      ...handoffOptions, customTitle: 'Explicit destination',
+    });
+    assert.strictEqual(manager.agents.get(explicitHandoff).customTitle, 'Explicit destination');
+    const nestedHandoff = await startAgent(manager, 'claude', repo, {
+      wantsMain: false, inheritTitleFromAgentId: handoffIds[0],
+    });
+    assert.strictEqual(manager.agents.get(nestedHandoff).customTitle,
+      `${manager.agents.get(handoffIds[0]).customTitle}(1)`);
+    handoffSource.customTitle = '长'.repeat(80);
+    await assert.rejects(startAgent(manager, 'claude', path.join(tmpRoot, 'missing'), handoffOptions));
+    const afterFailedHandoff = await startAgent(manager, 'claude', repo, handoffOptions);
+    assert.strictEqual(manager.agents.get(afterFailedHandoff).customTitle, `${'长'.repeat(77)}(1)`,
+      'failed starts release their title reservation and inherited names retain the length limit');
+    await assert.rejects(startAgent(manager, 'claude', repo, {
+      wantsMain: false, inheritTitleFromAgentId: 'missing-source',
+    }), /Source Agent not found/);
+
     shellEnvProviderOverride = () => ({ PATH: binDir });
     manager.resolveAgentShellEnv('', { force: true });
     const previousFakeExecutables = process.env.FARMING_E2E_FAKE_EXECUTABLES;

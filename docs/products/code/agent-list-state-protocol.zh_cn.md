@@ -25,7 +25,7 @@ Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent �
 
 重命名弹窗编辑 Agent 当前有效的完整标题。展示截断只属于标签，不能进入编辑值，也不能在未修改直接保存时被持久化。取消操作保留权威标题。
 
-Fork Child 继承 Source Agent 当前有效的 Row Title。Backend 追加 `(1)`，并选择尚未被其他 Agent 或已 Admission 的 Child Start 占用的最小正整数后缀，再把结果持久化为 Child 的 Custom Title。因此 Provider Title Update 不会静默覆盖继承得到的 Fork Identity。
+Fork Child 或交接目标 Agent 继承 Source Agent 当前有效的 Row Title。Backend 追加 `(1)`，并选择尚未被其他 Agent 或已 Admission 的 Child Start 占用的最小正整数后缀，再把结果持久化为新 Agent 的 Custom Title。因此 Provider Title Update 不会静默覆盖继承得到的名称。交接时显式指定的 Custom Title 优先。
 
 后端根据精确的 Agent 与集合 mutation 更新列表投影。同一广播窗口内的 mutation 按 Agent ID 合并，因此普通 delta 的构造成本与实际变化的工作集成正比，而不是与完整 Agent 数量成正比。只有首次连接和恢复快照才构建完整 Agent payload，并通过有界 Page 发送；恢复快照会用当前权威状态替换任何可能遗漏的 mutation。第一个 Page 必须包含 Main Agent，避免客户端在后续 Page 到达前误判 Main Runtime 缺失。
 

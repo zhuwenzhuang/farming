@@ -653,6 +653,7 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   codexServiceTier?: string;
   customTitle?: string;
   customTitleExplicit?: boolean;
+  inheritTitleFromAgentId?: string;
   dangerouslySkipPermissions?: boolean;
   forkRequestId?: string;
   forkRequestSignature?: string;

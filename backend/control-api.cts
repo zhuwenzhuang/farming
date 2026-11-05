@@ -643,7 +643,7 @@ function createControlRouter(
       wantsMain: false,
       parentAgentId: handoff?.parentAgentId || (typeof body.parentAgentId === 'string' ? body.parentAgentId : ''),
       ...(handoff
-        ? { projectWorkspace: handoff.projectWorkspace }
+        ? { projectWorkspace: handoff.projectWorkspace, inheritTitleFromAgentId: handoff.parentAgentId }
         : typeof body.projectWorkspace === 'string' ? { projectWorkspace: body.projectWorkspace } : {}),
       ...(typeof body.providerHomeId === 'string' ? { providerHomeId: body.providerHomeId } : {}),
       task,
