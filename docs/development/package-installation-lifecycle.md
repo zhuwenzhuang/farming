@@ -333,6 +333,11 @@ size reductions must work with installation scripts disabled.
 
 Runtime assets include only the active product and PWA icons. Design masters,
 historical icons and reference artwork remain in the repository but do not ship.
+Before a source frontend rebuild clears `dist`, its hashed assets are retained
+in a checkout-local cache for 24 hours after their last build reference. Source
+Servers serve that cache behind the same authentication and immutable-cache
+policy as current assets, so already-open pages can still load deferred editors.
+Subsequent builds prune expired files. This cache is not part of release images.
 The npm image omits duplicate SheetJS browser builds and ACP SDK test suites,
 declarations and debug maps; runtime modules, code-page tables, schemas and
 license notices remain available.

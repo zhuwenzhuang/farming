@@ -131,45 +131,21 @@ function replacesAgent(agent: Agent | null, previousAgentId: string | null) {
     || agent.restartedFromAgentIds?.includes(previousAgentId) === true
 }
 
-const FILE_EDITOR_CHUNK_RECOVERY_KEY = 'farming.code.fileEditor.chunk-recovery'
+const FILE_EDITOR_LOAD_TIMEOUT_MS = 15_000
 type FileEditorPaneComponent = typeof import('../files/FileEditorPane')['FileEditorPane']
 type LoadedFileEditorPane = { default: FileEditorPaneComponent }
 
 let fileEditorPaneLoadPromise: Promise<LoadedFileEditorPane> | null = null
 let loadedFileEditorPane: FileEditorPaneComponent | null = null
 
-function reloadAfterFileEditorChunkLoadFailure() {
-  if (typeof window === 'undefined') return false
-  try {
-    if (window.sessionStorage.getItem(FILE_EDITOR_CHUNK_RECOVERY_KEY) === '1') return false
-    window.sessionStorage.setItem(FILE_EDITOR_CHUNK_RECOVERY_KEY, '1')
-    window.location.reload()
-    return true
-  } catch {
-    return false
-  }
-}
-
 function loadFileEditorPaneModule() {
   if (!fileEditorPaneLoadPromise) {
     fileEditorPaneLoadPromise = import('../files/FileEditorPane').then(module => {
-      try {
-        window.sessionStorage.removeItem(FILE_EDITOR_CHUNK_RECOVERY_KEY)
-      } catch {
-        // The editor is available even when session storage is unavailable.
-      }
       loadedFileEditorPane = module.FileEditorPane
       return { default: loadedFileEditorPane }
     })
   }
   return fileEditorPaneLoadPromise
-}
-
-function loadFileEditorPane() {
-  return loadFileEditorPaneModule().catch(error => {
-    if (reloadAfterFileEditorChunkLoadFailure()) return new Promise<never>(() => {})
-    throw error
-  })
 }
 
 function basename(filePath: string) {
@@ -189,11 +165,13 @@ function FileEditorFallback({
   openFile,
   onChangeDraft,
   readOnly,
+  loadFailed,
   copy,
 }: {
   openFile: OpenWorkspaceFile
   onChangeDraft: (draft: string) => void
   readOnly: boolean
+  loadFailed: boolean
   copy: CodeCopy
 }) {
   const segments = pathSegments(openFile.file.path)
@@ -258,6 +236,12 @@ function FileEditorFallback({
           </div>
         )}
       </header>
+      {loadFailed && (
+        <div className="code-file-diff-state error" role="alert" data-testid="code-file-editor-load-error">
+          <span>{copy.fileEditorLoadFailed}</span>{' '}
+          <button type="button" className="code-rich-content-retry" onClick={() => window.location.reload()}>{copy.reloadPage}</button>
+        </div>
+      )}
       <textarea
         className="code-file-editor-fallback-textarea"
         data-testid="code-file-editor-fallback-textarea"
@@ -268,7 +252,7 @@ function FileEditorFallback({
         autoCapitalize="none"
         value={openFile.draft}
         onChange={event => onChangeDraft(event.currentTarget.value)}
-        readOnly={readOnly}
+        readOnly={readOnly || loadFailed}
         spellCheck={false}
         data-lpignore="true"
         data-1p-ignore="true"
@@ -811,13 +795,19 @@ export function CodeMainArea({
   useEffect(() => {
     if (!fileEditorRequested || ReadyFileEditorPane) return undefined
     let active = true
-    void loadFileEditorPane().then(module => {
+    const timeout = window.setTimeout(() => {
+      if (!active) return
+      active = false
+      setFileEditorPaneLoadError(new Error('File editor loading timed out'))
+    }, FILE_EDITOR_LOAD_TIMEOUT_MS)
+    void loadFileEditorPaneModule().then(module => {
       if (active) setFileEditorPane(() => module.default)
     }).catch(error => {
       if (active) setFileEditorPaneLoadError(error)
-    })
+    }).finally(() => window.clearTimeout(timeout))
     return () => {
       active = false
+      window.clearTimeout(timeout)
     }
   }, [ReadyFileEditorPane, fileEditorRequested])
 
@@ -1151,8 +1141,6 @@ export function CodeMainArea({
     }
   }, [])
 
-  if (fileEditorPaneLoadError) throw fileEditorPaneLoadError
-
   const quoteRelatedSelectionInParent = (text: string) => {
     if (readOnly || !relatedSession) return
     onQuoteSelection(relatedSession.parentAgentId, `Source: ${relatedSession.title} (${relatedSession.sessionId})\n\n${text}`)
@@ -1321,7 +1309,7 @@ export function CodeMainArea({
             copy={copy}
           />
         ) : (
-          <FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} readOnly={readOnly} copy={copy} />
+          <FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} readOnly={readOnly || openWorkspaceFile.file.readOnly === true} loadFailed={Boolean(fileEditorPaneLoadError)} copy={copy} />
         )
       ) : null}
 

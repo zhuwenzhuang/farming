@@ -74,6 +74,12 @@ async function run() {
   const asset = `farming-static-asset-${process.pid}.js`;
   fs.mkdirSync(assetsDir, { recursive: true });
   fs.writeFileSync(path.join(assetsDir, asset), `export const payload = '${'compressible-asset-'.repeat(512)}';\n`);
+  const retainedDir = path.join(projectRoot, '.tmp/frontend-assets');
+  const retainedDirExisted = fs.existsSync(retainedDir);
+  const retainedAsset = `farming-retained-asset-${process.pid}.js`;
+  fs.mkdirSync(retainedDir, { recursive: true });
+  fs.writeFileSync(path.join(retainedDir, retainedAsset), 'export const previous = true;\n');
+  const authorization = { Authorization: 'Bearer farming-static-asset-test-token' };
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-static-assets-'));
   const port = await freePort();
   const child = spawn(process.execPath, ['backend/farming-app-cli.cjs'], {
@@ -84,7 +90,8 @@ async function run() {
       PORT: String(port),
       FARMING_BASE_PATH: '/farming',
       FARMING_CONFIG_DIR: configDir,
-      FARMING_DISABLE_AUTH: '1',
+      FARMING_DISABLE_AUTH: '0',
+      FARMING_TOKEN: 'farming-static-asset-test-token',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
       FARMING_RUN_SERVER: '1',
       FARMING_SESSION_ENGINE: 'local',
@@ -96,6 +103,7 @@ async function run() {
   try {
     await waitForServer(port, child);
     const assetResponse = await request(port, `/farming/assets/${encodeURIComponent(asset)}`, {
+      ...authorization,
       'accept-encoding': 'gzip',
     });
     assert.strictEqual(assetResponse.statusCode, 200);
@@ -103,13 +111,22 @@ async function run() {
     assert.match(String(assetResponse.headers['cache-control'] || ''), /immutable/);
     assert.strictEqual(assetResponse.headers['content-encoding'], 'gzip');
 
-    const entryResponse = await request(port, '/farming/crt/');
+    for (const prefix of ['/farming/assets', '/assets']) {
+      const retainedPath = `${prefix}/${retainedAsset}`;
+      assert.notStrictEqual((await request(port, retainedPath)).statusCode, 200, 'retained code still requires authentication');
+      const retainedResponse = await request(port, retainedPath, authorization);
+      assert.strictEqual(retainedResponse.statusCode, 200);
+      assert.match(String(retainedResponse.headers['cache-control']), /immutable/);
+    }
+    const entryResponse = await request(port, '/farming/crt/?token=farming-static-asset-test-token', authorization);
     assert.strictEqual(entryResponse.statusCode, 200);
-    assert.strictEqual(entryResponse.headers['cache-control'], 'no-cache');
+    assert.strictEqual(entryResponse.headers['cache-control'], 'no-store');
   } finally {
     await stop(child);
     fs.rmSync(configDir, { recursive: true, force: true });
     fs.rmSync(path.join(assetsDir, asset), { force: true });
+    fs.rmSync(path.join(retainedDir, retainedAsset), { force: true });
+    if (!retainedDirExisted) fs.rmdirSync(retainedDir);
     if (!assetsDirExisted) fs.rmdirSync(assetsDir);
   }
 }

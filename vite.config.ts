@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 import path from 'path'
+import { preserveFrontendAssets } from './scripts/preserve-frontend-assets'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -20,7 +21,13 @@ export default defineConfig(({ mode }) => {
         }
       },
     },
-    plugins: [react()],
+    plugins: [react(), {
+      name: 'preserve-frontend-assets',
+      apply: 'build',
+      async buildStart() {
+        await preserveFrontendAssets(__dirname)
+      },
+    }],
     define: {
       __FARMING_PACKAGE_VERSION__: JSON.stringify(packageJson.version || ''),
     },

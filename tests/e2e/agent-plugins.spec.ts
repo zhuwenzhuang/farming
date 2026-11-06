@@ -46,6 +46,70 @@ async function captureMobilePluginAudit(
   }
 }
 
+for (const outcome of ['failure', 'timeout'] as const) {
+test(`Plugins configuration editor load ${outcome} preserves navigation and drafts across appearances`, async ({ page, workspaceRoot }, testInfo) => {
+  const home = path.join(workspaceRoot, 'configuration-home')
+  fs.mkdirSync(home)
+  fs.writeFileSync(path.join(home, 'config.toml'), 'model = "fixture-model"\n')
+  const response = await page.request.post('/farming/api/settings', {
+    data: {
+      agentHomes: { codex: [
+        { id: 'work', path: home },
+      ] },
+    },
+  })
+  expect(response.ok()).toBeTruthy()
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+  let failModule: (() => Promise<void>) | undefined
+  await page.route(/\/assets\/FileEditorPane-[^/]+\.js(?:\?|$)/, route => {
+    failModule = () => route.abort('failed')
+  })
+  await openFarming(page)
+  let navigations = 0
+  page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations += 1 })
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  await panel.getByTestId('code-plugin-section-agent-codex-work')
+    .getByRole('button', { name: 'Edit configuration', exact: true }).click()
+  const fallback = page.getByTestId('code-file-editor-fallback-textarea')
+  const draft = 'model = "unsaved-fixture-model"\n'
+  await fallback.fill(draft)
+  await expect.poll(() => Boolean(failModule)).toBe(true)
+  if (outcome === 'failure') await failModule!()
+  const failure = page.getByTestId('code-file-editor-load-error')
+  await expect(failure).toBeVisible({ timeout: 20_000 })
+  if (outcome === 'timeout') await failModule!()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, theme) => { body.dataset.appearance = theme }, appearance)
+    await expect(fallback).toHaveValue(draft)
+    await expect(fallback).toHaveAttribute('readonly', '')
+    await expect(failure.getByRole('button', { name: 'Reload page', exact: true })).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath(`editor-load-failure-${appearance}.png`), animations: 'disabled' })
+  }
+  await page.getByTestId('code-nav-plugins').click()
+  await expect(panel.getByTestId('code-plugin-tab-homes')).toHaveAttribute('aria-selected', 'true')
+  await panel.getByTestId('code-plugin-section-agent-codex-work')
+    .getByRole('button', { name: 'Edit configuration', exact: true }).click()
+  await expect(failure).toBeVisible()
+  await expect(fallback).toHaveValue(draft)
+  expect(navigations).toBe(0)
+  expect(pageErrors).toEqual([])
+  expect(fs.readFileSync(path.join(home, 'config.toml'), 'utf8')).toBe('model = "fixture-model"\n')
+  await page.unroute(/\/assets\/FileEditorPane-[^/]+\.js(?:\?|$)/)
+  await failure.getByRole('button', { name: 'Reload page', exact: true }).click()
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await page.getByTestId('code-nav-plugins').click()
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  await panel.getByTestId('code-plugin-section-agent-codex-work')
+    .getByRole('button', { name: 'Edit configuration', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue())).toBe(draft)
+  await page.getByRole('button', { name: 'Save file' }).click()
+  await expect.poll(() => fs.readFileSync(path.join(home, 'config.toml'), 'utf8')).toBe(draft)
+})
+}
+
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
   await openFarming(page)
   const currentSettingsResponse = await page.request.get('/farming/api/settings')

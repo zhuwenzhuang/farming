@@ -1053,9 +1053,12 @@ app.get(routePath(BASE_PATH, '/vendor/material-icons/:iconId.svg'), (req, res) =
 app.use(
   routePath(BASE_PATH, '/assets'),
   express.static(path.join(staticAppDir, 'assets'), immutableAssetStaticOptions),
+  express.static(path.join(__dirname, '../.tmp/frontend-assets'), immutableAssetStaticOptions),
 );
 if (BASE_PATH) {
-  app.use('/assets', express.static(path.join(staticAppDir, 'assets'), immutableAssetStaticOptions));
+  app.use('/assets',
+    express.static(path.join(staticAppDir, 'assets'), immutableAssetStaticOptions),
+    express.static(path.join(__dirname, '../.tmp/frontend-assets'), immutableAssetStaticOptions));
   app.use('/farming-2', express.static(path.join(staticAppDir, 'farming-2'), { index: false }));
 }
 const crtEntryPath = routePath(BASE_PATH, '/crt');

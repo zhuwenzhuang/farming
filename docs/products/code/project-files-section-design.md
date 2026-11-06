@@ -52,6 +52,12 @@ pinning is monotonic. A newer different-file intent invalidates the older one.
 Only the current intent may mount its view, change focus or commit the main pane.
 Late results may refresh data but cannot override newer navigation.
 
+Loading the editor module has a 15-second deadline. A load failure stays inside
+the file surface, preserves the working-copy draft and surrounding navigation,
+and offers an explicit page reload. It never reloads automatically or replaces
+the whole workspace with an error page. The loading textarea becomes read-only
+on failure; it is not a supported substitute editor.
+
 Selection, keyboard focus and active editor identity are separate. The Explorer
 owns one selection surface; an active file cannot paint another selected row.
 Reveal changes navigation without reopening the file or changing its draft.
