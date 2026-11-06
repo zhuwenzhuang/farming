@@ -253,10 +253,10 @@ function setupComputerRoutes(page: Page, workspace: string) {
  * Creation opens the Computer viewer and marks the row active.
  */
 async function createDesktopThroughContextMenu(page: Page, agentRow: Locator) {
-  await expect(agentRow.getByTestId('code-agent-resources-toggle')).toHaveCount(0)
+  await expect(agentRow.getByTestId('code-agent-children-toggle')).toHaveCount(0)
   await agentRow.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Create Desktop in Docker (Experimental)' }).click()
-  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   await expect(resourcesToggle).toBeVisible({ timeout: 10_000 })
   // Row actions only take pointer events while the row is hovered.
   await agentRow.hover()

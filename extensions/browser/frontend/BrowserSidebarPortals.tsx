@@ -1,3 +1,4 @@
+import { useAgentSidebarDisclosure } from '@/components/code/AgentSidebarDisclosure'
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -9,8 +10,6 @@ import {
   PencilGlyph,
   PlusGlyph,
   SquareGlyph,
-  VisibilityGlyph,
-  VisibilityOffGlyph,
 } from '@/components/IconGlyphs'
 import type { ProjectGroup } from '@/components/code/types'
 import type { UiPreferences } from '@/lib/ui-preferences'
@@ -18,7 +17,6 @@ import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
 
 const COLLAPSED_KEY = 'farming.code.browserSectionsCollapsed.v1'
-const EXPANDED_RESOURCES_KEY = 'farming.code.agentResourcesExpanded.v1'
 
 function readCollapsed() {
   try {
@@ -34,23 +32,6 @@ function writeCollapsed(values: Set<string>) {
     localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...values]))
   } catch {
     // In-memory collapse state still works.
-  }
-}
-
-function readExpandedResources() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(EXPANDED_RESOURCES_KEY) || '[]')
-    return new Set(Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [])
-  } catch {
-    return new Set<string>()
-  }
-}
-
-function writeExpandedResources(values: Set<string>) {
-  try {
-    localStorage.setItem(EXPANDED_RESOURCES_KEY, JSON.stringify([...values]))
-  } catch {
-    // In-memory expansion state still works.
   }
 }
 
@@ -74,8 +55,6 @@ export function browserCopy(language: UiPreferences['language']) {
     transitionFailed: zh ? '标签页状态切换失败' : 'Tab transition failed',
     deleteFailed: zh ? '标签页关闭失败' : 'Failed to close tab',
     createFailed: zh ? '标签页创建失败' : 'Failed to create tab',
-    showResources: zh ? '显示 Agent 资源' : 'Show Agent resources',
-    hideResources: zh ? '隐藏 Agent 资源' : 'Hide Agent resources',
   }
 }
 
@@ -304,34 +283,6 @@ function BrowserSection({
   )
 }
 
-function AgentResourceToggle({
-  expanded,
-  copy,
-  onToggle,
-}: {
-  expanded: boolean
-  copy: BrowserCopy
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className="code-agent-row-action farming-agent-resources-toggle"
-      data-testid="code-agent-resources-toggle"
-      aria-expanded={expanded}
-      aria-label={expanded ? copy.hideResources : copy.showResources}
-      title={expanded ? copy.hideResources : copy.showResources}
-      onClick={event => {
-        event.preventDefault()
-        event.stopPropagation()
-        onToggle()
-      }}
-    >
-      {expanded ? <VisibilityOffGlyph /> : <VisibilityGlyph />}
-    </button>
-  )
-}
-
 function findAgentElement(agentId: string, testId: string) {
   return document.querySelector<HTMLElement>(
     `[data-testid="${testId}"][data-agent-id="${CSS.escape(agentId)}"]`,
@@ -368,15 +319,13 @@ export function BrowserSidebarPortals({
   const available = forceAvailable || browserAvailable || controller.resources.length > 0
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)
-  const [expandedResources, setExpandedResources] = useState(readExpandedResources)
+  const { expansion, setExpanded } = useAgentSidebarDisclosure()
   const refreshTargets = useCallback(() => {
     const next = new Map<string, HTMLElement>()
     for (const project of projects) {
       if (collapsedProjectIds.has(project.id)) continue
       for (const agent of project.agents) {
-        const action = findAgentElement(agent.id, 'code-agent-resource-action-slot')
         const content = findAgentElement(agent.id, 'code-agent-resource-slot')
-        if (action) next.set(`agent-action:${agent.id}`, action)
         if (content) next.set(`agent-content:${agent.id}`, content)
       }
     }
@@ -410,29 +359,13 @@ export function BrowserSidebarPortals({
     })
   }
 
-  const toggleAgentResources = (agentId: string) => {
-    setExpandedResources(current => {
-      const next = new Set(current)
-      if (next.has(agentId)) next.delete(agentId)
-      else next.add(agentId)
-      writeExpandedResources(next)
-      return next
-    })
-  }
-
   const activeBrowserOwnerAgentId = activeBrowserId
     ? controller.resources.find(resource => resource.id === activeBrowserId)?.ownerAgentId ?? ''
     : ''
 
   useEffect(() => {
     if (!activeBrowserId || !activeBrowserOwnerAgentId) return
-    setExpandedResources(current => {
-      if (current.has(activeBrowserOwnerAgentId)) return current
-      const next = new Set(current)
-      next.add(activeBrowserOwnerAgentId)
-      writeExpandedResources(next)
-      return next
-    })
+    setExpanded(activeBrowserOwnerAgentId, true)
     setCollapsed(current => {
       const sectionId = `agent:${activeBrowserOwnerAgentId}`
       if (!current.has(sectionId)) return current
@@ -441,7 +374,7 @@ export function BrowserSidebarPortals({
       writeCollapsed(next)
       return next
     })
-  }, [activeBrowserId, activeBrowserOwnerAgentId])
+  }, [activeBrowserId, activeBrowserOwnerAgentId, setExpanded])
 
   if (!available) return null
 
@@ -451,21 +384,9 @@ export function BrowserSidebarPortals({
         const resources = controller.byAgentId.get(agent.id) ?? []
         const hasAdditionalResources = additionalAgentResourceIds.has(agent.id)
         if (resources.length === 0 && !hasAdditionalResources) return []
-        const actionTarget = targets.get(`agent-action:${agent.id}`)
         const contentTarget = targets.get(`agent-content:${agent.id}`)
-        const expanded = expandedResources.has(agent.id)
+        const expanded = expansion[agent.id] === true
         const portals = []
-        if (actionTarget) {
-          portals.push(createPortal(
-            <AgentResourceToggle
-              expanded={expanded}
-              copy={copy}
-              onToggle={() => toggleAgentResources(agent.id)}
-            />,
-            actionTarget,
-            `browser-agent-toggle:${agent.id}`,
-          ))
-        }
         if (contentTarget && expanded) {
           portals.push(createPortal(
             <>

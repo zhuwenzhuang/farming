@@ -106,7 +106,7 @@ async function openBrowserViewer(page: Page, agentId: string, browserId: string)
     + `[data-testid="farming-browser-row"][data-browser-id="${browserId}"]`,
   )
   if (!(await resourceRow.count())) {
-    const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+    const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
     if (await resourcesToggle.count()) {
       await resourcesToggle.click()
       await resourceRow.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined)

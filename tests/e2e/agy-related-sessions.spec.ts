@@ -73,7 +73,7 @@ test('native children hide unavailable state and recover only from authoritative
   await expect(page.getByTestId('code-agent-chat-view')).toContainText('Four native children discovered.')
   const children = page.getByTestId('code-native-related-row')
   await expect(children).toHaveCount(0)
-  await expect(parent.getByTestId('code-agent-row-related-visibility')).toHaveCount(0)
+  await expect(parent.getByTestId('code-agent-children-toggle')).toHaveCount(0)
   await page.reload()
   await parent.locator('.code-agent-name').click()
   for (const appearance of ['light', 'dark', 'paper']) {
@@ -84,7 +84,7 @@ test('native children hide unavailable state and recover only from authoritative
     await page.evaluate(() => document.fonts.ready)
     await expect(children).toHaveCount(0)
     await expect(page.getByText('Status unavailable', { exact: true })).toHaveCount(0)
-    await expect(parent.getByTestId('code-agent-row-related-visibility')).toHaveCount(0)
+    await expect(parent.getByTestId('code-agent-children-toggle')).toHaveCount(0)
     const capture = await page.screenshot({ path: testInfo.outputPath(`agy-unavailable-hidden-${appearance}.png`), animations: 'disabled' })
     expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([1440, 900])
   }
@@ -120,7 +120,7 @@ test('native children hide unavailable state and recover only from authoritative
   await page.getByTestId('code-acp-composer-send').click()
   await expect(children).toHaveCount(0)
   await expect(panel).toHaveCount(0)
-  await expect(parent.getByTestId('code-agent-row-related-visibility')).toHaveCount(0)
+  await expect(parent.getByTestId('code-agent-children-toggle')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-chat-view')).toContainText('Four native children discovered.')
   available = true
   await page.getByTestId('code-acp-composer-input').fill('agy registry children')

@@ -38,6 +38,8 @@ or streaming paths must not create an independent file, browser, or desktop
 authority.
 Opening an Agent-owned Resource Viewer reveals that Agent's Resource rows in the
 sidebar and expands the selected Resource section so ownership stays visible.
+Resources and subagents share the Agent row's single core-owned visibility control;
+Extensions render resource content without adding a separate row-level toggle.
 
 File, Browser, and Computer viewers may show their exact owning Agent in a
 narrow right-side pane. The pane reuses the Agent's existing Chat or Terminal

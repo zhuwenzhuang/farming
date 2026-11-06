@@ -1,3 +1,4 @@
+import { AgentSidebarDisclosureProvider } from './code/AgentSidebarDisclosure'
 import { useSubagentOpening } from './code/useSubagentOpening'
 import { SubagentPreparation } from './code/SubagentPreparation'
 import type { ComposerDocument } from '../../shared/composer-document.js'
@@ -1362,6 +1363,10 @@ export function CodeWorkspace({
     agentListState.claimedAgentSessionKeys
   ), [agentListState.claimedAgentSessionKeys, projectListProjects, projectSessionLimits])
   const computerSectionAgentIds = existingComputerResourceAgentIds
+  const sidebarResourceAgentIds = useMemo(() => new Set([
+    ...browserResources.byAgentId.keys(),
+    ...computerSectionAgentIds,
+  ]), [browserResources.byAgentId, computerSectionAgentIds])
   const searchableProjects = useMemo(
     () => projectListProjectsForAgents(
       visibleLiveAgents,
@@ -5867,6 +5872,7 @@ export function CodeWorkspace({
         />
       ) : null}
       {!readOnly && <WorktreeCreationDialog controller={worktreeCreation} copy={copy} onOpenProject={openCreatedWorktreeProject} />}
+      <AgentSidebarDisclosureProvider resourceAgentIds={sidebarResourceAgentIds}>
       <CodeSidebar
         worktreeCreation={readOnly ? undefined : {
           statusByWorkspace: Object.fromEntries(Object.values(worktreeCreation.creations).map(creation => [creation.workspace,
@@ -6025,6 +6031,7 @@ export function CodeWorkspace({
         }}
       />
 
+      </AgentSidebarDisclosureProvider>
       <AgentHomesSettingsPanel
         open={settingsPanelOpen}
         activeAgentId={!agentOpeningBusy && activeView === 'projects' ? activeAgent?.id ?? null : null}

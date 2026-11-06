@@ -134,7 +134,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       if (mode === 'side') {
         const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceId}"]`)
         await parentRow.hover()
-        const disclosure = parentRow.getByTestId('code-agent-row-related-visibility')
+        const disclosure = parentRow.getByTestId('code-agent-children-toggle')
         await expect(disclosure).toBeVisible()
         if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click()
         await expect(disclosure).toHaveAttribute('aria-expanded', 'true')

@@ -69,7 +69,7 @@ test('keeps another Browser preview above the Composer beside the current Browse
 
   const currentBrowserId = await createBrowser('Current Browser')
   const previewBrowserId = await createBrowser('Other Browser')
-  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   await expect(resourcesToggle).toBeVisible({ timeout: 30_000 })
   if (await resourcesToggle.getAttribute('aria-expanded') !== 'true') await resourcesToggle.click()
   const browserSection = page.locator(

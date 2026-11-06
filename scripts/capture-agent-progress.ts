@@ -25,7 +25,7 @@ async function main() {
     const row = page.getByTestId('code-agent-row').and(page.locator(`[data-agent-id="${target.agentId}"]`));
     await row.click();
     await row.hover();
-    const toggle = row.getByTestId('code-agent-row-related-visibility');
+    const toggle = row.getByTestId('code-agent-children-toggle');
     if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
     const finished = page.getByTestId('code-native-related-finished');
     if (await finished.count() && await finished.getAttribute('open') === null) await finished.locator('summary').click();

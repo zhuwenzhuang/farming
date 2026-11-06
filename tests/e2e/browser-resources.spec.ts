@@ -359,7 +359,7 @@ async function createBrowserOwnerAgent(page: Page, workspace: string) {
 async function openAgentBrowserSection(page: Page, agentId: string) {
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await expect(agentRow).toBeVisible({ timeout: 30_000 })
-  const toggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const toggle = agentRow.getByTestId('code-agent-children-toggle')
   await agentRow.hover()
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
   return page.locator(`[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`)
@@ -437,7 +437,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await openNewAgentDialog(page)
   const agentId = await startAgentFromOpenDialog(page, 'bash', workspace)
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  const initialResourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const initialResourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   await expect(initialResourcesToggle).toHaveCount(0)
   await agentRow.click({ button: 'right' })
   const createBrowserMenuItem = page.getByRole('menuitem', { name: 'Create Browser' })
@@ -474,7 +474,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   expect(createResponse.ok()).toBeTruthy()
   const createdBrowser = await createResponse.json() as { id: string }
 
-  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   const rowActions = agentRow.locator('.code-agent-row-actions')
   await page.mouse.move(1000, 100)
   await agentRow.evaluate(element => (element as HTMLElement).blur())
@@ -757,7 +757,7 @@ test('folds active-Agent Browser previews into the shared activity dock and open
   await expect(previewCards).toHaveCount(2)
   await expect(previewCards.locator('.farming-browser-activity-frame')).toHaveCount(0)
   await expect.poll(activePreviewResourceIds).toEqual([])
-  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'false')
   const firstBrowserCard = preview.locator(`[data-browser-resource-id="${createdBrowser.id}"]`)
   const secondBrowserCard = preview.locator(`[data-browser-resource-id="${secondBrowserId}"]`)
@@ -886,7 +886,7 @@ test('removes terminated Browser activity without confusing owner, reconnect, or
   await ownerRow.click()
   await expect(activityCard).toBeVisible()
 
-  const resourcesToggle = ownerRow.getByTestId('code-agent-resources-toggle')
+  const resourcesToggle = ownerRow.getByTestId('code-agent-children-toggle')
   if (await resourcesToggle.getAttribute('aria-expanded') !== 'true') await resourcesToggle.click()
   const browserRow = page.locator(
     `[data-testid="farming-browser-row"][data-browser-id="${resource.id}"]`,

@@ -453,6 +453,17 @@ main-page Session, including pinned rows.
 
 ## Sidebar Disclosure And Reordering
 
+Each Agent row has at most one visibility control for its nested Resources and
+subagents, including native related Sessions. Core owns one browser-local
+expanded state per Agent; the row action and context menu change it together.
+Resource arrival never adds a second control. Resources start collapsed; first
+subagent discovery expands an Agent only when no choice has been recorded.
+Explicit show/hide choices survive reload and later child discovery. Opening a
+Browser Viewer reveals the same shared group. Hiding it does not stop Resources,
+cancel subagents, or close the current view; empty groups expose no control.
+Resource sections retain their own inner disclosure. Storage failure preserves
+the in-memory choice, and simultaneous events resolve in UI event order.
+
 Project titles and single-line Agent rows share navigation row height and vertical
 spacing, including compact touch targets. A collapsed Project renders only its
 title and applicable actions: branch/worktree metadata and the Agent-list

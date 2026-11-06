@@ -2229,7 +2229,7 @@ async function main() {
           await ensureApp(page);
           await openAgent(page, codexAgentId);
           const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`).first();
-          const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle');
+          const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle');
           await resourcesToggle.waitFor({ state: 'visible', timeout: 20_000 });
           if (await resourcesToggle.getAttribute('aria-expanded') !== 'true') {
             await resourcesToggle.evaluate(element => (element as HTMLButtonElement).click());

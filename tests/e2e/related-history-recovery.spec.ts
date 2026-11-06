@@ -56,7 +56,7 @@ test('keeps parent activity visible while child history fails, recovers and page
   await expect(recent.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'processing')
   const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await parentRow.hover()
-  const disclosure = parentRow.getByTestId('code-agent-row-related-visibility')
+  const disclosure = parentRow.getByTestId('code-agent-children-toggle')
   await expect(disclosure).toBeVisible()
   if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click()
   await expect(disclosure).toHaveAttribute('aria-expanded', 'true')

@@ -45,7 +45,7 @@ test('parent and child keep progress readable across unavailable receipts, settl
     await page.reload()
     await parentRow.click()
     await parentRow.hover()
-    const disclosure = parentRow.getByTestId('code-agent-row-related-visibility')
+    const disclosure = parentRow.getByTestId('code-agent-children-toggle')
     if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click()
     const finished = page.getByTestId('code-native-related-finished')
     if (await finished.getAttribute('open') === null) await finished.locator('summary').click()

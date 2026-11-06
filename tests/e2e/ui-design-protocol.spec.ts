@@ -160,7 +160,7 @@ test('resources can expand on initial phone load, after reload and across widths
   await expect(viewer).toBeVisible()
   await viewer.getByRole('button', { name: 'Back to Agent' }).click()
   await openDrawer(page)
-  const toggle = agent.getByTestId('code-agent-resources-toggle')
+  const toggle = agent.getByTestId('code-agent-children-toggle')
   const section = page.getByTestId('farming-computer-section')
   for (const theme of appearances) {
     await appearance(page, theme)

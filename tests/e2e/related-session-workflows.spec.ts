@@ -140,7 +140,7 @@ test('quotes spreadsheet and side-chat results without losing drafts or sending 
     const childRow = page.locator('[data-testid="code-agent-row"].related-child')
     await expect(childRow).toBeVisible()
     await parentRow.hover()
-    const visibility = parentRow.getByTestId('code-agent-row-related-visibility')
+    const visibility = parentRow.getByTestId('code-agent-children-toggle')
     await visibility.click()
     await expect(childRow).toBeHidden()
     await expect(pane).toBeVisible()

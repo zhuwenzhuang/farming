@@ -83,7 +83,7 @@ test('captures multiple native Agents with independent states', async ({ page, w
       const sidebar = page.getByTestId('code-project-group').filter({ hasText: 'parser-workspace' })
       await expect(sidebar).toBeVisible()
       await sidebar.screenshot({ path: testInfo.outputPath(`sidebar-${scenario.appearance}.png`), animations: 'disabled' })
-      const eye = parentRow.getByTestId('code-agent-row-related-visibility')
+      const eye = parentRow.getByTestId('code-agent-children-toggle')
       const actions = parentRow.locator('.code-agent-row-actions')
       await expect(actions).toHaveCSS('opacity', '0')
       await parentRow.hover()

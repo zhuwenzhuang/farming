@@ -27,7 +27,7 @@ test('hides the Desktop section when Computer Use is disabled', async ({ page, w
   expect(browserResponse.ok()).toBeTruthy()
 
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   await agentRow.hover()
   await expect(resourcesToggle).toBeVisible()
   await resourcesToggle.click()

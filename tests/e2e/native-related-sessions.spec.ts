@@ -212,13 +212,13 @@ for (const width of [1440, 390]) {
 
     if (width < 600) {
       const parentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-      await expect(parentRow.getByTestId('code-agent-row-related-visibility')).toBeHidden()
+      await expect(parentRow.getByTestId('code-agent-children-toggle')).toBeVisible()
       await parentRow.getByTestId('code-agent-row-more').click()
-      await page.getByRole('menuitem', { name: 'Hide subagents', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Hide resources and subagents', exact: true }).click()
       await expect(row).toBeHidden()
       await expect(page.getByTestId('code-agent-context-menu')).toBeHidden()
       await parentRow.getByTestId('code-agent-row-more').click()
-      await page.getByRole('menuitem', { name: 'Show subagents', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Show resources and subagents', exact: true }).click()
       await expect(row).toBeVisible()
     }
 

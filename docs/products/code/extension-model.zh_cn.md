@@ -34,6 +34,8 @@ Viewer Access 必须经过同一个已授权 Resource Identity。Preview 或 Str
 独立的 File、Browser 或 Desktop Authority。
 打开 Agent 所拥有的 Resource Viewer 时，Sidebar 必须显示该 Agent 的 Resource Row，
 并展开所选 Resource Section，使 Ownership 保持可见。
+Resource 与子 Agent 共用 Agent 行上由 Core 拥有的唯一可见性开关；
+Extension 渲染资源内容，不再添加独立的行级开关。
 
 File、Browser 和 Computer Viewer 可在右侧窄栏中显示其精确归属的 Agent。窄栏直接复用
 该 Agent 现有的 Chat 或 Terminal 与 Composer，但不提供 Chat/Terminal Runtime 切换；

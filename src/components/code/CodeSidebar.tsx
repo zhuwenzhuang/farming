@@ -1,3 +1,4 @@
+import { useAgentSidebarDisclosure } from './AgentSidebarDisclosure'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { pendingAgentQuestions, revealQuestions } from './acp/acp-elicitation-presentation'
@@ -393,15 +394,6 @@ export function CodeSidebar({
   onRenameInstance,
   copy,
 }: CodeSidebarProps) {
-  const [collapsedRelatedRows, setCollapsedRelatedRows] = useState<ReadonlySet<string>>(() => new Set())
-  const toggleRelatedRows = useCallback((key: string) => {
-    setCollapsedRelatedRows(current => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }, [])
   const [agentPreview, setAgentPreview] = useState<(AgentPreviewTarget & {
     anchor: HTMLElement
     branch: string
@@ -749,8 +741,6 @@ export function CodeSidebar({
       selected: relatedSession,
       onOpen: onOpenRelatedSession,
       onOpenSubagent,
-      collapsed: collapsedRelatedRows,
-      toggleCollapsed: toggleRelatedRows,
     }}>
     <aside
       ref={navigationDialogRef}
@@ -3023,9 +3013,7 @@ const RelatedSidebarRows = createContext<{
   selected?: RelatedSessionTarget | null
   onOpen?: (target: RelatedSessionTarget) => void
   onOpenSubagent?: (agentId: string) => void
-  collapsed: ReadonlySet<string>
-  toggleCollapsed?: (key: string) => void
-}>({ agents: [], activeId: null, collapsed: new Set() })
+}>({ agents: [], activeId: null })
 
 function AgentRow({
   agent,
@@ -3085,6 +3073,19 @@ function AgentRow({
   const relatedRowsId = useId()
   const draggedRef = useRef(false)
   const liveAgent = useAgentWithLiveState(agent)
+  const disclosure = useAgentSidebarDisclosure()
+  const childAgents = liveAgent?.providerSessionKey && !liveAgent.subagentParentSessionKey
+    ? relatedRows.agents.filter(child => child.subagentParentSessionKey === liveAgent.providerSessionKey) : []
+  const hasRelatedRows = childAgents.length > 0 || Boolean(liveAgent?.providerSessionKey && nativeChildrenSession === liveAgent.providerSessionKey)
+  const hasResources = Boolean(liveAgent && disclosure.resourceAgentIds.has(liveAgent.id))
+  const expanded = liveAgent ? disclosure.expansion[liveAgent.id] === true : false
+  const { setExpanded } = disclosure
+  const disclosureAgentId = liveAgent?.id
+  useLayoutEffect(() => {
+    // Discovering children preserves their default visibility, but never overrides
+    // an explicit choice made for this Agent's resources or earlier children.
+    if (disclosureAgentId && hasRelatedRows) setExpanded(disclosureAgentId, true, true)
+  }, [disclosureAgentId, hasRelatedRows, setExpanded])
   const backing = liveAgent
     ? { kind: 'agent' as const, agent: liveAgent }
     : session
@@ -3116,14 +3117,10 @@ function AgentRow({
     && canForkAgentConversation(liveAgent)
     && relatedRows.onOpenSubagent,
   )
-  const childAgents = liveAgent?.providerSessionKey && !liveAgent.subagentParentSessionKey
-    ? relatedRows.agents.filter(child => child.subagentParentSessionKey === liveAgent.providerSessionKey) : []
-  const relatedKey = JSON.stringify([liveAgent?.id, liveAgent?.providerSessionKey])
-  const relatedCollapsed = relatedRows.collapsed.has(relatedKey)
-  const hasRelatedRows = childAgents.length > 0 || Boolean(liveAgent?.providerSessionKey && nativeChildrenSession === liveAgent.providerSessionKey)
-  const relatedVisibility: RelatedRowsVisibility | undefined = hasRelatedRows ? {
+  const relatedCollapsed = !expanded
+  const relatedVisibility: RelatedRowsVisibility | undefined = liveAgent && (hasRelatedRows || hasResources) ? {
     collapsed: relatedCollapsed,
-    toggle: () => relatedRows.toggleCollapsed?.(relatedKey),
+    toggle: () => setExpanded(liveAgent.id, !expanded),
   } : undefined
   const prepareLiveChat = () => {
     if (!liveAgent || !isAcpRuntime(liveAgent)) return
@@ -3326,20 +3323,13 @@ function AgentRow({
         )}
         {(agent || session) && (
           <span className={`code-agent-row-actions ${session ? 'session' : ''}`} aria-hidden={false}>
-            {liveAgent && (
-              <span
-                className="code-agent-resource-action-slot"
-                data-testid="code-agent-resource-action-slot"
-                data-agent-id={liveAgent.id}
-              />
-            )}
             {relatedVisibility && (
               <button
                 type="button"
-                className="code-agent-row-action"
-                data-testid="code-agent-row-related-visibility"
+                className="code-agent-row-action code-agent-children-toggle"
+                data-testid="code-agent-children-toggle"
                 aria-expanded={!relatedCollapsed}
-                aria-controls={relatedRowsId}
+                aria-controls={`${relatedRowsId} ${relatedRowsId}-resources`}
                 aria-label={relatedCollapsed ? copy.showRelatedAgents : copy.hideRelatedAgents}
                 title={relatedCollapsed ? copy.showRelatedAgents : copy.hideRelatedAgents}
                 onClick={event => {
@@ -3421,6 +3411,7 @@ function AgentRow({
     </div>
     {liveAgent && (
       <div
+        id={`${relatedRowsId}-resources`}
         className="code-agent-resource-slot"
         data-testid="code-agent-resource-slot"
         data-agent-id={liveAgent.id}
