@@ -12,6 +12,215 @@ const longDraft = `你来做一个长任务
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } })
 
+for (const appearance of ['light', 'dark', 'paper']) {
+  test(`mobile Chat recovers a native caret at the non-editable input boundary (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
+    test.setTimeout(90_000)
+    await page.request.post('/farming/api/settings', { data: { appearance, language: 'en' } })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    await openFarming(page)
+    await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const input = page.getByTestId('code-acp-composer-input')
+    const modifier = await page.evaluate(() => /Mac|iP(hone|ad|od)/.test(navigator.platform) ? 'Meta' : 'Control')
+    for (const expanded of [false, true]) {
+      if (expanded) await page.getByTestId('code-composer-editor-toggle').click()
+      for (const format of ['empty', 'paragraph', 'list', 'code']) {
+        for (const edge of ['start', 'end'] as const) {
+          // Prepare a committed document fixture. Native deletion is exercised
+          // separately, rather than becoming part of this recovery precondition.
+          await input.evaluate(element => {
+            const owner = element.parentElement as ComposerInputElement
+            owner.value = ''
+            owner.focus({ preventScroll: true })
+          })
+          await expectValue(input, '')
+          const text = format === 'empty' ? '' : '首🐱行\n尾🧪行'
+          if (text) {
+            await input.evaluate((element, { format, text }) => {
+              const data = new DataTransfer()
+              data.setData('text/plain', text)
+              data.setData('text/html', format === 'code' ? `<pre><code>${text}</code></pre>`
+                : format === 'list' ? '<ul><li><p>首🐱行</p></li><li><p>尾🧪行</p></li></ul>'
+                  : '<p><strong>首🐱行</strong></p><p><em>尾🧪行</em></p>')
+              element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+            }, { format, text })
+            await expectValue(input, text)
+          }
+          // Deliberately retain a different model position. The DOM edge, not the
+          // stale model caret, must determine where typing continues.
+          await selectText(input, text ? 1 : 0, text ? 1 : 0)
+          // Inject the native dead state, not an emulation of UIKit's gesture:
+          // selection is in the shell while the editable child retains focus.
+          await input.evaluate((element, edge) => {
+            const shell = element.parentElement!
+            window.getSelection()!.collapse(shell, edge === 'start' ? 0 : shell.childNodes.length)
+          }, edge)
+          await expect(input).toBeFocused()
+          await page.keyboard.insertText('继续')
+          const edited = edge === 'start' ? `继续${text}` : `${text}继续`
+          await expectValue(input, edited)
+          // Structured paste closes the history group; an empty fixture reset
+          // does not, so only those cases have a separate insertion to undo.
+          if (text) {
+            await page.keyboard.press(`${modifier}+z`)
+            await expectValue(input, text)
+            if (format === 'code') await expect(input.locator('pre code')).toHaveText(text)
+            if (format === 'list') await expect(input.locator('li')).toHaveCount(2)
+            if (format === 'paragraph') await expect(input.locator('strong')).toHaveText('首🐱行')
+            await page.keyboard.press(`${modifier}+Shift+z`)
+            await expectValue(input, edited)
+          }
+        }
+      }
+      const screenshot = await page.getByTestId('code-acp-composer').screenshot({
+        path: testInfo.outputPath(`caret-boundary-${appearance}-${expanded ? 'expanded' : 'compact'}.png`),
+        animations: 'disabled',
+      })
+      expect(screenshot.readUInt32BE(16)).toBeGreaterThan(100)
+      expect(screenshot.readUInt32BE(20)).toBeGreaterThan(40)
+    }
+  })
+}
+
+test('mobile Chat caret repair preserves native selection and composition ownership', async ({ page, workspaceRoot }) => {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  await openFarming(page)
+  await page.getByTestId('code-mobile-menu').click()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('输入边界')
+  await expectValue(input, '输入边界')
+  await selectText(input, 1, 3)
+  await page.keyboard.insertText('替换')
+  await expectValue(input, '输替换界')
+
+  // A native range spanning the shell is a selection for copying, not a caret.
+  expect(await input.evaluate(async element => {
+    const shell = element.parentElement!
+    const range = document.createRange()
+    range.selectNodeContents(shell)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    return { anchorIsShell: selection.anchorNode === shell, collapsed: selection.isCollapsed, text: selection.toString().trim() }
+  })).toEqual({ anchorIsShell: true, collapsed: false, text: '输替换界' })
+
+  // Even while the editor retains focus, a selection outside its own surface
+  // belongs to the page and must not be pulled back into the input.
+  expect(await input.evaluate(element => {
+    const selection = window.getSelection()!
+    selection.collapse(document.body, 0)
+    document.dispatchEvent(new Event('selectionchange'))
+    return { outside: selection.anchorNode === document.body, focused: document.activeElement === element }
+  })).toEqual({ outside: true, focused: true })
+
+  await selectText(input, 0, 0)
+  await input.dispatchEvent('compositionstart')
+  expect(await input.evaluate(element => {
+    const shell = element.parentElement!
+    window.getSelection()!.collapse(shell, shell.childNodes.length)
+    document.dispatchEvent(new Event('selectionchange'))
+    return window.getSelection()!.anchorNode === shell
+  })).toBe(true)
+  await input.dispatchEvent('compositionend')
+  await page.keyboard.insertText('中文')
+  await expectValue(input, '输替换界中文')
+
+  // beforeinput must reconcile synchronously if selectionchange has not arrived.
+  expect(await input.evaluate(element => {
+    const shell = element.parentElement!
+    window.getSelection()!.collapse(shell, 0)
+    element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '首', bubbles: true }))
+    return element.contains(window.getSelection()!.anchorNode)
+  })).toBe(true)
+  await page.keyboard.insertText('首')
+  await expectValue(input, '首输替换界中文')
+
+  // Starting IME is also an admission boundary, before ProseMirror owns its DOM.
+  expect(await input.evaluate(element => {
+    const shell = element.parentElement!
+    window.getSelection()!.collapse(shell, shell.childNodes.length)
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    return element.contains(window.getSelection()!.anchorNode)
+  })).toBe(true)
+  await input.dispatchEvent('compositionend')
+  await page.keyboard.insertText('尾')
+  await expectValue(input, '首输替换界中文尾')
+
+  // compositionend may arrive before the DOM observer has committed its final
+  // text. Repair must not redraw the stale model over that pending native edit.
+  await input.fill('初')
+  await expectValue(input, '初')
+  await input.dispatchEvent('compositionstart')
+  await input.evaluate(element => {
+    const text = element.querySelector('p')!.firstChild!
+    text.textContent = '初中文'
+    const shell = element.parentElement!
+    window.getSelection()!.collapse(shell, shell.childNodes.length)
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中文' }))
+  })
+  await expectValue(input, '初中文')
+  await page.keyboard.insertText('续')
+  await expectValue(input, '初中文续')
+
+  const toggle = page.getByTestId('code-composer-editor-toggle')
+  await toggle.focus()
+  expect(await input.evaluate(element => {
+    const shell = element.parentElement!
+    window.getSelection()!.collapse(shell, 0)
+    document.dispatchEvent(new Event('selectionchange'))
+    return window.getSelection()!.anchorNode === shell
+  })).toBe(true)
+  await expect(toggle).toBeFocused()
+})
+
+for (const runtime of ['chat', 'terminal'] as const) {
+  test(`mobile ${runtime} cursor boundaries keep accepting input`, async ({ page, workspaceRoot }) => {
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: runtime === 'chat' ? 'codex' : 'bash', workspace: workspaceRoot, agentRuntimeMode: runtime },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+    await openFarming(page)
+    await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const input = page.getByTestId(runtime === 'chat' ? 'code-acp-composer-input' : 'code-composer-input')
+    await expect(input).toBeEditable()
+    for (const text of ['', '边界测试', '第一行\n最后一行']) {
+      for (const direction of ['left', 'right'] as const) {
+        await input.fill(text)
+        await expectValue(input, text)
+        await selectText(input, direction === 'left' ? 0 : text.length, direction === 'left' ? 0 : text.length)
+        for (let i = 0; i < 4; i++) await page.keyboard.press(direction === 'left' ? 'ArrowLeft' : 'ArrowRight')
+        await expect(input).toBeFocused()
+        // Do not refocus the input: the next native insertion must work as-is.
+        await page.keyboard.insertText('继续')
+        await expectValue(input, direction === 'left' ? `继续${text}` : `${text}继续`)
+        if (runtime === 'chat') {
+          await input.fill(text)
+          await expectValue(input, text)
+          await selectText(input, direction === 'left' ? 0 : text.length, direction === 'left' ? 0 : text.length)
+          await input.evaluate((_element, direction) => {
+            for (let i = 0; i < 4; i++) window.getSelection()!.modify('move', direction, 'character')
+          }, direction)
+          await page.keyboard.insertText('继续')
+          await expectValue(input, direction === 'left' ? `继续${text}` : `${text}继续`)
+        }
+      }
+    }
+  })
+}
+
 for (const runtime of ['chat', 'terminal'] as const) {
   test(`mobile ${runtime} long input scrolls and expands without replacing its draft`, async ({ page, workspaceRoot, browserName }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'join-research')

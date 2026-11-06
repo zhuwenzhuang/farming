@@ -130,6 +130,12 @@ The rich editor grows with its content up to the shared height limit, then scrol
 typing must not collapse its height for textarea-style measurement.
 Programmatic focus synchronizes the browser caret with the editor selection
 before accepting more input; focusing an already focused editor leaves IME intact.
+While the rich editor retains focus, a collapsed native caret immediately outside
+its editable document in the input's scrolling shell is reconciled to the nearest
+document boundary before further input. This does not edit the draft, add an undo
+step, or reclaim focus. Native text ranges, selections outside that input surface
+and active composition retain their existing owners.
+Composition completion commits its native text before boundary reconciliation.
 Only an empty editor document shows the placeholder. Text beside a line break
 remains content, including during paste, undo and recovery.
 
