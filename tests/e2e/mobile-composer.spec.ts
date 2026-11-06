@@ -196,10 +196,23 @@ for (const runtime of ['chat', 'terminal'] as const) {
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
     const input = page.getByTestId(runtime === 'chat' ? 'code-acp-composer-input' : 'code-composer-input')
     await expect(input).toBeEditable()
+    const prepareDraft = async (text: string) => {
+      if (runtime === 'chat') {
+        // Reset through the structured document owner, as in the native-caret
+        // fixtures above. Locator.fill('') does not settle Lexical deletion.
+        await input.evaluate((element, value) => {
+          const owner = element.parentElement as ComposerInputElement
+          owner.value = value
+          owner.focus({ preventScroll: true })
+        }, text)
+      } else {
+        await input.fill(text)
+      }
+      await expectValue(input, text)
+    }
     for (const text of ['', '边界测试', '第一行\n最后一行']) {
       for (const direction of ['left', 'right'] as const) {
-        await input.fill(text)
-        await expectValue(input, text)
+        await prepareDraft(text)
         await selectText(input, direction === 'left' ? 0 : text.length, direction === 'left' ? 0 : text.length)
         for (let i = 0; i < 4; i++) await page.keyboard.press(direction === 'left' ? 'ArrowLeft' : 'ArrowRight')
         await expect(input).toBeFocused()
@@ -207,8 +220,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
         await page.keyboard.insertText('继续')
         await expectValue(input, direction === 'left' ? `继续${text}` : `${text}继续`)
         if (runtime === 'chat') {
-          await input.fill(text)
-          await expectValue(input, text)
+          await prepareDraft(text)
           await selectText(input, direction === 'left' ? 0 : text.length, direction === 'left' ? 0 : text.length)
           await input.evaluate((_element, direction) => {
             for (let i = 0; i < 4; i++) window.getSelection()!.modify('move', direction, 'character')
@@ -216,6 +228,11 @@ for (const runtime of ['chat', 'terminal'] as const) {
           await page.keyboard.insertText('继续')
           await expectValue(input, direction === 'left' ? `继续${text}` : `${text}继续`)
         }
+        // Native selection/deletion is its own observable action, not hidden
+        // inside fixture setup for the next boundary.
+        await selectText(input, 0, text.length + '继续'.length)
+        await page.keyboard.press('Backspace')
+        await expectValue(input, '')
       }
     }
   })
