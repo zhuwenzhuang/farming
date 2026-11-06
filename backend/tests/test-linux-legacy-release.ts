@@ -57,7 +57,7 @@ function run() {
     );
     assert(packageScript.includes('FARMING_GLIBC_RUNTIME_ROOT'));
     assert(packageScript.includes('FARMING_GLIBC_RUNTIME_CACHE'));
-    assert(packageScript.includes('Cached glibc runtime checksum mismatch'));
+    execFileSync('python3', ['-B', path.join(process.cwd(), 'scripts/tests/test-glibc-runtime.py')], { stdio: 'pipe' });
     assert(packageScript.includes('--library-path'));
     assert(packageScript.includes('FARMING_RELEASE_UPDATE_METHOD:-$(if glibc_runtime_requested; then printf \'npm\''));
     assert(packageScript.includes('set -- daemon'));

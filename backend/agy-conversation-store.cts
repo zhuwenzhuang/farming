@@ -447,10 +447,18 @@ export function didAgyCurrentTurnCompleteCleanly(
   }
 }
 
-// agy print results can report a conversation-wide historical error even when
-// the newly admitted turn completed. Reconcile only an exact native error from
-// before admission; a matching message alone is never completion evidence.
-export async function isAgyHistoricalResultError(
+function isRecoverableAgyTransportError(error: unknown): boolean {
+  if (typeof error !== 'string') return false;
+  // Never reinterpret account, model, protocol or tool failures as recovered
+  // merely because the CLI also persisted a later explanatory response.
+  if (/\b(?:401|402|403|429|unauthorized|authentication|billing|quota|usage.limit|rate.limit|model.not.found|invalid.api.key)\b/i.test(error)) return false;
+  return /\b(?:ECONNRESET|ECONNABORTED|EPIPE|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b|connection reset by peer|socket hang up|stream idle timeout|stream disconnected before completion|connection (?:timed out|closed unexpectedly)/i.test(error);
+}
+
+// Print results can retain an earlier error after native recovery. Reconcile
+// against this admission's exact, completed native turn after clean CLI exit;
+// this is observation, never another prompt or a transport-driven replay.
+export async function isAgySupersededResultError(
   agyHomePath: string,
   conversationId: string,
   previousUserStepIndex: number | null,
@@ -465,12 +473,15 @@ export async function isAgyHistoricalResultError(
     db = new sqlite.DatabaseSync(path.join(agyHomePath, 'conversations', `${conversationId}.db`), { readOnly: true, timeout: 1000 });
     const latestUser = db.prepare('SELECT MAX(idx) AS idx FROM steps WHERE step_type = 14').get()?.idx;
     if (typeof latestUser !== 'number' || latestUser <= previousUserStepIndex) return false;
-    // Even a completed response cannot hide an error or unfinished tool in this
-    // turn. This is deliberately stricter than the generic stream-interruption
-    // reconciliation, where the model may have recovered within the same turn.
-    if (db.prepare('SELECT idx FROM steps WHERE idx > ? AND (step_type = 17 OR status != 3) LIMIT 1').get(latestUser)) return false;
-    const historicalErrors = new Set(db.prepare('SELECT idx FROM steps WHERE step_type = 17 AND idx < ?').all(latestUser).map(row => row.idx));
-    if (!historicalErrors.size) return false;
+    // A second writer/input cannot lend its completion to this prompt.
+    if (db.prepare('SELECT idx FROM steps WHERE step_type = 14 AND idx > ? LIMIT 2').all(previousUserStepIndex).length !== 1) return false;
+    const turnSteps = db.prepare('SELECT idx, step_type, status FROM steps WHERE idx > ? ORDER BY idx').all(latestUser);
+    if (turnSteps.some(step => step.status !== 3)) return false;
+    const lastStep = turnSteps.at(-1);
+    if (lastStep?.step_type !== 15) return false;
+    const nativeErrors = new Set(db.prepare('SELECT idx FROM steps WHERE step_type = 17').all().map(row => row.idx));
+    if (!nativeErrors.size) return false;
+    const currentErrors = new Set(turnSteps.filter(step => step.step_type === 17).map(step => step.idx));
     transcript = await fs.promises.open(path.join(agyHomePath, 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'), 'r');
     const stat = await transcript.stat();
     // Missing, oversized or partially written evidence leaves the failure intact.
@@ -482,21 +493,32 @@ export async function isAgyHistoricalResultError(
       if (!bytesRead) return false;
       offset += bytesRead;
     }
-    let matchedHistoricalError = false;
+    let matchedError = false;
     let currentInputRecorded = false;
+    let completedResponseRecorded = false;
+    const recordedCurrentErrors = new Set<number>();
     for (const line of buffer.toString('utf8').split(/\r?\n/)) {
       if (!line.trim()) continue;
       const entry = JSON.parse(line) as Record<string, unknown>;
       if (entry.type === 'USER_INPUT' && entry.step_index === latestUser) currentInputRecorded = true;
+      if (entry.type === 'PLANNER_RESPONSE' && entry.step_index === lastStep.idx && entry.status === 'DONE'
+        && typeof entry.content === 'string' && entry.content.trim()
+        && (entry.tool_calls == null || (Array.isArray(entry.tool_calls) && entry.tool_calls.length === 0))) completedResponseRecorded = true;
       if (entry.type !== 'ERROR_MESSAGE') continue;
-      if (typeof entry.step_index !== 'number' || entry.step_index >= latestUser) return false;
-      if (historicalErrors.has(entry.step_index) && entry.error === error) matchedHistoricalError = true;
+      if (typeof entry.step_index !== 'number' || !nativeErrors.has(entry.step_index)) return false;
+      if (entry.step_index > latestUser) {
+        if (!currentErrors.has(entry.step_index) || !isRecoverableAgyTransportError(entry.error)) return false;
+        recordedCurrentErrors.add(entry.step_index);
+      }
+      if (entry.error === error) matchedError = true;
     }
     // Recheck the admission boundary after asynchronous I/O; another writer must
     // not lend its completion to the result being reconciled.
-    return matchedHistoricalError && currentInputRecorded
+    return matchedError && currentInputRecorded
+      && (currentErrors.size === 0 || completedResponseRecorded)
+      && recordedCurrentErrors.size === currentErrors.size
       && readAgyLatestUserStepIndex(agyHomePath, conversationId) === latestUser
-      && !db.prepare('SELECT idx FROM steps WHERE idx > ? AND (step_type = 17 OR status != 3) LIMIT 1').get(latestUser)
+      && JSON.stringify(db.prepare('SELECT idx, step_type, status FROM steps WHERE idx > ? ORDER BY idx').all(latestUser)) === JSON.stringify(turnSteps)
       && didAgyCurrentTurnCompleteCleanly(agyHomePath, conversationId, previousUserStepIndex);
   } catch {
     return false;

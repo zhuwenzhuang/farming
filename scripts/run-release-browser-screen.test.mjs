@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -209,4 +209,46 @@ test('CRT transcript projection, Pi launch fixture and menu contract regressions
     assert.deepEqual(plan.unmapped, []);
     assert(plan.lanes.some(lane => lane.script === 'release:fast-screen:ui-contract-oracles'));
   }
+});
+
+test('opening, native child state, rich content, paths and model isolation select their actual browser scenarios', async () => {
+  const owners = [
+    ['agent-opening', 'agent-opening-flow.spec.ts', [
+      'src/components/code/AgentOpeningPane.tsx', 'src/components/code/useAgentOpeningController.ts',
+      'tests/e2e/agent-opening-flow.spec.ts']],
+    ['agy-children', 'agy-related-sessions.spec.ts', [
+      'src/components/code/NativeRelatedRows.tsx', 'src/components/code/RelatedSessionPanel.tsx',
+      'src/components/code/related-session-status.ts']],
+    ['crt-markdown', 'crt-markdown.spec.ts', ['src/crt-markdown-renderer.tsx']],
+    ['rich-content', 'mermaid-streaming-stability.spec.ts', [
+      'src/components/files/FileEditorMarkdownPreview.tsx', 'tests/e2e/mermaid-streaming-stability.spec.ts',
+      'tests/e2e/rich-content-viewer.spec.ts']],
+    ['path-navigation', 'path-link-navigation.spec.ts', [
+      'src/lib/transcript-file-links.ts', 'src/lib/workspace-open-files.ts', 'tests/e2e/path-link-navigation.spec.ts']],
+    ['path-navigation', 'terminal-regression-matrix.spec.ts', ['tests/e2e/terminal-regression-matrix.spec.ts']],
+    ['path-navigation', 'file-editor-reveal.spec.ts', [
+      'src/components/code/CodeSidebar.tsx', 'src/components/code/workspace-derived.ts', 'tests/e2e/file-editor-reveal.spec.ts']],
+    ['path-navigation', 'external-file-project.spec.ts', ['tests/e2e/external-file-project.spec.ts']],
+    ['model-isolation', 'model-matrix.spec.ts', ['tests/e2e/model-matrix.spec.ts']],
+  ];
+  const { scripts } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const [name, scenario, files] of owners) {
+    for (const file of files) {
+      const plan = selectBrowserScreen([file]);
+      assert.deepEqual(plan.unmapped, [], file);
+      const lane = plan.lanes.find(lane => lane.name === name);
+      assert(lane, `${file} must run its ${name} owner`);
+      assert(scripts[lane.script].includes(`tests/e2e/${scenario}`), `${name} must execute ${scenario}`);
+    }
+  }
+  assert(scripts['release:fast-screen:rich-content'].includes('tests/e2e/rich-content-viewer.spec.ts'));
+  assert(scripts['release:fast-screen:model-isolation'].includes('changing a Chat model preserves'));
+  assert(scripts['release:fast-screen:path-navigation'].includes('desktop terminal handles copy, links, and editor integration'));
+  assert(scripts['release:fast-screen:path-navigation'].includes('exact external files'));
+  assert(scripts['release:fast-screen:path-navigation'].includes('nearest Git Project'));
+  assert(scripts['release:fast-screen:interaction'].includes('captures Chinese handoff walkthrough'));
+  assert(scripts['release:fast-screen:agent-opening'].includes('a newer sidebar file intent'));
+  assert(scripts['release:fast-screen:agent-opening'].includes('a new Agent dialog'));
+  assert.deepEqual(selectBrowserScreen(['src/components/code/UnknownOpeningPane.tsx']).unmapped,
+    ['src/components/code/UnknownOpeningPane.tsx']);
 });

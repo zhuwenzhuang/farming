@@ -474,6 +474,12 @@ async function runDesktopTerminalMatrix(
 
     const workspaceFileReads: Array<{ path: string; exactExternal?: boolean }> = []
     const globalTreeRequests: string[] = []
+    const globalProjectMounts: string[] = []
+    page.on('request', request => {
+      if (request.method() !== 'POST' || !request.url().endsWith('/api/projects/mount')) return
+      const body = request.postDataJSON() as { workspace?: string }
+      if (body.workspace === '/') globalProjectMounts.push(body.workspace)
+    })
     page.on('websocket', socket => {
       socket.on('framesent', ({ payload }) => {
         try {
@@ -1469,6 +1475,7 @@ async function runDesktopTerminalMatrix(
         fs.writeFileSync(externalFile, '# External terminal file\n')
       try {
         const globalTreeRequestCount = globalTreeRequests.length
+        const globalProjectMountCount = globalProjectMounts.length
         await writeTerminalFixture(page, bashAgentId, `${externalFile}\r\n`)
         const cell = await cellForText(page, bashAgentId, externalFile, 2)
         await page.mouse.click(cell.x, cell.y)
@@ -1477,7 +1484,10 @@ async function runDesktopTerminalMatrix(
         ))).toBe(true)
         await expect(page.getByTestId('code-file-editor')).toBeVisible()
         await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
+        await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toHaveCount(0)
+        await expect(page.locator(`[data-testid="code-open-editor-row"][data-file-path="${externalFile.replace(/^\/+/, '')}"]`)).toHaveCount(0)
         await expect.poll(() => globalTreeRequests.length).toBe(globalTreeRequestCount)
+        expect(globalProjectMounts.length).toBe(globalProjectMountCount)
         await expect.poll(async () => {
           return page.evaluate((id) => window.__farmingTerminalTest?.getSelection(id) ?? '', bashAgentId)
         }).toBe('')

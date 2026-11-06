@@ -267,9 +267,10 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   const fileLink = page.locator('.code-agent-transcript-markdown-file-link', { hasText: 'SmartOpen.q:2' })
   await expect(fileLink).toBeVisible()
   await fileLink.click()
-  await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toBeVisible()
   const activeTab = page.locator('[role="tab"][aria-selected="true"]', { hasText: 'SmartOpen.q' })
   await expect(activeTab).toHaveAttribute('title', filePath.replace(/^\/+/, ''))
+  await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toHaveCount(0)
+  await expect(page.getByTestId('code-open-editor-row')).toHaveCount(0)
 
   forceGlobalFallback = false
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
@@ -293,6 +294,7 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()
   await expect(activeTab).toHaveAttribute('title', 'compiler/src/SmartOpen.q')
+  await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toHaveCount(0)
   await expect(page.getByTestId('code-file-editor-back')).toBeVisible()
   await expect(page.getByTestId('code-resource-agent-toggle')).toBeVisible()
   const sourceAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)

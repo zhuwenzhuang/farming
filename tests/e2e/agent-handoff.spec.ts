@@ -74,6 +74,10 @@ for (const appearance of ['light', 'dark', 'paper']) {
       message: 'Read the project and wait.', requestId: `terminal-source-${appearance}`,
     } })
     expect(submitted.ok(), await submitted.text()).toBeTruthy()
+    const renamed = await page.request.post(`/farming/api/control/agents/${sourceId}/title`, {
+      data: { title: 'Review project' },
+    })
+    expect(renamed.ok(), await renamed.text()).toBeTruthy()
     await openFarming(page)
     const dialog = page.getByTestId('input-dialog')
     const openHandoff = async () => {
@@ -106,6 +110,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
     expect(response.request().postDataJSON().agentRuntimeMode).toBe('terminal')
     expect((await response.json()).inputMode).toBe('terminal')
     let targetId = (await response.json()).agentId as string
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${targetId}"]`)).toContainText('Review project(1)')
     const promptFile = path.join(workspace, 'handoff-prompts.jsonl')
     await expect.poll(() => fs.existsSync(promptFile) ? fs.readFileSync(promptFile, 'utf8').trim().split('\n') : []).toHaveLength(1)
     const prompt = JSON.parse(fs.readFileSync(promptFile, 'utf8').trim()) as string
@@ -269,6 +274,11 @@ for (const appearance of ['light', 'dark', 'paper']) {
       await homePathLabel.evaluate((element, value) => { element.textContent = value }, originalHomePath)
       await homeIdentityLabel.evaluate((element, value) => { element.textContent = value }, originalHomeIdentity)
     }
+    // A source rename after opening the dialog must use the fresh backend title.
+    const renamed = await page.request.post(`/farming/api/control/agents/${sourceId}/title`, {
+      data: { title: '检查项目' },
+    })
+    expect(renamed.ok(), await renamed.text()).toBeTruthy()
     let uncertainAgentId: string | undefined
     if (appearance === 'light') {
       await page.route('**/api/control/agents', async route => {
@@ -293,6 +303,12 @@ for (const appearance of ['light', 'dark', 'paper']) {
     expect(destination).toMatchObject({
       providerSessionProvider: 'claude', providerHomeId: homeId, cwd: workspace, parentAgentId: sourceId,
       runtimeBinding: { kind: 'acp' },
+      customTitle: '检查项目(1)',
+    })
+    const destinationRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${result.agentId}"]`)
+    await expect(destinationRow).toContainText(destination.customTitle)
+    await testInfo.attach(`handoff-inherited-name-${appearance}`, {
+      body: await destinationRow.screenshot(), contentType: 'image/png',
     })
     expect(inventory.some((agent: { id: string }) => agent.id === sourceId)).toBeTruthy()
     expect(inventory.filter((agent: { parentAgentId: string }) => agent.parentAgentId === sourceId)).toHaveLength(1)
@@ -326,6 +342,7 @@ for (const appearance of ['light', 'dark', 'paper']) {
     await expect(inheritedContext.locator('.detail')).toContainText('wait for the user')
     await page.reload()
     await expect(page.getByTestId('code-agent-handoff-context')).not.toHaveAttribute('open')
+    await expect(destinationRow).toContainText(destination.customTitle)
   })
 }
 
@@ -389,7 +406,7 @@ test('captures Chinese handoff walkthrough', async ({ page, workspaceRoot }, tes
   const destinationId = (await response.json()).agentId as string
   await expect(dialog).toBeHidden()
   await expect(page.getByText('这是界面演示响应：交接提示已送达。新 Agent 应先阅读原会话，说明理解，再等待你的指示。', { exact: true })).toBeVisible()
-  expect((await page.request.post(`/farming/api/control/agents/${destinationId}/title`, { data: { title: '交接会话 · Claude' } })).ok()).toBeTruthy()
+  expect((await page.request.patch(`/farming/api/agents/${destinationId}`, { data: { customTitle: '交接会话 · Claude' } })).ok()).toBeTruthy()
   await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${destinationId}"]`)).toContainText('交接会话 · Claude')
   await expect(sourceRow).toBeVisible()
   const context = page.getByTestId('code-agent-handoff-context')

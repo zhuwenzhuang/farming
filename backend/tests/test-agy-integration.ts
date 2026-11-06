@@ -10,7 +10,7 @@ const {
   buildAgyTrajectoryMetadataBlob,
   cleanAgyUserInputText,
   didAgyCurrentTurnCompleteCleanly,
-  isAgyHistoricalResultError,
+  isAgySupersededResultError,
   ensureAgyConversationDatabase,
   readAgyConversationStepCount,
   readAgyConversationSummaries,
@@ -360,7 +360,7 @@ async function testHistoricalResultError(tmpRoot: string) {
     { step_index: 4, type: 'PLANNER_RESPONSE', status: 'DONE', content: 'Complete' },
   ];
   const writeTranscript = (value = entries) => fs.writeFileSync(transcript, value.map(entry => JSON.stringify(entry)).join('\n') + '\n');
-  const check = (reason = error, boundary: number | null = 0) => isAgyHistoricalResultError(home, id, boundary, reason);
+  const check = (reason = error, boundary: number | null = 0) => isAgySupersededResultError(home, id, boundary, reason);
   try {
     db.exec('INSERT INTO steps (idx, step_type, status) VALUES (0,14,3),(1,17,3),(2,15,3),(3,14,3),(4,15,3)');
     writeTranscript();
@@ -378,12 +378,66 @@ async function testHistoricalResultError(tmpRoot: string) {
     db.exec('UPDATE steps SET status=3 WHERE idx=5');
     assert.strictEqual(await check(), false, 'a completed tool can still await a response');
     db.exec('INSERT INTO steps (idx, step_type, status) VALUES (6,17,3),(7,15,3)');
-    assert.strictEqual(await check(), false, 'even a later answer cannot hide a current-turn error');
+    assert.strictEqual(await check(), false, 'a later answer cannot hide an unverified current-turn error');
     db.exec('DELETE FROM steps WHERE idx>=5');
     fs.appendFileSync(transcript, '{partial');
     assert.strictEqual(await check(), false, 'partial native evidence must fail closed');
     fs.unlinkSync(transcript);
     assert.strictEqual(await check(), false, 'missing native evidence must fail closed');
+  } finally {
+    db.close();
+  }
+}
+
+async function testRecoveredTransportResultError(tmpRoot: string) {
+  const home = path.join(tmpRoot, 'recovered-error-home');
+  const id = crypto.randomUUID();
+  ensureAgyConversationDatabase(home, id);
+  const db = new DatabaseSync(path.join(home, 'conversations', `${id}.db`));
+  const logs = path.join(home, 'brain', id, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  const transcript = path.join(logs, 'transcript_full.jsonl');
+  const error = 'API error (attempt 1): request failed: read: connection reset by peer';
+  const entries = [
+    { step_index: 1, type: 'USER_INPUT', status: 'DONE', content: 'Continue work' },
+    { step_index: 2, type: 'ERROR_MESSAGE', status: 'DONE', error },
+    { step_index: 3, type: 'TOOL', status: 'DONE' },
+    { step_index: 4, type: 'PLANNER_RESPONSE', status: 'DONE', content: 'Work completed' },
+  ];
+  const writeTranscript = (value: object[] = entries) => fs.writeFileSync(transcript, value.map(entry => JSON.stringify(entry)).join('\n') + '\n');
+  const check = (reason = error, boundary: number | null = 0) => isAgySupersededResultError(home, id, boundary, reason);
+  try {
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (0,14,3),(1,14,3),(2,17,3),(3,132,3),(4,15,3)');
+    writeTranscript();
+    assert.strictEqual(await check(), true, 'native recovery after a same-turn reset supersedes the stale result error');
+    assert.strictEqual(await check(error, null), false);
+    assert.strictEqual(await check(error, 1), false);
+    assert.strictEqual(await check('unrelated failure'), false);
+    for (const reason of ['tool execution failed', '401 authentication failed: connection reset by peer', '429 quota: connection reset by peer']) {
+      writeTranscript(entries.map(entry => entry.type === 'ERROR_MESSAGE' ? { ...entry, error: reason } : entry));
+      assert.strictEqual(await check(reason), false, 'account and non-transport errors remain failures');
+    }
+    for (const missingType of ['USER_INPUT', 'ERROR_MESSAGE', 'PLANNER_RESPONSE']) {
+      writeTranscript(entries.filter(entry => entry.type !== missingType));
+      assert.strictEqual(await check(), false, `missing ${missingType} cannot establish recovery`);
+    }
+    writeTranscript(entries.map(entry => entry.type === 'PLANNER_RESPONSE' ? { ...entry, tool_calls: [{ name: 'run_command' }] } : entry));
+    assert.strictEqual(await check(), false, 'a planner requesting another tool is not a final answer');
+    writeTranscript();
+    db.exec('UPDATE steps SET status=1 WHERE idx=3');
+    assert.strictEqual(await check(), false, 'an earlier unfinished tool prevents completion');
+    db.exec('UPDATE steps SET status=3 WHERE idx=3');
+    db.exec('UPDATE steps SET step_type=17 WHERE idx=3');
+    assert.strictEqual(await check(), false, 'every current error needs matching recovery evidence');
+    db.exec('UPDATE steps SET step_type=132 WHERE idx=3');
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (5,17,3)');
+    assert.strictEqual(await check(), false, 'an error after the answer is terminal');
+    db.exec('DELETE FROM steps WHERE idx=5');
+    db.exec('UPDATE steps SET step_type=14 WHERE idx=3');
+    assert.strictEqual(await check(), false, 'another user input cannot lend its completion to this admission');
+    db.exec('UPDATE steps SET step_type=132 WHERE idx=3');
+    fs.appendFileSync(transcript, '{partial');
+    assert.strictEqual(await check(), false);
   } finally {
     db.close();
   }
@@ -495,6 +549,38 @@ if (text.startsWith('/model ') || text.startsWith('/effort ')) {
   console.log(JSON.stringify({ status: value === 'rejected-model' || value === 'low' ? 'ERROR' : 'SUCCESS',
     data: { [command.slice(1)]: value }, response: 'configuration result' }));
   process.exit(value === 'exit-failure-model' ? 7 : 0);
+}
+if (text.includes('RECOVERED_CONNECTION_RESET')) {
+  fs.appendFileSync(path.join(agyHome, 'recovery-invocations.jsonl'), JSON.stringify({ text, conversationId }) + '\\n');
+  const error = 'API error (attempt 1): request failed: read: connection reset by peer';
+  const db = new DatabaseSync(dbPath);
+  const index = db.prepare('SELECT COALESCE(MAX(idx), -1) AS idx FROM steps').get().idx + 1;
+  db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (?,14,3),(?,17,3),(?,132,3),(?,15,3)').run(index, index + 1, index + 2, index + 3);
+  db.close();
+  const logs = path.join(agyHome, 'brain', conversationId, '.system_generated', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  fs.appendFileSync(path.join(logs, 'transcript_full.jsonl'), [
+    { step_index: index, type: 'USER_INPUT', status: 'DONE', content: text },
+    { step_index: index + 1, type: 'ERROR_MESSAGE', status: 'DONE', error },
+    { step_index: index + 2, type: 'TOOL', status: 'DONE' },
+    { step_index: index + 3, type: 'PLANNER_RESPONSE', status: 'DONE', content: 'Completed after native reconnect' },
+  ].map(entry => JSON.stringify(entry)).join('\\n') + '\\n');
+  console.log(JSON.stringify({ event: 'step_update', step_update: {
+    conversation_id: conversationId, step_index: index + 2, step_type: 'tool', tool_name: 'run_command', state: 'DONE',
+  } }));
+  console.log(JSON.stringify({ event: 'result',
+    ...(text.includes('TOP_LEVEL') ? { error } : {}),
+    result: { conversation_id: text.includes('WRONG_SESSION') ? 'wrong-session' : conversationId,
+      status: 'ERROR', error, response: 'Completed after native reconnect' } }));
+  if (text === 'RECOVERED_CONNECTION_RESET') {
+    fs.writeFileSync(path.join(agyHome, 'recovery-result-ready'), 'ready');
+    const deadline = Date.now() + 10000;
+    while (!fs.existsSync(path.join(agyHome, 'release-recovery'))) {
+      if (Date.now() > deadline) throw new Error('Recovery process was not released');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  }
+  process.exit(text.includes('EXIT_FAILURE') ? 7 : 0);
 }
 if (text.includes('HISTORICAL_TIMEOUT')) {
   const error = 'API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded';
@@ -947,6 +1033,35 @@ console.log(JSON.stringify({
       assert.strictEqual(runtime.getSession('agent-agy-test-1').chatTurn.status, 'failed');
     }
 
+    const beforeRecovery = runtime.getSession('agent-agy-test-1').entries.length;
+    const recovery = runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'RECOVERED_CONNECTION_RESET' }]);
+    for (let attempt = 0; !fs.existsSync(path.join(agyHome, 'recovery-result-ready')) && attempt < 100; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    try {
+      assert(fs.existsSync(path.join(agyHome, 'recovery-result-ready')));
+      assert.strictEqual(runtime.getSession('agent-agy-test-1').state, 'working',
+        'a persisted answer cannot settle the turn before clean process exit');
+    } finally {
+      fs.writeFileSync(path.join(agyHome, 'release-recovery'), 'release');
+    }
+    const recoveredReset = await recovery;
+    assert.strictEqual(recoveredReset.stopReason, 'end_turn');
+    const recoveredSession = runtime.getSession('agent-agy-test-1');
+    assert.strictEqual(recoveredSession.chatTurn.status, 'completed');
+    assert.strictEqual(recoveredSession.state, 'idle');
+    assert.strictEqual(recoveredSession.error, '');
+    assert.strictEqual(recoveredSession.sessionId, prepared.sessionId);
+    assert(!recoveredSession.entries.slice(beforeRecovery).some((entry: { type: string }) => entry.type === 'error'),
+      'native recovery must not leave a stale failure entry');
+    assert.strictEqual(fs.readFileSync(path.join(agyHome, 'recovery-invocations.jsonl'), 'utf8').trim().split('\n').length, 1,
+      'reconciliation must not replay the prompt');
+    for (const suffix of ['EXIT_FAILURE', 'TOP_LEVEL', 'WRONG_SESSION']) {
+      await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: `RECOVERED_CONNECTION_RESET_${suffix}` }]),
+        /connection reset by peer|different conversation identity/);
+      assert.strictEqual(runtime.getSession('agent-agy-test-1').chatTurn.status, 'failed');
+    }
+
     await assert.rejects(runtime.prompt('agent-agy-test-1', [{ type: 'text', text: 'FAIL_STATUS' }]), /ERROR/);
 
     // Verify steering capability and live mid-turn steering.
@@ -1232,6 +1347,7 @@ async function main() {
   try {
     await testConversationStore(tmpRoot);
     await testHistoricalResultError(tmpRoot);
+    await testRecoveredTransportResultError(tmpRoot);
     await testCliSpecDiscoveryAndTerminalObserver(tmpRoot);
     await testHomeConfigurationAndExtensions(tmpRoot);
     await testSessionHistoryAndInventory(tmpRoot);

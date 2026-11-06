@@ -142,11 +142,12 @@ The rename dialog edits the complete effective Agent title. Display truncation
 belongs to labels only and must never enter the editable value or be persisted
 by an unchanged save. Cancel leaves the authoritative title unchanged.
 
-A Fork child inherits the source Agent's current effective row title. The
-backend appends `(1)` and selects the lowest positive suffix not already used
-by another Agent or an admitted child start, then persists that result as the
-child's custom title. Provider title updates therefore cannot silently replace
-the inherited Fork identity.
+A Fork child or Handoff destination inherits the source Agent's current effective
+row title. The backend appends `(1)` and selects the lowest positive suffix not
+already used by another Agent or an admitted child start, then persists that
+result as the new Agent's custom title. Provider title updates therefore cannot
+silently replace the inherited identity. An explicitly supplied Handoff custom
+title takes precedence.
 
 The backend updates the list projection from exact Agent and collection
 mutations. Mutations within the broadcast window are coalesced by Agent ID, so

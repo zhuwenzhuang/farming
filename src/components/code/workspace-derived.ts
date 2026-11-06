@@ -1,6 +1,7 @@
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import { agentRowTitle } from '@/lib/format'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import { isGlobalWorkspaceFilesAgentId } from '@/lib/global-workspace-files'
 import {
   agentSessionId,
   groupAgentsByProject,
@@ -31,9 +32,10 @@ export function projectWorkspaceForHistoryRun(entry: Pick<TaskHistoryEntry, 'cwd
 }
 
 export function projectWorkspaceForOpenFile(
-  file: Pick<OpenWorkspaceFile, 'agentId' | 'sourceAgentId' | 'workspaceRoot'>,
+  file: Pick<OpenWorkspaceFile, 'agentId' | 'sourceAgentId' | 'workspaceRoot' | 'exactExternal'>,
   agents: readonly Agent[],
 ) {
+  if (file.exactExternal || isGlobalWorkspaceFilesAgentId(file.agentId)) return ''
   if (file.workspaceRoot) return file.workspaceRoot
   const sourceAgentId = file.sourceAgentId || file.agentId
   const sourceAgent = agents.find(agent => agent.id === sourceAgentId)

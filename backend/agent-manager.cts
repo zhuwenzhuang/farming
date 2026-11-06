@@ -5121,11 +5121,26 @@ class AgentManager extends EventEmitter {
     const wantsMain = options.wantsMain === true
       || (options.wantsMain !== false && !this.mainAgentIdentity.hasCurrent());
     if (!wantsMain) {
-      return this.startAgentUnreserved(command, customWorkspace, callback, {
-        ...options,
-        wantsMain: false,
-        skipRecoveryWait: true,
-      });
+      // Allocate only after replay reconciliation. Keep the generated title out
+      // of request options so retries retain their original semantic signature.
+      let inheritedTitle: ReturnType<AgentManager['reserveForkAgentTitle']> | undefined;
+      if (options.inheritTitleFromAgentId && typeof options.customTitle !== 'string') {
+        const source = this.agents.get(options.inheritTitleFromAgentId);
+        if (!source) {
+          if (callback) callback(null, 'Source Agent not found');
+          return null;
+        }
+        inheritedTitle = this.reserveForkAgentTitle(this.agentTitleForFork(source));
+      }
+      try {
+        return await this.startAgentUnreserved(command, customWorkspace, callback, {
+          ...options,
+          wantsMain: false,
+          skipRecoveryWait: true,
+        }, inheritedTitle?.title);
+      } finally {
+        inheritedTitle?.release();
+      }
     }
 
     const existingMainStart = this.findActiveMainAgentStart();
@@ -5186,6 +5201,7 @@ class AgentManager extends EventEmitter {
     customWorkspace: string | null,
     callback: AgentStartCallback | null,
     options: AgentStartOptions & ProviderStartOptions = {},
+    inheritedTitle?: string,
   ): Promise<AgentId | null> {
     if (options.wantsMain !== false && options.skipRecoveryWait !== true) {
       await this.recoveryGate.wait();
@@ -5703,7 +5719,7 @@ class AgentManager extends EventEmitter {
         ? options.agentRecordId
         : (typeof options.persistentSessionId === 'string' ? options.persistentSessionId : ''),
       composerCommands: normalizedComposerCommands(options.composerCommands),
-      customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
+      customTitle: inheritedTitle ?? (typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : ''),
       adaptiveTitle: typeof options.adaptiveTitle === 'string' ? options.adaptiveTitle.trim().slice(0, 80) : '',
       capabilityRuntimeEpoch: '',
       terminalBusy: null,
@@ -6255,7 +6271,7 @@ class AgentManager extends EventEmitter {
       this.lifecycleJournalService.transition(agentRecord, createOperationId, 'membership-pending', '', {
         visibleOnMainPage: true,
         archived: false,
-        ...(options.customTitleExplicit === true
+        ...(options.customTitleExplicit === true || inheritedTitle !== undefined
           ? { customTitle: agentRecord.customTitle }
           : {}),
       });

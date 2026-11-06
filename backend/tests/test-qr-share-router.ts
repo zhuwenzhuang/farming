@@ -204,7 +204,7 @@ async function run(): Promise<void> {
         basePath: '/farm/',
         token: 'read-only-token',
       }),
-      '/farm?ftarget=agent&agent=one&token=read-only-token',
+      '/farm/?ftarget=agent&agent=one&token=read-only-token',
     );
     assert.strictEqual(
       entryPathWithQuery('', { authEnabled: false, basePath: '/', token: ownerToken }),
@@ -231,7 +231,7 @@ async function run(): Promise<void> {
       shortUrlAccessMode: 'owner',
       longUrlAccessMode: 'read-only',
       tokenLabel: ownerToken,
-      fullAccessUrl: `https://share.example.test/farm?${targetQuery}&token=${ownerToken}`,
+      fullAccessUrl: `https://share.example.test/farm/?${targetQuery}&token=${ownerToken}`,
     });
     assert.deepStrictEqual(calls.slice(callStart), [
       'extractToken:owner-request-token',
@@ -375,7 +375,7 @@ async function run(): Promise<void> {
     });
     await assertJsonResponse(rotateResponse, 200, {
       tokenLabel: 'rotated-owner-token',
-      fullAccessUrl: `https://share.example.test/farm?${targetQuery}&token=rotated-owner-token`,
+      fullAccessUrl: `https://share.example.test/farm/?${targetQuery}&token=rotated-owner-token`,
     });
     assert.deepStrictEqual(calls.slice(callStart), ['rotateToken', 'setAuthenticatedCookie']);
     assert.strictEqual(

@@ -172,7 +172,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.screenshot({ path: test.info().outputPath(`fullscreen-${appearance}.png`) })
       await viewer.getByRole('button', { name: 'Zoom in', exact: true }).click()
       const transform = await viewer.locator('.code-markdown-mermaid-gesture-content').evaluate(element => (element as HTMLElement).style.transform)
-      await viewer.getByRole('button', { name: 'Toggle pan mode' }).click()
+      await expect(viewer.getByRole('button', { name: 'Toggle pan mode' })).toHaveAttribute('aria-pressed', 'true')
       const viewport = viewer.locator('.code-markdown-mermaid-viewport')
       const box = (await viewport.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -358,6 +358,9 @@ test.describe('initial touch inspection', () => {
       await expectDiagramFits(viewer)
       await viewer.getByRole('button', { name: 'Zoom in', exact: true }).tap()
       const pan = viewer.getByRole('button', { name: 'Toggle pan mode' })
+      await expect(pan).toHaveAttribute('aria-pressed', 'true')
+      await pan.tap()
+      await expect(pan).toHaveAttribute('aria-pressed', 'false')
       await pan.tap()
       await expect(pan).toHaveAttribute('aria-pressed', 'true')
       await viewer.getByRole('button', { name: 'Fit diagram to view' }).tap()

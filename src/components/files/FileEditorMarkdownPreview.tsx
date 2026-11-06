@@ -16,7 +16,7 @@ import {
   type RefObject,
   type ReactNode,
 } from 'react'
-import ReactMarkdown, { type Components } from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
@@ -35,6 +35,7 @@ import { createMermaidRenderer } from '@/lib/mermaid-renderer'
 import type { PendingRichContent } from '@/lib/streaming-markdown'
 import { writeClipboardText } from '@/lib/clipboard'
 import { decodeFileUrlPath } from '@/lib/file-url-path'
+import { isExternalTranscriptHref, transcriptFileTargetFromHref } from '@/lib/transcript-file-links'
 import {
   markdownHeadingSlug,
   splitLargeMarkdownSections,
@@ -151,9 +152,19 @@ function markdownImageUrl(openFile: OpenWorkspaceFile, src: string, previewRefre
     : src
 }
 
-function markdownWorkspaceLinkPath(openFile: OpenWorkspaceFile, href: string) {
-  if (!href || href.startsWith('#') || isExternalResource(href)) return null
-  return normalizeWorkspaceResourcePath(openFile.file.path, href)
+function markdownWorkspaceLinkTarget(openFile: OpenWorkspaceFile, href: string) {
+  if (!href || href.startsWith('#') || isExternalTranscriptHref(href)) return null
+  if (href.startsWith('/') || /^file:\/\/\//i.test(href)) {
+    return transcriptFileTargetFromHref(href, openFile.workspaceRoot)
+  }
+  const filePath = normalizeWorkspaceResourcePath(openFile.file.path, href)
+  return filePath === null ? null : { filePath: filePath || '.', target: {} }
+}
+
+function markdownPreviewUrlTransform(value: string, key: string) {
+  // Only preserve file URLs when the click handler can route them through Farming.
+  if (key === 'href' && transcriptFileTargetFromHref(value)) return value
+  return defaultUrlTransform(value)
 }
 
 function hashMermaidSource(source: string) {
@@ -428,18 +439,21 @@ const MarkdownH6: Components['h6'] = ({ children, ...props }) => {
 
 const MarkdownLink: Components['a'] = ({ href, children, onClick, ...props }) => {
   const { openFile, onOpenFilePath } = useMarkdownPreviewContext()
-  const workspacePath = href ? markdownWorkspaceLinkPath(openFile, href) : null
-  const external = href ? isExternalResource(href) : false
-  const nextHref = workspacePath ? '#' : href
+  const workspaceTarget = href ? markdownWorkspaceLinkTarget(openFile, href) : null
+  const external = href ? isExternalTranscriptHref(href) : false
+  const nextHref = workspaceTarget ? '#' : href
   const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     onClick?.(event)
-    if (event.defaultPrevented || !workspacePath) return
+    if (event.defaultPrevented || !workspaceTarget) return
     event.preventDefault()
     const lineAnchor = href?.match(/#L(\d+)(?:C(\d+))?(?:-L(\d+)(?:C(\d+))?)?$/i)
-    void onOpenFilePath(openFile.agentId, workspacePath, {
+    void onOpenFilePath(openFile.agentId, workspaceTarget.filePath, {
+      ...workspaceTarget.target,
       ...(lineAnchor ? { lineNumber: Number(lineAnchor[1]), column: Number(lineAnchor[2] || 1),
         ...(lineAnchor[3] ? { endLineNumber: Number(lineAnchor[3]), endColumn: Number(lineAnchor[4] || 1) } : {}) } : {}),
       sourceAgentId: openFile.sourceAgentId,
+      revealInTree: true,
+      suppressSearchOnMiss: true,
     })
   }
   return (
@@ -560,6 +574,7 @@ const LargeMarkdownVirtualSection = memo(function LargeMarkdownVirtualSection({
           remarkPlugins={MARKDOWN_REMARK_PLUGINS}
           rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
           components={MARKDOWN_COMPONENTS}
+          urlTransform={markdownPreviewUrlTransform}
           skipHtml
         >
           {section.renderSource}
@@ -761,6 +776,9 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
   const [retry, setRetry] = useState(0)
   const config = useMemo(() => ({ startOnLoad: false, securityLevel: 'strict' as const, theme: 'base' as const, themeVariables: mermaidThemeVariables(appearance) }), [appearance])
   const renderState = useMermaidRender({ source: renderSource, id: `${renderId}-${retry}`, config, renderer: renderCodeMermaid, pending })
+  // React replaces innerHTML when this object changes, even for identical SVG.
+  // Keep the rendered nodes (and their bindings) across stream and zoom updates.
+  const diagramHtml = useMemo(() => ({ __html: renderState.diagram?.svg || '' }), [renderState.diagram?.svg])
   const figureRef = useRef<HTMLElement | null>(null)
   const fullscreenTriggerRef = useRef<HTMLButtonElement | null>(null)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -824,7 +842,6 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
     setViewMode(mode)
     setZoom(1)
     setOffset({ x: 0, y: 0 })
-    setPanMode(false)
   }, [])
 
   const toggleFullscreen = useCallback(() => {
@@ -838,7 +855,7 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
     setViewMode('fit')
     setZoom(1)
     setOffset({ x: 0, y: 0 })
-    setPanMode(false)
+    setPanMode(true)
     setIsFullscreen(true)
   }, [isFullscreen, closeFullscreen, zoom, offset, panMode, viewMode])
 
@@ -920,7 +937,7 @@ export function MermaidBlock({ source, copy, pending }: { source: string; copy: 
               contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div ref={canvasRef} className="code-markdown-mermaid-canvas" style={
                 canvasSize ? { width: `${canvasSize.width}px`, height: `${canvasSize.height}px` } : undefined
-              } dangerouslySetInnerHTML={{ __html: readyState.svg }} />
+              } dangerouslySetInnerHTML={diagramHtml} />
             </TransformComponent>
           </TransformWrapper>
         </div>}
@@ -1258,6 +1275,7 @@ export const FileEditorMarkdownPreview = forwardRef<FileEditorMarkdownPreviewHan
                   remarkPlugins={MARKDOWN_REMARK_PLUGINS}
                   rehypePlugins={MARKDOWN_HIGHLIGHT_REHYPE_PLUGINS}
                   components={MARKDOWN_COMPONENTS}
+                  urlTransform={markdownPreviewUrlTransform}
                   skipHtml
                 >
                   {previewSource}

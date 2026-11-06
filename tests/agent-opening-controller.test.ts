@@ -47,7 +47,7 @@ test('target is visible immediately; HTTP then state opens only the exact Agent'
   assert.deepEqual(s.opened, [])
   s.agents([live('agent-a')])
   assert.deepEqual(s.opened, ['agent-a'])
-  assert.equal(s.state()?.phase, 'ready')
+  assert.equal(s.state(), null, 'successful activation must release its opening state')
   assert.equal(s.timers.size, 0)
 })
 
@@ -75,7 +75,7 @@ for (const order of [[0, 1], [1, 0]]) {
       await flush()
     }
     assert.deepEqual(s.opened, ['agent-b'])
-    assert.equal(s.state()?.target.identity?.providerHomeId, 'other')
+    assert.equal(s.state(), null)
   })
 }
 
@@ -106,7 +106,7 @@ test('superseding a state wait cancels its timer; old state cannot steal a runni
   s.controller.open({ ...target('b'), identity: undefined, agentId: 'b' })
   s.agents([live('a'), live('b')])
   s.timeout()
-  assert.equal(s.state()?.phase, 'ready')
+  assert.equal(s.state(), null)
   assert.deepEqual(s.opened, ['b'])
 })
 
@@ -206,6 +206,6 @@ test('explicitly opens an exited temporary Provider Agent for inspection without
   s.agents([{ ...live('exited', 'stopped'), providerSessionProvider: 'codex', providerSessionTemporary: true }])
   s.controller.open({ title: 'Exited launch', workspace: '/repo', agentId: 'exited', source: 'projects' })
   assert.deepEqual(s.opened, ['exited'])
-  assert.equal(s.state()?.phase, 'ready')
+  assert.equal(s.state(), null)
   assert.equal(s.calls.length, 0)
 })

@@ -166,7 +166,7 @@ function shareTargetQueryFromBody(body: unknown) {
 }
 
 function entryPathWithQuery(query = '', options: EntryPathOptions = {}) {
-  const entryPath = normalizeBasePath(options.basePath) || '/';
+  const entryPath = `${normalizeBasePath(options.basePath)}/`;
   const params = new URLSearchParams(query || '');
   if (options.token && options.authEnabled) {
     params.set('token', options.token);

@@ -114,6 +114,60 @@ async function createAcpAgent(page: Page, workspace: string, provider = 'claude'
   return payload.agentId as string
 }
 
+test('changing a Chat model preserves other open Sessions and updates new Session defaults', async ({ page, workspaceRoot }, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'model-session-isolation')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.fake-acp-model-matrix'), '')
+  const first = await createAcpAgent(page, workspace, 'codex')
+  const second = await createAcpAgent(page, workspace, 'codex')
+  const readProfile = async (id: string) => {
+    const response = await page.request.get(`/farming/api/agents/${id}/acp-session?includeEntries=0`)
+    expect(response.ok()).toBeTruthy()
+    const body = await response.json() as { session: { configOptions: Array<{ id: string; currentValue: unknown }> } }
+    return Object.fromEntries(body.session.configOptions.map(option => [option.id, option.currentValue]))
+  }
+  const original = await readProfile(first)
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${first}"]`).click()
+  await page.getByTestId('code-acp-composer-input').fill('config recovery probe')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText(`Using model ${original.model}`, { exact: true })).toBeVisible()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${second}"]`).click()
+  const picker = page.getByTestId('code-acp-model-picker')
+  await expect(picker).toBeEnabled()
+  await picker.click()
+  await page.getByRole('radio', { name: 'gpt-6-astra, high', exact: true }).click()
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-6-astra:high')
+  await expect.poll(() => readProfile(second)).toMatchObject({ model: 'gpt-6-astra', reasoning: 'high' })
+  expect(await readProfile(first)).toEqual(original)
+  await page.keyboard.press('Escape')
+  const third = await createAcpAgent(page, workspace, 'codex')
+  expect(await readProfile(third)).toMatchObject({ model: 'gpt-6-astra', reasoning: 'high' })
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    for (const [id, model, effort] of [
+      [first, original.model, original.reasoning],
+      [second, 'gpt-6-astra', 'high'],
+      [third, 'gpt-6-astra', 'high'],
+      [first, original.model, original.reasoning],
+    ]) {
+      await page.locator(`[data-testid="code-agent-row"][data-agent-id="${id}"]`).click()
+      await expect(picker).toBeEnabled()
+      await expect(picker).toHaveAttribute('data-agent-model-preset', `${model}:${effort}`)
+    }
+    await testInfo.attach(`model-session-isolation-${appearance}`, { body: await page.screenshot(), contentType: 'image/png' })
+  }
+  await page.reload()
+  await expect(picker).toHaveAttribute('data-agent-model-preset', `${original.model}:${original.reasoning}`)
+  await page.getByTestId('code-acp-composer-input').fill('config recovery probe')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText(`Using model ${original.model}`, { exact: true })).toHaveCount(2)
+  expect(await readProfile(first)).toEqual(original)
+})
+
 function requestedState(route: Route, current: MatrixState) {
   const body = route.request().postDataJSON() as {
     configId?: string

@@ -127,12 +127,15 @@ continuing the same native conversation. Interrupted tools retain an explicit
 failure with unconfirmed completion; continuation cannot turn them into success.
 Model and effort slash changes become active only after a successful native result
 and clean process exit, then publish the confirmed configuration to the UI.
-Its CLI can return a conversation-wide historical error in a later print result.
-The adapter may reconcile that result only after clean process exit, a newly
-persisted input and completed response, no current-turn error or unfinished step,
-and an exact error match in native history before that input. Missing, conflicting
-or oversized evidence preserves failure. This never retries input, suppresses a
-current provider failure, or rewrites the original failed Turn.
+Its CLI can retain an earlier error in a print result even after native recovery.
+The adapter reconciles that result only after clean process exit, exactly one new
+persisted input, a completed response, no unfinished step, and an exact error
+match in native history. Errors within the current turn additionally require
+every error to be a recognized transport failure and the native transcript to
+confirm a final response after them, with no further tool calls. Account and
+unrecognized failures remain failures. The admission boundary and steps must
+remain unchanged during verification; missing, conflicting or oversized evidence
+preserves failure. This never retries input or rewrites an earlier failed Turn.
 
 Permission and elicitation requests have independent identity and validity.
 Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
@@ -235,6 +238,15 @@ bounded; cursors are bound to parent, child and history file identity. Registry
 `ALIVE` means existence, not current activity, so activity remains unknown until
 the provider supplies authoritative foreground state. Neither child input nor
 cancellation is advertised without provider support.
+
+User-facing native child rows and transcript previews require a recognized,
+authoritative status; navigation rows also require readable history. Unknown or
+unsupported status does not produce a pending dot, a child count, or an empty
+disclosure control. A fresh transcript read that confirms unavailable status
+closes an already open child pane without changing the parent or child runtime.
+Later authoritative status can make the child visible again. This presentation
+filter preserves backend associations and history for ownership and cleanup;
+it never infers completion from answer text or hides explicit failures.
 
 Related history is bounded by turns, items and bytes, with identity-bound cursors.
 Presentation segments must not trim an already bounded provider page again.
@@ -546,9 +558,16 @@ explicit states. During streaming, inline links and images with an opened destin
 remain hidden until the destination closes, including inside table cells; growing
 URLs must not affect table width. Settlement or interruption reveals any unfinished
 source. Code spans and completed links retain normal Markdown behavior.
+Commentary and earlier answer segments use their owning Turn's rich-content phase,
+just like the final answer; an activity item's completion label does not close its
+Markdown stream. Unclosed Mermaid fences retain a stable generating placeholder
+until closure, or an incomplete placeholder on interruption. Closed diagrams render
+without waiting for the Turn to finish and remain mounted as later prose arrives.
 Only the current render revision may publish; failure has a
 bounded render-only Retry. Viewers preserve reading/zoom intent and share focus,
 Escape and background-isolation rules. Render retries never replay Agent work.
+Fullscreen diagrams open with dragging enabled; Fit and Actual size preserve the
+chosen drag mode, and closing restores the inline view's zoom and drag mode.
 
 Acceptance covers identity/Home isolation, negotiated capability, ordering,
 deduplication, cancellation, late results, reconnect and hard loss; compares live

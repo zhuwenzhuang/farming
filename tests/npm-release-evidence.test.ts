@@ -670,7 +670,7 @@ test('automatic observer records conflict as failure and registry transport unce
 
 test('first recovery upload checkpoints the actual uploader separately from the authenticated candidate dispatch', async () => {
   const result = await observe((_request, response) => response.writeHead(404).end(), {
-    timeout: 150, workflow: { recovery: false, exists: false, uploadExit: 0, candidatePublicationRunId: '101' },
+    workflow: { recovery: false, exists: false, uploadExit: 0, candidatePublicationRunId: '101' },
   });
   assert.equal(result.code, 0, result.output);
   assert.equal(result.uploads, 1);

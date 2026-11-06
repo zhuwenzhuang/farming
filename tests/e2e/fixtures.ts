@@ -384,8 +384,15 @@ export const test = base.extend<{ workspaceRoot: string }>({
     await use(PLAYWRIGHT_WORKSPACE_ROOT)
     fs.rmSync(PLAYWRIGHT_WORKSPACE_ROOT, { recursive: true, force: true })
   },
-  page: async ({ page, workspaceRoot }, use, testInfo) => {
+  page: async ({ page, workspaceRoot, browserName, hasTouch }, use, testInfo) => {
     void workspaceRoot
+    // Chromium 147 can lose the context's initial touch emulation on macOS.
+    // Apply the declared device capability to the actual page target; native
+    // pointer media queries and touch events must agree with the test device.
+    if (browserName === 'chromium' && hasTouch) {
+      const deviceSession = await page.context().newCDPSession(page)
+      await deviceSession.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+    }
     await page.addInitScript(() => {
       window.__FARMING_E2E__ = true
     })

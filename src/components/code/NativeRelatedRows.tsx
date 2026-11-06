@@ -1,7 +1,7 @@
 import { ChevronRightGlyph } from '@/components/IconGlyphs'
 import { AgentStatusIndicator } from './AgentStatusIndicator'
 import type { CodeCopy } from './copy'
-import { relatedSessionStatusLabel, relatedSessionFinished, relatedSessionIndicator } from './related-session-status'
+import { relatedSessionStatusLabel, relatedSessionFinished, relatedSessionIndicator, relatedSessionHasStatus } from './related-session-status'
 import { useEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
@@ -10,6 +10,7 @@ import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import type { RelatedSessionTarget } from './related-session-navigation'
 
 type Inventory = { parentSessionKey: string; runtimeEpoch: string; children: Array<{ sessionId: string; title: string; state: string; stopReason?: string; readable: boolean }> }
+const availableChild = (child: Inventory['children'][number]) => child.readable && relatedSessionHasStatus(child.state, child.stopReason)
 export function NativeRelatedRows({ parent, active, selected, onOpen, copy, onChildrenSessionChange }: {
   copy: CodeCopy; parent: Agent; active: boolean; selected: RelatedSessionTarget | null; onOpen: (target: RelatedSessionTarget) => void
   onChildrenSessionChange: (sessionKey: string | null) => void
@@ -26,7 +27,7 @@ export function NativeRelatedRows({ parent, active, selected, onOpen, copy, onCh
   const revisionRef = useRef(revision)
   revisionRef.current = revision
   useEffect(() => {
-    onChildrenSessionChange(inventory && inventory.parentSessionKey === parent.providerSessionKey && inventory.children.length
+    onChildrenSessionChange(inventory && inventory.parentSessionKey === parent.providerSessionKey && inventory.children.some(availableChild)
       ? inventory.parentSessionKey : null)
   }, [inventory, parent.providerSessionKey, onChildrenSessionChange])
   useEffect(() => {
@@ -72,8 +73,9 @@ export function NativeRelatedRows({ parent, active, selected, onOpen, copy, onCh
     ? <button type="button" className="code-agent-row related-child" data-testid="code-related-inventory-error" onClick={() => refreshRef.current?.()} title={error}>Related sessions unavailable · Retry</button> : null
   const isSelected = (child: Inventory['children'][number]) => selected?.parentAgentId === parent.id
     && selected.parentSessionKey === parent.providerSessionKey && !selected.subagentSessionKey && selected.sessionId === child.sessionId
-  const current = inventory.children.filter(child => !relatedSessionFinished(child.state) || isSelected(child))
-  const finished = inventory.children.filter(child => relatedSessionFinished(child.state) && !isSelected(child))
+  const children = inventory.children.filter(availableChild)
+  const current = children.filter(child => !relatedSessionFinished(child.state) || isSelected(child))
+  const finished = children.filter(child => relatedSessionFinished(child.state) && !isSelected(child))
   const renderChild = (child: Inventory['children'][number]) => <button type="button" key={`${inventory.runtimeEpoch}:${child.sessionId}`}
       className={`code-agent-row related-child ${selected?.parentAgentId === parent.id && selected.sessionId === child.sessionId && !selected.subagentSessionKey ? 'active' : ''}`}
       data-testid="code-native-related-row" aria-label={`${child.title} · ${relatedSessionStatusLabel(child.state, copy, child.stopReason)}`} title={`${child.title} · ${relatedSessionStatusLabel(child.state, copy, child.stopReason)}`}
