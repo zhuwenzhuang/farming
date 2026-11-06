@@ -9,6 +9,7 @@ assertDomainStyleOwnership({
   mainIntegrationSelectors: [
     ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer)',
     ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:hover, :active, :focus-visible)',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:active, :focus-visible)',
     'body.code-resizing-sidebar .code-sidebar-resizer',
     ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):focus-visible',
   ],
@@ -26,6 +27,8 @@ assertDomainStyleOwnership({
     'code-pinned-agent-compact',
     'code-pinned-agent-strip',
     'code-project-actions',
+    // Shared title/action surface is styled by .code-project-heading.
+    'code-project-title-content',
     'code-project-agent-visibility',
     'code-project-new-agent',
     'code-project-new-agent-menu',

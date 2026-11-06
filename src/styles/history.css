@@ -81,23 +81,6 @@
   text-align: left;
 }
 
-.code-history-card:hover {
-  background: var(--code-bg-hover);
-}
-
-.code-history-card-primary:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: -2px;
-}
-
-.code-history-card.archived {
-  background: transparent;
-}
-
-.code-history-card.archived:hover {
-  background: var(--code-bg-hover);
-}
-
 .code-history-card-title {
   display: block;
   color: var(--code-text);
@@ -193,9 +176,11 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   height: 15px;
 }
 
-.code-history-actions button:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-history-actions button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .code-history-pagination {
@@ -224,9 +209,11 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   width: 30px;
 }
 
-.code-history-pagination button:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-history-pagination button:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .code-history-pagination button:disabled {

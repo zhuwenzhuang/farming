@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type HTMLAttributes, type RefObject 
 import { composerDocumentText, literalComposerDocument, type ComposerDocument } from '../../../shared/composer-document.js'
 import { composerEditorExtensions, composerTextOffset, composerTextPositions, editorDocument, guardComposerComposition, pasteComposerDocument, textSlice, replaceComposerText } from './composer-document-editor'
 import type { ComposerInputElement, StructuredComposerElement } from './composer-input-element'
+import { observeComposerCaretBoundary } from './composer-caret-boundary'
 
 interface Props extends Omit<HTMLAttributes<StructuredComposerElement>, 'onChange'> {
   inputRef: RefObject<ComposerInputElement | null>
@@ -56,6 +57,7 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       },
     })
     guardComposerComposition(editor.view)
+    const stopObservingCaret = observeComposerCaretBoundary(editor.view, host)
     editorRef.current = editor
     const range = (start: number, end: number, direction?: 'forward' | 'backward' | 'none') => {
       const positions = composerTextPositions(editor.state.doc)
@@ -107,7 +109,7 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       try { editor.commands.setContent(snapshot.doc, { emitUpdate: false }) } finally { external = false }
     }
     restoreRef.current = restore
-    return () => { cancelAnimationFrame(revealFrame); if (inputRef.current === host) inputRef.current = null; restoreRef.current = null; editorRef.current = null; editor.destroy() }
+    return () => { stopObservingCaret(); cancelAnimationFrame(revealFrame); if (inputRef.current === host) inputRef.current = null; restoreRef.current = null; editorRef.current = null; editor.destroy() }
   }, [inputRef, testId])
   const restoreRef = useRef<(() => void) | null>(null)
   useLayoutEffect(() => { restoreRef.current?.() }, [value, document])

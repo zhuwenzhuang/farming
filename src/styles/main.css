@@ -169,9 +169,6 @@ body.code-resizing-resource-agent {
   display: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-}
-
 .code-app-mode-backdrop {
   position: fixed;
   inset: 0;
@@ -286,7 +283,13 @@ body.code-resizing-resource-agent {
   color: var(--code-text-on-emphasis);
 }
 
-.code-app-mode-install:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-app-mode-install:hover {
+    background: var(--code-emphasis-hover);
+    outline: 0;
+  }
+}
+
 .code-app-mode-install:focus-visible {
   background: var(--code-emphasis-hover);
   outline: 0;
@@ -320,7 +323,14 @@ body.code-resizing-resource-agent {
   color: var(--code-text-muted);
 }
 
-.code-app-mode-choice.temporary button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-app-mode-choice.temporary button:hover {
+    background: var(--code-bg-muted);
+    outline: 2px solid var(--code-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
 .code-app-mode-choice.temporary button:focus-visible {
   background: var(--code-bg-muted);
   outline: 2px solid var(--code-focus-ring);
@@ -408,7 +418,14 @@ body.code-resizing-resource-agent {
   text-decoration: none;
 }
 
-.code-brand-github:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-brand-github:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: 0;
+  }
+}
+
 .code-brand-github:focus-visible {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -467,19 +484,11 @@ body.code-resizing-resource-agent {
   fill: currentColor;
 }
 
-@media (prefers-reduced-motion: reduce) {
-}
-
 /*
  * Agent rows have one authoritative data model and three width projections:
  * compact keeps the existing title-only row; roomy adds provider + recency;
  * wide also exposes command/runtime detail without increasing row height.
  */
-@container code-sidebar (min-width: 360px) {
-}
-
-@container code-sidebar (min-width: 640px) {
-}
 
 .code-product-row {
   min-width: 0;
@@ -514,13 +523,24 @@ body.code-resizing-resource-agent {
   object-fit: cover;
 }
 
-.code-product-mark:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-product-mark:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
 .code-product-mark:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
-.code-product-mark:hover .code-product-mark-badge,
+@media (hover: hover) and (pointer: fine) {
+  .code-product-mark:hover .code-product-mark-badge {
+    color: var(--code-text-muted);
+  }
+}
+
 .code-product-mark:focus-visible .code-product-mark-badge {
   color: var(--code-text-muted);
 }
@@ -625,13 +645,19 @@ body.code-mode .code-instance-name {
   height: 11px;
 }
 
-.code-instance-name:hover,
-.code-instance-name:focus-visible {
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .code-instance-name:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
+body.code-mode .code-instance-name:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
-.code-instance-name:focus-visible {
+body.code-mode .code-instance-name:focus-visible {
   outline: 0;
 }
 
@@ -700,9 +726,11 @@ body.code-mode .code-instance-name {
   cursor: pointer;
 }
 
-.code-main-agent-restart-menu button:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-main-agent-restart-menu button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .code-main-agent-restart-menu {
@@ -1159,9 +1187,14 @@ body.code-resizing-language-server-dock {
   justify-content: center;
 }
 
-.code-archive-toast button:hover:not(:disabled),
-.code-archive-toast button:focus-visible:not(:disabled),
-.code-archive-toast button.view:hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .code-archive-toast button:hover:not(:disabled),
+  .code-archive-toast button.view:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
+}
+
+.code-archive-toast button:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
 }
 
@@ -1170,7 +1203,12 @@ body.code-resizing-language-server-dock {
   outline-offset: 2px;
 }
 
-.code-archive-toast button.undo:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-archive-toast button.undo:hover:not(:disabled) {
+    background: light-dark(var(--code-emphasis-hover), var(--code-text));
+  }
+}
+
 .code-archive-toast button.undo:focus-visible:not(:disabled) {
   background: light-dark(var(--code-emphasis-hover), var(--code-text));
 }
@@ -1250,9 +1288,11 @@ body.code-resizing-language-server-dock {
   cursor: pointer;
 }
 
-.code-side-view-back:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-side-view-back:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .code-side-view-back:focus-visible {
@@ -1427,7 +1467,13 @@ body.code-mode .main-agent-resume-detail {
   white-space: nowrap;
 }
 
-body.code-mode .agent-item:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .agent-item:hover {
+    background: var(--code-bg-muted);
+    border-color: transparent;
+  }
+}
+
 body.code-mode .agent-item:focus-visible {
   background: var(--code-bg-muted);
   border-color: transparent;
@@ -1528,9 +1574,11 @@ body.code-mode .workspace-directory-picker {
   color: var(--code-text-muted);
 }
 
-body.code-mode .workspace-directory-picker:hover:not(:disabled) {
-  background: var(--code-bg-muted);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-directory-picker:hover:not(:disabled) {
+    background: var(--code-bg-muted);
+    color: var(--code-text);
+  }
 }
 
 body.code-mode .workspace-directory-picker:focus-visible {
@@ -1615,11 +1663,13 @@ body.code-mode .workspace-directory-browser-go {
   height: 38px;
 }
 
-body.code-mode .workspace-directory-browser-close:hover:not(:disabled),
-body.code-mode .workspace-directory-browser-parent:hover:not(:disabled),
-body.code-mode .workspace-directory-browser-go:hover:not(:disabled) {
-  background: var(--code-bg-muted);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-directory-browser-close:hover:not(:disabled),
+  body.code-mode .workspace-directory-browser-parent:hover:not(:disabled),
+  body.code-mode .workspace-directory-browser-go:hover:not(:disabled) {
+    background: var(--code-bg-muted);
+    color: var(--code-text);
+  }
 }
 
 body.code-mode .workspace-directory-browser-close:focus-visible,
@@ -1671,7 +1721,13 @@ body.code-mode .workspace-directory-browser-row {
   text-align: left;
 }
 
-body.code-mode .workspace-directory-browser-row:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-directory-browser-row:hover {
+    outline: none;
+    background: var(--code-bg-selected);
+  }
+}
+
 body.code-mode .workspace-directory-browser-row:focus-visible {
   outline: none;
   background: var(--code-bg-selected);
@@ -1881,7 +1937,13 @@ body.code-mode .workspace-home-option {
   text-align: left;
 }
 
-body.code-mode .workspace-home-option:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-home-option:hover {
+    outline: none;
+    background: var(--code-bg-muted);
+  }
+}
+
 body.code-mode .workspace-home-option:focus-visible,
 body.code-mode .workspace-home-option.selected {
   outline: none;
@@ -1925,7 +1987,14 @@ body.code-mode .workspace-runtime-options button:first-child {
   border-left: 0;
 }
 
-body.code-mode .workspace-runtime-options button:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-runtime-options button:hover {
+    outline: none;
+    background: var(--code-bg-muted);
+    color: var(--code-text);
+  }
+}
+
 body.code-mode .workspace-runtime-options button:focus-visible,
 body.code-mode .workspace-runtime-options button.active {
   outline: none;
@@ -1956,8 +2025,10 @@ body.code-mode .workspace-actions button {
   padding: 8px 13px;
 }
 
-body.code-mode .workspace-actions button:hover {
-  background: var(--code-emphasis-hover);
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-actions button:hover {
+    background: var(--code-emphasis-hover);
+  }
 }
 
 body.code-mode .close-btn {
@@ -1978,7 +2049,14 @@ body.code-mode .close-btn {
   place-items: center;
 }
 
-body.code-mode .close-btn:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .close-btn:hover {
+    background: var(--code-bg-hover-strong);
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 body.code-mode .close-btn:focus-visible {
   background: var(--code-bg-hover-strong);
   color: var(--code-text);
@@ -2021,7 +2099,15 @@ body.code-mode .workspace-history-item {
   font-size: 13px;
 }
 
-body.code-mode .workspace-history-item:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-history-item:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    border-color: var(--code-border);
+    box-shadow: none;
+  }
+}
+
 body.code-mode .workspace-history-item.active {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -2050,7 +2136,15 @@ body.code-mode .workspace-path-suggestion {
   padding: 5px 8px;
 }
 
-body.code-mode .workspace-path-suggestion:hover,
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-path-suggestion:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    border-color: var(--code-border);
+    box-shadow: none;
+  }
+}
+
 body.code-mode .workspace-path-suggestion.active {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -2158,8 +2252,10 @@ body.code-mode .workspace-directory-prompt-actions button {
   font-weight: 600;
 }
 
-body.code-mode .workspace-directory-prompt-actions button:hover:not(:disabled) {
-  background: var(--code-emphasis-hover);
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-directory-prompt-actions button:hover:not(:disabled) {
+    background: var(--code-emphasis-hover);
+  }
 }
 
 body.code-mode .workspace-directory-prompt-actions button.secondary {
@@ -2168,8 +2264,10 @@ body.code-mode .workspace-directory-prompt-actions button.secondary {
   color: var(--code-text-muted);
 }
 
-body.code-mode .workspace-directory-prompt-actions button.secondary:hover:not(:disabled) {
-  background: var(--code-bg-muted);
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode .workspace-directory-prompt-actions button.secondary:hover:not(:disabled) {
+    background: var(--code-bg-muted);
+  }
 }
 
 body.code-mode .workspace-directory-prompt-actions button:disabled {
@@ -2408,10 +2506,12 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   display: var(--code-theme-light-display);
 }
 
-.agent-item:hover {
-  background: var(--code-bg-hover);
-  border-color: var(--code-border);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .agent-item:hover {
+    background: var(--code-bg-hover);
+    border-color: var(--code-border);
+    color: var(--code-text);
+  }
 }
 
 .agent-item-name {
@@ -2483,7 +2583,14 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   cursor: pointer;
 }
 
-.workspace-directory-picker:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-picker:hover:not(:disabled) {
+    border-color: var(--code-workbench-divider);
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
 .workspace-directory-picker:focus-visible {
   border-color: var(--code-workbench-divider);
   background: var(--code-bg-hover);
@@ -2591,9 +2698,11 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   line-height: 1.15;
 }
 
-.workspace-actions button:hover,
-.close-btn:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-actions button:hover,
+  .close-btn:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .workspace-actions button:disabled {
@@ -2642,7 +2751,14 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   border-top: none;
 }
 
-.workspace-path-suggestion:hover,
+@media (hover: hover) and (pointer: fine) {
+  .workspace-path-suggestion:hover {
+    color: var(--code-text);
+    border-color: var(--code-border);
+    background: var(--code-bg-hover);
+  }
+}
+
 .workspace-path-suggestion.active {
   color: var(--code-text);
   border-color: var(--code-border);
@@ -2717,7 +2833,14 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   border-top: none;
 }
 
-.workspace-history-item:hover,
+@media (hover: hover) and (pointer: fine) {
+  .workspace-history-item:hover {
+    color: var(--code-text);
+    background: var(--code-bg-hover);
+    border-color: var(--code-border);
+  }
+}
+
 .workspace-history-item.active {
   color: var(--code-text);
   background: var(--code-bg-hover);
@@ -3643,29 +3766,39 @@ body.code-mode .input-dialog .dialog-header {
   background: var(--code-bg-muted);
   color: var(--code-text);
 }
-.workspace-directory-browser-close:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-browser-close:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
-.workspace-directory-browser-parent:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-browser-parent:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
-.workspace-directory-browser-go:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-browser-go:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
-.workspace-directory-browser-row:hover {
-  background: var(--code-bg-selected);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-browser-row:hover {
+    background: var(--code-bg-selected);
+    color: var(--code-text);
+  }
 }
 .workspace-directory-browser-row:focus-visible {
   background: var(--code-bg-selected);
   color: var(--code-text);
 }
-.workspace-directory-browser-actions button.secondary:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-browser-actions button.secondary:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 .workspace-directory-browser-row.selected {
   color: var(--code-text);
@@ -3701,9 +3834,11 @@ body.code-mode .input-dialog .dialog-header {
 .workspace-input textarea.task-input::placeholder {
   color: var(--code-text-subtle);
 }
-.code-options-menu button:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-options-menu button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 .code-options-menu button:focus-visible {
   background: var(--code-bg-hover);
@@ -3746,8 +3881,10 @@ body.code-mode .input-dialog .dialog-header {
 .workspace-home-option {
   color: var(--code-text);
 }
-.workspace-home-option:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-home-option:hover {
+    background: var(--code-bg-hover);
+  }
 }
 .workspace-home-option:focus-visible {
   background: var(--code-bg-hover);
@@ -3762,9 +3899,11 @@ body.code-mode .input-dialog .dialog-header {
   border-left-color: var(--code-border);
   color: var(--code-text-subtle);
 }
-.workspace-runtime-options button:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-runtime-options button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 .workspace-runtime-options button:focus-visible {
   background: var(--code-bg-hover);
@@ -3782,14 +3921,18 @@ body.code-mode .input-dialog .dialog-header {
   border-color: var(--code-border);
   color: var(--code-text);
 }
-.workspace-history-item:hover .workspace-history-path {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-history-item:hover .workspace-history-path {
+    color: var(--code-text);
+  }
 }
 .workspace-history-item.active .workspace-history-path {
   color: var(--code-text);
 }
-.workspace-path-suggestion:hover .workspace-path-suggestion-name {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-path-suggestion:hover .workspace-path-suggestion-name {
+    color: var(--code-text);
+  }
 }
 .workspace-path-suggestion.active .workspace-path-suggestion-name {
   color: var(--code-text);
@@ -3826,8 +3969,10 @@ body.code-mode .input-dialog .dialog-header {
   background: var(--code-bg-raised);
   color: var(--code-text-muted);
 }
-.workspace-directory-prompt-actions button.secondary:hover:not(:disabled) {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .workspace-directory-prompt-actions button.secondary:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
 }
 .workspace-input input:disabled {
   border-color: var(--code-border);
@@ -3851,21 +3996,29 @@ body.code-mode .input-dialog .dialog-header {
 .workspace-directory-browser-actions button:not(.secondary) {
   color: var(--code-text-muted);
 }
-.code-product-mark:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-product-mark:hover {
+    background: var(--code-bg-hover);
+  }
+}
 .code-product-mark:focus-visible {
   background: var(--code-bg-hover);
 }
 .code-product-mark-badge {
   border-color: var(--code-border);
 }
-.code-product-mark:hover .code-product-mark-badge {
-  background: transparent;
+@media (hover: hover) and (pointer: fine) {
+  .code-product-mark:hover .code-product-mark-badge {
+    background: transparent;
+  }
 }
 .code-product-mark:focus-visible .code-product-mark-badge {
   background: transparent;
 }
-.code-product-mark:hover .code-product-mark-badge {
-  border-color: var(--code-focus-ring);
+@media (hover: hover) and (pointer: fine) {
+  .code-product-mark:hover .code-product-mark-badge {
+    border-color: var(--code-focus-ring);
+  }
 }
 .code-product-mark:focus-visible .code-product-mark-badge {
   border-color: var(--code-focus-ring);
@@ -3876,8 +4029,10 @@ body.code-mode .input-dialog .dialog-header {
 .code-options-menu button {
   background: transparent;
 }
-.code-options-menu button:hover {
-  outline: none;
+@media (hover: hover) and (pointer: fine) {
+  .code-options-menu button:hover {
+    outline: none;
+  }
 }
 .code-options-menu button:focus-visible {
   outline: 2px solid var(--code-focus-ring);
@@ -3906,17 +4061,23 @@ body.code-mode .input-dialog .dialog-header {
 .workspace-history-item:first-child {
   border-top-color: var(--code-border);
 }
-.agent-item:hover {
-  box-shadow: none;
+@media (hover: hover) and (pointer: fine) {
+  .agent-item:hover {
+    box-shadow: none;
+  }
 }
 .agent-item:focus-visible {
   box-shadow: none;
 }
-.workspace-history-item:hover {
-  box-shadow: none;
+@media (hover: hover) and (pointer: fine) {
+  .workspace-history-item:hover {
+    box-shadow: none;
+  }
 }
-.workspace-path-suggestion:hover {
-  box-shadow: none;
+@media (hover: hover) and (pointer: fine) {
+  .workspace-path-suggestion:hover {
+    box-shadow: none;
+  }
 }
 .workspace-path-suggestion.active {
   box-shadow: none;
@@ -4014,8 +4175,10 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
 .code-composer.menu-open {
   box-shadow: var(--code-composer-shadow);
 }
-.code-acp-request-actions button.approve:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-acp-request-actions button.approve:hover {
+    background: var(--code-bg-hover);
+  }
 }
 .code-git-history-menu {
   border-color: var(--code-border);
@@ -4058,7 +4221,13 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
   background: var(--code-workbench-divider);
 }
 
-:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:hover, :active, :focus-visible),
+@media (hover: hover) and (pointer: fine) {
+  :is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:hover, :active, :focus-visible) {
+    background: var(--code-accent);
+  }
+}
+
+:is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:active, :focus-visible),
 body.code-resizing-sidebar .code-sidebar-resizer,
 body.code-resizing-resource-agent .code-resource-agent-resizer,
 body.code-resizing-language-server-dock .code-language-server-resizer {
@@ -4076,7 +4245,12 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 .code-main.related-session-compact { grid-template-rows: auto minmax(0, 1fr) auto auto; }
 .code-related-session-switcher { grid-column: 1; grid-row: 1; display: flex; gap: 4px; padding: 4px 8px; }
 .code-related-session-switcher button { border: 0; border-radius: 6px; padding: 6px 12px; background: transparent; color: var(--code-text); }
-.code-related-session-switcher button:hover, .code-related-session-switcher button[aria-pressed="true"] { background: var(--code-bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .code-related-session-switcher button:hover {
+    background: var(--code-bg-hover);
+  }
+}
+.code-related-session-switcher button[aria-pressed="true"] { background: var(--code-bg-hover); }
 .code-main.related-session-compact:not(.related-session-child-active) > .code-related-session-panel { display: none; }
 .code-main.related-session-compact > .code-terminal-grid { grid-row: 2; }
 .code-main.related-session-compact > .code-agent-activity-dock { grid-row: 3; }

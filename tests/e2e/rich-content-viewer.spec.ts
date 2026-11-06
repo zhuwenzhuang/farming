@@ -3,6 +3,71 @@ import path from 'node:path'
 import type { Locator } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
+test.describe('image preview dismissal', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    test(`tap anywhere restores composer and transcript images in ${appearance}`, async ({ page, workspaceRoot }) => {
+      const response = await page.request.post('/farming/api/control/agents', {
+        data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+      })
+      expect(response.ok()).toBeTruthy()
+      const { agentId } = await response.json() as { agentId: string }
+      try {
+        await openFarming(page)
+        await page.getByTestId('code-mobile-menu').tap()
+        await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).tap()
+        await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
+        const input = page.getByTestId('code-acp-composer-input')
+        await input.fill('image attachment')
+        await page.getByTestId('code-acp-composer-file-input').setInputFiles({
+          name: 'preview.png', mimeType: 'image/png',
+          buffer: fs.readFileSync(path.resolve('public/farming-2/app-icon-v2-180.png')),
+        })
+        await expect(page.getByTestId('code-composer-attachment')).toHaveClass(/ready/)
+
+        for (const surface of ['composer', 'transcript'] as const) {
+          if (surface === 'transcript') {
+            await page.getByTestId('code-acp-composer-send').tap()
+            await expect(page.getByText('Received 1 image.', { exact: true })).toBeVisible()
+            await input.fill('unsent draft')
+          }
+          const trigger = surface === 'composer'
+            ? page.getByTestId('code-composer-attachment-preview')
+            : page.getByTestId('code-agent-transcript-user-images').getByRole('button')
+          const viewer = page.getByTestId(surface === 'composer'
+            ? 'composer-image-viewer' : 'code-agent-transcript-image-overlay')
+          for (const target of ['image', 'padding', 'title', 'close', 'escape'] as const) {
+            await trigger.tap()
+            await expect(viewer).toBeVisible()
+            await expect(viewer.locator('img')).toHaveJSProperty('naturalWidth', 180)
+            await expect(page.locator('#root')).toHaveAttribute('inert', '')
+            if (target === 'image') {
+              await page.screenshot({ path: test.info().outputPath(`${surface}-image-${appearance}.png`) })
+              await viewer.locator('img').tap()
+            } else if (target === 'padding') {
+              await viewer.locator('.code-content-viewer-image').tap({ position: { x: 4, y: 4 } })
+            } else if (target === 'title') {
+              await viewer.locator('.code-content-viewer-title').tap()
+            } else if (target === 'close') {
+              await viewer.getByRole('button').tap()
+            } else {
+              await page.keyboard.press('Escape')
+            }
+            await expect(viewer).toHaveCount(0)
+            await expect(page.locator('#root')).not.toHaveAttribute('inert')
+            await expect(trigger).toBeFocused()
+            await expect(input).toHaveText(surface === 'composer' ? 'image attachment' : 'unsent draft')
+            await expect(trigger.locator('img')).toBeVisible()
+          }
+        }
+      } finally {
+        await page.request.delete(`/farming/api/control/agents/${agentId}`)
+      }
+    })
+  }
+})
+
 async function expectDiagramFits(container: Locator) {
   await expect.poll(() => container.evaluate(element => {
     const viewport = element.querySelector('.code-markdown-mermaid-viewport')!

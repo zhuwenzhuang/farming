@@ -178,10 +178,12 @@ export function ComputerSection({
           <div
             className={`farming-computer-row code-sidebar-resource-row ${active ? 'active' : ''}`}
             data-testid="farming-computer-row"
+            aria-current={active ? 'page' : undefined}
             role="button"
             tabIndex={0}
             onClick={() => onOpen(resource)}
             onKeyDown={event => {
+              if (event.target !== event.currentTarget) return
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
                 onOpen(resource)

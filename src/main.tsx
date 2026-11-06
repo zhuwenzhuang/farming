@@ -334,7 +334,7 @@ async function renderApplication() {
   await import('./styles/sidebar.css')
   await import('./styles/transcript.css')
   await import('./styles/agent-list.css')
-  await import('./styles/sidebar-focus.css')
+  await import('./styles/navigation-states.css')
   const { App } = await import('./App')
   root.render(<ApplicationErrorBoundary><App /></ApplicationErrorBoundary>)
 }

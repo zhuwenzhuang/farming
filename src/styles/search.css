@@ -103,9 +103,11 @@
   padding: 0;
 }
 
-.code-search-panel-input button:hover {
-  background: var(--code-bg-hover-strong);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-search-panel-input button:hover {
+    background: var(--code-bg-hover-strong);
+    color: var(--code-text);
+  }
 }
 
 .code-search-panel-input button svg {
@@ -137,7 +139,13 @@
   cursor: pointer;
 }
 
-.code-search-filters button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-search-filters button:hover {
+    background: var(--code-active-item-surface);
+    color: var(--code-text);
+  }
+}
+
 .code-search-filters button[aria-pressed='true'] {
   background: var(--code-active-item-surface);
   color: var(--code-text);
@@ -254,18 +262,10 @@
   font-weight: 600;
 }
 
-.code-search-retry:hover {
-  background: var(--code-bg-selected);
-}
-
-.code-search-result:hover,
-.code-search-result.active {
-  background: var(--code-bg-hover-strong);
-}
-
-.code-search-result:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 2px;
+@media (hover: hover) and (pointer: fine) {
+  .code-search-retry:hover {
+    background: var(--code-bg-selected);
+  }
 }
 
 .code-search-result-copy {

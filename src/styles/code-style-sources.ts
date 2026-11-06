@@ -24,7 +24,7 @@ export const CODE_STYLE_SOURCES = [
   'src/styles/sidebar.css',
   'src/styles/transcript.css',
   'src/styles/agent-list.css',
-  'src/styles/sidebar-focus.css',
+  'src/styles/navigation-states.css',
 ] as const
 
 export type CodeStyleSourcePath = typeof CODE_STYLE_SOURCES[number]

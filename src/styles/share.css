@@ -23,7 +23,14 @@
   padding: 0;
 }
 
-.code-share-button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-share-button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    box-shadow: none;
+  }
+}
+
 .code-share-button:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -138,8 +145,10 @@
   cursor: pointer;
 }
 
-.code-share-qr-retry button:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-share-qr-retry button:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-share-qr-retry button:focus-visible {
@@ -184,8 +193,10 @@
   font-weight: 600;
 }
 
-.code-share-refresh:hover {
-  background: var(--code-bg-surface);
+@media (hover: hover) and (pointer: fine) {
+  .code-share-refresh:hover {
+    background: var(--code-bg-surface);
+  }
 }
 
 .code-share-token-card {
@@ -219,9 +230,14 @@
   text-align: left;
 }
 
-.code-share-token-copy:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-share-token-copy:hover,
+  .code-share-token-rotate:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-share-token-copy:focus-visible,
-.code-share-token-rotate:hover,
 .code-share-token-rotate:focus-visible {
   background: var(--code-bg-hover);
 }

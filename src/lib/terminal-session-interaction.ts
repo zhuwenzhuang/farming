@@ -260,7 +260,7 @@ export class TerminalSessionInteractionController {
       elements: () => [menu],
       onDismiss: reason => {
         this.hideContextMenu()
-        if (reason === 'escape' && !isTouchInputViewport()) this.#ports.focusInput()
+        if (reason !== 'outside-pointer' && !isTouchInputViewport()) this.#ports.focusInput()
       },
     }))
     const close = () => this.hideContextMenu()

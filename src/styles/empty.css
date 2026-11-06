@@ -144,8 +144,10 @@
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-.code-empty-workspace .code-empty-home-card:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-empty-workspace .code-empty-home-card:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-empty-workspace .code-empty-home-card:focus-visible {

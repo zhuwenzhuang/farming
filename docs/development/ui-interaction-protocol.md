@@ -33,7 +33,7 @@ interaction-layer registry owns event arbitration within each document.
 | Escape while busy | Top layer disallows dismissal | Consume without closing or falling through to its parent |
 | IME Escape | Composition is in progress | Leave composition cancellation to the input |
 | Repeated Escape | Key is held down | Consume without cascading through underlying layers |
-| Close / unmount | Registration exists | Remove it; detach document listeners when no layers remain |
+| Close / unmount | Registration exists | Remove it; detach pointer/keyboard listeners when no layers remain |
 
 Nested surfaces outrank their ancestors, including when React mounts the child
 first. Independent surfaces use activation order. One event dismisses at most
@@ -77,6 +77,52 @@ consumes Escape without discarding its pending result. After completion or failu
 its existing operation owner determines the next state; dismissal never retries a
 filesystem mutation. Deferred focus recovery must preserve the user's current
 selection when an inline editor already owns focus.
+
+Fullscreen image previews in Chat and composer attachments share a tap-to-close
+contract: the invoking component owns the closed/open state, and a completed
+click or tap anywhere in the viewer (including the image, padding and title)
+closes it synchronously. The opening tap must not immediately close the viewer,
+and dismissal must not activate content underneath or alter the draft. The
+shared modal scope releases isolation and restores the invoking control without
+scrolling; Close and Escape retain the same behavior. This opt-in image behavior
+does not apply to interactive diagram viewers, whose clicks own zoom and pan.
+
+## Touch Inspection And Browser Back
+
+File tabs keep an explicit Close target on touch, including dirty and externally
+changed tabs; the change indicator remains separately visible. Settings toggles
+share a touch-sized hit area without enlarging their glyphs, and their labels
+activate the same guarded control. Disabled/pending labels cannot bypass that
+control. Expandable transcript summaries retain visible disclosure marks without
+hover. Chat and Terminal context usage share an explicit details toggle: a second
+activation, an outside press or Escape dismisses it without changing the draft.
+
+On a primary touch device, the shared interaction registry also owns browser Back
+for its visible layers, including nested menus, modal viewers, navigation drawers
+and expanded composers. Back dismisses only the top layer using its Escape
+eligibility and focus contract. Busy layers consume Back without cancelling or
+replaying their operation. With no visible layer, ordinary browser navigation
+continues; this does not invent a second application navigation stack.
+
+The history bridge owns one same-document guard entry for the whole layer stack,
+not one entry per component. Its states are idle, armed, awaiting guard removal
+and failed/unconfirmed.
+Opening the first layer arms the guard. User Back consumes it, closes one eligible
+layer, then rearms only if a layer remains. Explicit dismissal removes an unused
+guard through one traversal; new layers wait for that traversal to settle, so a
+late cleanup cannot dismiss a newly opened surface. Re-rendering does not push
+entries. Forward/reload cannot resurrect dismissed UI from a stale guard.
+History state and the current URL belong to their existing owners and must be
+preserved, including navigation updates during pending cleanup. A failed or
+timed-out cleanup is reported, never blindly replayed; a late history event
+reconciles the pending traversal without dismissing a new layer. The history
+bridge remains for the document lifetime to recognize stale Forward/reload entries.
+
+Acceptance covers label/disabled behavior, visible dirty-tab Close and disclosure
+marks, both context-usage consumers, nested Back, busy operations, rapid
+close/reopen, Escape/outside/Close cleanup, reload, Forward and normal navigation
+after all layers close. Verify touch Chromium and WebKit and every appearance;
+desktop pointer/keyboard dismissal must retain its existing behavior.
 
 ## Reversible Display Changes
 

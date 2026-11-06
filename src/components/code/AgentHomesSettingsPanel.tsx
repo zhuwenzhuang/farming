@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appNavigationPath, appPath } from '@/lib/base-path'
@@ -304,6 +304,7 @@ export function AgentHomesSettingsPanel({
   const upgradeTargetVersionRef = useRef('')
   const panelScopeRef = useRef({ open, generation: 0 })
   const settingsLoadRequestRef = useRef(0)
+  const toggleId = useId()
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [composerFollowUpBehavior, setComposerFollowUpBehavior] = useState<ComposerFollowUpBehavior | null>(null)
   const [shareHours, setShareHours] = useState(24)
@@ -1015,11 +1016,12 @@ export function AgentHomesSettingsPanel({
                 <output>{contentFontSizeDraft ?? uiPreferences.codeContentFontSize} px</output>
               </div>
               <div className="code-settings-choice-row" data-testid="code-settings-sticky-turn-prompt">
-                <div className="code-settings-row-copy">
+                <label htmlFor={`${toggleId}-sticky`} className="code-settings-row-copy">
                   <strong>{copy.stickyTurnPrompt}</strong>
                   <small>{copy.stickyTurnPromptHint}</small>
-                </div>
+                </label>
                 <button
+                  id={`${toggleId}-sticky`}
                   type="button"
                   className={`code-settings-permission-toggle ${uiPreferences.stickyTurnPromptEnabled ? 'active' : ''}`}
                   role="switch"
@@ -1060,7 +1062,7 @@ export function AgentHomesSettingsPanel({
               </div>
               <div className="code-settings-choice-row" data-testid="code-settings-agent-completion-notifications">
                 <div className="code-settings-row-copy multiline">
-                  <strong>{copy.agentCompletionNotifications}</strong>
+                  <label htmlFor={`${toggleId}-notifications`}><strong>{copy.agentCompletionNotifications}</strong></label>
                   <small>{completionNotificationPermission === 'unsupported'
                     ? copy.agentCompletionNotificationsUnsupported
                     : completionNotificationPermission === 'denied'
@@ -1089,6 +1091,7 @@ export function AgentHomesSettingsPanel({
                 <button
                   type="button"
                   className={`code-settings-permission-toggle ${completionNotificationsEnabled ? 'active' : ''}`}
+                  id={`${toggleId}-notifications`}
                   role="switch"
                   aria-label={copy.agentCompletionNotifications}
                   aria-checked={completionNotificationsEnabled}
@@ -1098,13 +1101,14 @@ export function AgentHomesSettingsPanel({
                 ><CheckGlyph /></button>
               </div>
               <div className="code-settings-choice-row">
-                <span>{copy.dangerousSkipLabel}</span>
+                <label htmlFor={`${toggleId}-permissions`}>{copy.dangerousSkipLabel}</label>
                 <button
                   type="button"
                   className={`code-settings-permission-toggle ${dangerouslySkipPermissions ? 'active' : ''}`}
+                  id={`${toggleId}-permissions`}
                   role="checkbox"
                   aria-label={copy.dangerousSkipLabel}
-                  aria-pressed={dangerouslySkipPermissions}
+                  aria-checked={dangerouslySkipPermissions}
                   disabled={saving}
                   onClick={() => saveDangerouslySkipPermissions(!dangerouslySkipPermissions)}
                 ><CheckGlyph /></button>

@@ -46,9 +46,11 @@
   min-height: 28px;
 }
 
-.farming-computer-toolbar button:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .farming-computer-toolbar button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .farming-computer-toolbar svg {

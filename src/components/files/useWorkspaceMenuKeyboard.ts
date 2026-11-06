@@ -57,7 +57,7 @@ export function useWorkspaceMenuKeyboard({
     enabled: menuOpen,
     elements: () => [triggerRef?.current, menuRef.current],
     onDismiss: reason => {
-      if (reason === 'escape') onCloseWithFocusRestore()
+      if (reason !== 'outside-pointer') onCloseWithFocusRestore()
       else onClose()
     },
     returnFocus: () => triggerRef?.current,

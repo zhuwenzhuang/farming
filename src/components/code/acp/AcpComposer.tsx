@@ -5,12 +5,13 @@ import { MAX_COMPOSER_SUBMISSIONS, type AgentComposerSubmission } from '../compo
 import { useComposerTransfer } from '../useComposerTransfer'
 import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, LoadingGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
 import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
+import { ComposerContextWindow } from '../ComposerContextWindow'
 import { ComposerContextMenu } from '../ComposerContextMenu'
 import { useComposerContextCompletion, type ComposerContextCandidate } from '../useComposerContextCompletion'
 import type { ComposerContextReference } from '../composer-message'
@@ -810,17 +811,15 @@ export function AcpComposer({
         </div>
         <div className="code-composer-right-tools" data-testid="code-acp-composer-right-tools">
           {displayedContextWindow ? (
-            <div className="code-composer-context-window" data-testid="code-acp-context-window" data-level={contextUsageLevel} tabIndex={0} role="img" aria-label={contextWindowTitle}>
-              <span className="code-context-window-ring" aria-hidden="true" style={{ '--context-percent': displayedContextWindow.percentUsed } as CSSProperties} />
-              <div className="code-context-window-popover" role="tooltip">
+            <ComposerContextWindow testId="code-acp-context-window" level={contextUsageLevel}
+              label={contextWindowTitle} percentUsed={displayedContextWindow.percentUsed}>
                 <span>Context window:</span>
                 <strong>{displayedContextWindow.percentUsed}% used ({displayedContextWindow.percentLeft}% left)</strong>
                 <strong>{formatContextTokens(displayedContextWindow.usedTokens)} / {formatContextTokens(displayedContextWindow.limitTokens)} tokens used</strong>
                 {contextUsageLevel === 'critical' ? <strong className="warning">Context window is full</strong> : null}
                 {contextUsageLevel === 'warning' ? <strong className="warning">Context window is nearly full</strong> : null}
                 {acpUsage?.costLabel ? <strong>{acpUsage.costLabel}</strong> : null}
-              </div>
-            </div>
+            </ComposerContextWindow>
           ) : null}
           {session ? (
             <AcpModelControl

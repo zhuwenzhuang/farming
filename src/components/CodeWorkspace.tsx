@@ -13,7 +13,8 @@ import { attachSubagent } from '@/lib/subagent-supervision'
 import { agentAfterRemoval, isOpenableAgent, isViewableAgent } from './code/agent-selection'
 import { canonicalProviderSessionKey, decodeProviderSessionKey } from '../../shared/provider-session-identity.js'
 import type { MainPaneMode } from './code/types'
-import { interactionLayerOwnsEscape } from '@/lib/interaction-layer'
+import { visibleNavigationPane } from './code/navigation-highlight'
+import { interactionLayerOwnsEscape, replaceInteractionHistoryState } from '@/lib/interaction-layer'
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
 import { useTouchPrimaryInput } from '@/hooks/useTouchPrimaryInput'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
@@ -1731,7 +1732,7 @@ export function CodeWorkspace({
       url.searchParams.delete('browser')
       url.searchParams.delete('computer')
     }
-    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url)
+    if (url.href !== window.location.href) replaceInteractionHistoryState(window.history.state, url)
   }, [activeBrowserId, activeComputerId, mainPaneMode])
   const updateActiveComposerState = useCallback((updater: (state: AgentComposerState) => AgentComposerState) => {
     if (!activeComposerKey) return
@@ -1847,7 +1848,7 @@ export function CodeWorkspace({
     )) ?? null,
     [agentSessionMenu?.provider, agentSessionMenu?.sessionId, displayedProjects]
   )
-  const selectedSearchTarget = (searchOpen || retainedAgentSource === 'search') ? visibleSearchTargets[searchSelectionIndex] ?? null : null
+  const selectedSearchTarget = searchOpen && activeView === 'search' ? visibleSearchTargets[searchSelectionIndex] ?? null : null
   const selectedSearchAgentId = selectedSearchTarget?.kind === 'agent' ? selectedSearchTarget.id : null
   const selectedSearchSessionHandle = selectedSearchTarget?.kind === 'agent-session'
     ? agentSessionId(selectedSearchTarget)
@@ -1887,7 +1888,8 @@ export function CodeWorkspace({
     ? lastProjectWorkspace ?? projects[0]?.workspace
     : activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace
   const showFileEditor = mainPaneMode === 'editor' && Boolean(openWorkspaceFile)
-  const sidebarActiveWorkspaceFile = mainPaneMode === 'editor' ? openWorkspaceFile : null
+  const sidebarPane = visibleNavigationPane(activeView, mainPaneMode, agentOpeningBusy)
+  const sidebarActiveWorkspaceFile = sidebarPane === 'editor' ? openWorkspaceFile : null
   const requestedResourceAgentId = mainPaneMode === 'browser' && activeBrowserResource
     ? activeBrowserResource.ownerAgentId
     : mainPaneMode === 'computer' && activeComputerResource
@@ -4242,7 +4244,7 @@ export function CodeWorkspace({
   const clearWorkspaceShareLocation = useCallback(() => {
     if (typeof window === 'undefined') return
     const nextSearch = clearWorkspaceShareTargetSearch(window.location.search)
-    window.history.replaceState(window.history.state, '', `${window.location.pathname}${nextSearch}${window.location.hash}`)
+    replaceInteractionHistoryState(window.history.state, `${window.location.pathname}${nextSearch}${window.location.hash}`)
   }, [])
 
   useEffect(() => {
@@ -4662,9 +4664,9 @@ export function CodeWorkspace({
     onCancelPendingTerminalOpen()
     const source = activeView === 'search' || activeView === 'history' ? activeView : 'projects'
     agentNavigationEpochRef.current += 1
-    const targetIndex = visibleSearchTargets.findIndex(candidate => target.identity
-      ? candidate.kind === 'agent-session' && searchTargetHandle(candidate) === agentSessionId({ provider: target.identity.provider, id: target.identity.sessionId, providerHomeId: target.identity.providerHomeId })
-      : candidate.kind === 'agent' && candidate.id === target.agentId)
+    const targetIndex = visibleSearchTargets.findIndex(candidate => target.agentId
+      ? candidate.kind === 'agent' && candidate.id === target.agentId
+      : target.identity && candidate.kind === 'agent-session' && searchTargetHandle(candidate) === agentSessionId({ provider: target.identity.provider, id: target.identity.sessionId, providerHomeId: target.identity.providerHomeId }))
     agentOpeningReturnRef.current = {
       view: source,
       mode: mainPaneMode,
@@ -5611,7 +5613,7 @@ export function CodeWorkspace({
     elements: () => [plusMenuRef, approvalMenuRef, modelMenuRef].map(ref => ref.current?.closest('.code-composer-menu-anchor')),
     onDismiss: reason => {
       closeActiveComposerMenus()
-      if (reason === 'escape') focusComposerTextarea()
+      if (reason !== 'outside-pointer') focusComposerTextarea()
     },
   })
 
@@ -5885,7 +5887,10 @@ export function CodeWorkspace({
           ])),
           onOpen: worktreeCreation.reopen,
         }}
-        relatedSession={relatedSession}
+        relatedSession={sidebarPane === 'terminal' ? relatedSession : null}
+        openMenuTarget={projectMenu ? { kind: 'project', id: projectMenu.projectId }
+          : agentMenu ? { kind: 'agent', id: agentMenu.agentId }
+            : agentSessionMenu ? { kind: 'session', id: agentSessionMenu.sessionId } : null}
         onOpenRelatedSession={target => { setRelatedSession(target); openAgentTargetRef.current(target.parentAgentId, { focusTerminal: false }) }}
         readOnly={readOnly}
         sidebarCollapsed={sidebarCollapsed}
@@ -5906,12 +5911,10 @@ export function CodeWorkspace({
         normalizedSearch=""
         hasProjectListItems={hasProjectListItems}
         hasDisplayedProjectListItems={hasProjectListItems}
-        activeTerminalId={agentOpeningBusy || mainPaneMode === 'editor' ? null
+        activeTerminalId={sidebarPane !== 'terminal' ? null
           : relatedSession?.parentAgentId === activeTerminalId && relatedSession.subagentSessionKey
             ? agents.find(agent => agent.providerSessionKey === relatedSession.subagentSessionKey)?.id || activeTerminalId
             : relatedSession?.parentAgentId === activeTerminalId ? null : activeTerminalId}
-        selectedSearchAgentId={selectedSearchAgentId}
-        selectedSearchSessionHandle={selectedSearchSessionHandle}
         claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}
         agentShortcutKeys={agentShortcutKeys}
         keyboardShortcutsEnabled={keyboardShortcutsEnabled}
@@ -5990,7 +5993,7 @@ export function CodeWorkspace({
       <BrowserSidebarPortals
         projects={projects}
         collapsedProjectIds={collapsedProjectIds}
-        activeBrowserId={mainPaneMode === 'browser' ? activeBrowserId : null}
+        activeBrowserId={sidebarPane === 'browser' ? activeBrowserId : null}
         controller={browserResources}
         language={uiPreferences.language}
         onOpen={openBrowserFromSidebar}
@@ -6012,7 +6015,7 @@ export function CodeWorkspace({
               workspace={workspace}
               agentId={agentId}
               resource={resource}
-              active={mainPaneMode === 'computer' && activeComputerId === resource?.id}
+              active={sidebarPane === 'computer' && activeComputerId === resource?.id}
               controller={computerResources}
               language={uiPreferences.language}
               collapsed={collapsedComputerAgentIds.has(agentId)}

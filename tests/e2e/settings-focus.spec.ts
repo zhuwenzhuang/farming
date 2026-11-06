@@ -44,7 +44,7 @@ test('keyboard focus stays visible in every appearance and layout', async ({ pag
       await expect(settingsTrigger).toBeFocused()
       await expect.poll(() => settingsTrigger.evaluate(element => {
         const probe = document.createElement('span')
-        probe.style.backgroundColor = 'var(--code-bg-hover)'
+        probe.style.backgroundColor = 'var(--code-active-item-surface)'
         probe.style.color = 'var(--code-text)'
         element.append(probe)
         const probeStyle = getComputedStyle(probe)
@@ -137,7 +137,7 @@ test('Settings segmented choices use neutral text and a tonal selected surface i
     })).toBe(true)
     await expect.poll(() => activeChoices.evaluateAll((elements) => {
       const probe = document.createElement('span')
-      probe.style.backgroundColor = 'var(--code-bg-selected)'
+      probe.style.backgroundColor = 'var(--code-active-item-surface)'
       document.body.append(probe)
       const expected = getComputedStyle(probe).backgroundColor
       probe.remove()

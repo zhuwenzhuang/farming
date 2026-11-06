@@ -7,6 +7,7 @@ assertDomainStyleOwnership({
   mainIntegrationSelectors: [
     ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer)',
     ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:hover, :active, :focus-visible)',
+    ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):is(:active, :focus-visible)',
     ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer):focus-visible',
     'body.code-resizing-language-server-dock .code-language-server-resizer',
   ],

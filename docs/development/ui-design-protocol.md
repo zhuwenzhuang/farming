@@ -188,6 +188,56 @@ Its no-left-rail, equal hover/selection surface, and container-focus rules apply
 throughout Code. Use the interaction protocol for dismissal, focus return and
 modal boundaries; visual reuse does not merge different keyboard semantics.
 
+### Highlight Ownership And Composition
+
+Highlight is a projection, not another navigation state machine. Each selectable
+collection owns its selected identity; the workspace owns the visible navigation
+target. The sidebar projects an Agent only while its primary Chat/Terminal pane is visible,
+and a Resource only while its Viewer is visible. Return targets, retained Search
+positions, provider activity and expanded ancestors never select a navigation row.
+Search candidates belong only to the visible Search collection. Explorer selection
+remains separate from editor identity and must not paint a second active file.
+
+The shared row recipe owns the final opaque surface and its foreground. A row's
+label and action-reveal overlay consume that surface rather than adding another
+fill. Project title and trailing actions form one header surface; branch metadata
+and expanded content are outside it. Equivalent rows retain complete outer corners
+inside their scroll viewport. Document tabs retain their documented canvas-connected
+surface; semantic status colors remain on status content, not a second row selection.
+
+| Input | Admission and visual result | Exit |
+| --- | --- | --- |
+| Selected identity | One persistent fill per collection; never inferred from DOM focus | Selection changes or its navigation view is left |
+| Pointer hover | Only `(hover: hover) and (pointer: fine)`; same fill as selection, at every viewport width | Pointer leaves or input capability changes |
+| Ordinary pointer focus | No additional fill; do not blur the control or interfere with native focus | Native focus transfer |
+| Keyboard focus | `:focus-visible` on the row or its primary target supplies the shared fill; virtual-tree focus is scoped to the focused tree | Keyboard focus leaves |
+| Press | Enabled target gets transient feedback without changing selected identity | Release or cancellation |
+| Trailing action | Hover, keyboard focus and press belong to that action, not its row; an already selected row remains selected | Action state ends |
+| Open menu | Its explicit menu trigger stays engaged while `aria-expanded` is true; expansion of a section is not selection | Menu closes, including Escape, outside dismissal and unmount |
+| Disabled/pending action | No hover/press feedback or activation; retain a still-valid selected identity and status | Domain owner changes availability |
+
+Selected-plus-hovered/focused/pressed resolves to one fill, never stacked alpha
+layers. A selected row and a different genuinely hovered or keyboard-focused row
+may both have feedback; this does not grant the latter selection. Pointer/touch
+focus, a remembered search cursor, or an ancestor's expansion may not simulate
+that feedback. Nested actions must remain keyboard/touch accessible without
+promoting `:focus-within` to row selection. Coarse/no-hover inputs expose trailing
+actions without hover, including at widths that retain desktop geometry.
+
+This projection has no timers, requests, retries or persisted visual flags.
+Activation, loading, failure, cancellation and recovery remain with their domain
+owners; a failed or superseded open cannot restore an old selection. Appearance,
+input-capability and viewport changes only recompute presentation.
+
+Acceptance covers the same current item with another hovered/focused item; touch
+activation followed by drawer reopening; pointer exit without blur; menu open,
+Escape and outside dismissal; Search-to-non-candidate activation and Back; Agent
+to file/Resource/view transitions; disabled and selected-plus-disabled controls;
+virtual-tree keyboard navigation; and action-layer/corner geometry. Exercise
+Light/Dark/Paper with wide and narrow mouse layouts and coarse-pointer layouts.
+Assert both selected identities and resolved composed surfaces, not just a CSS
+declaration or an isolated element's background.
+
 ## Responsive And Input Contract
 
 The shared New Agent / Handoff dialog sizes to its current content on desktop,

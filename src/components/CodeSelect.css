@@ -52,9 +52,11 @@
   transform: rotate(180deg);
 }
 
-.code-select-trigger:hover:not(:disabled) {
-  border-color: var(--code-border-strong);
-  background-color: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-select-trigger:hover:not(:disabled) {
+    border-color: var(--code-border-strong);
+    background-color: var(--code-bg-hover);
+  }
 }
 
 .code-select-trigger:focus-visible,
@@ -126,9 +128,14 @@
   background: transparent;
 }
 
-.code-select.toolbar .code-select-trigger:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-select.toolbar .code-select-trigger:hover:not(:disabled),
+  .code-select.sidebar .code-select-trigger:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-select.toolbar.open .code-select-trigger,
-.code-select.sidebar .code-select-trigger:hover:not(:disabled),
 .code-select.sidebar.open .code-select-trigger {
   background: var(--code-bg-hover);
 }
