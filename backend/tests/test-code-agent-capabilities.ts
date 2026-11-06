@@ -7,6 +7,7 @@ const {
   supportsAgentRuntimeSwitch,
   agentMenuAvailability,
   capabilitiesForAgent,
+  providerIdForAgent,
 } = importTsModule('src/components/code/capabilities.ts');
 
 function agent(provider, goalSubmission, overrides = {}) {
@@ -195,6 +196,24 @@ function run() {
   assert.strictEqual(undeclaredCodex.modelPicker, false);
   assert.strictEqual(undeclaredCodex.reasoningEffort, false);
   assert.strictEqual(undeclaredCodex.serviceTier, false);
+
+  for (const provider of ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'agy']) {
+    const instance = agent(provider, null);
+    assert.strictEqual(
+      providerIdForAgent(instance, capabilitiesForAgent(instance).kind),
+      provider,
+      `providerIdForAgent should resolve ${provider} for slash command discovery`,
+    );
+  }
+  assert.strictEqual(providerIdForAgent(agent('shell', null), 'shell'), '');
+  assert.strictEqual(
+    providerIdForAgent({ command: '/usr/local/bin/qodercli --acp', providerSessionProvider: '' }, 'agent'),
+    'qoder',
+  );
+  assert.strictEqual(
+    providerIdForAgent({ command: '/Users/test/.antigravity/antigravity/bin/agy', providerSessionProvider: '' }, 'agent'),
+    'agy',
+  );
 
   console.log('test-code-agent-capabilities passed');
 }

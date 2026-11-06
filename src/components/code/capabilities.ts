@@ -5,7 +5,7 @@ import { inferAgentTerminalState } from './agent-terminal-inference'
 
 import { agentKindForProvider } from './agent-kind'
 
-export { agentKindForCommand, type ComposerAgentKind } from './agent-kind'
+export { agentKindForCommand, providerIdForAgent, providerIdForCommand, type ComposerAgentKind } from './agent-kind'
 export { inferAgentTerminalState, isAgentTurnActive, isCodexAgentWorking } from './agent-working-state'
 
 export type SlashCommandSource = 'codex' | 'claude' | 'skill' | 'custom' | 'plugin' | 'farming'
@@ -84,155 +84,6 @@ const CODING_AGENT_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {
   speechInput: true,
 }
 
-const CODEX_SLASH_COMMANDS: SlashCommandOption[] = [
-  {
-    command: '/goal',
-    label: 'Goal',
-    description: 'Set or update what this Codex session should keep working toward',
-    source: 'codex',
-  },
-  {
-    command: '/plan',
-    label: 'Plan mode',
-    description: 'Ask Codex to plan first before editing',
-    source: 'codex',
-  },
-  {
-    command: '/skills',
-    label: 'Skills',
-    description: 'Browse and use available Codex skills',
-    source: 'codex',
-  },
-  {
-    command: '/permissions',
-    label: 'Permissions',
-    description: 'Change what Codex can do without asking first',
-    source: 'codex',
-  },
-  {
-    command: '/model',
-    label: 'Model',
-    description: 'Change or inspect the active Codex model',
-    source: 'codex',
-  },
-  {
-    command: '/reasoning',
-    label: 'Reasoning',
-    description: 'Change the reasoning effort for this session',
-    source: 'codex',
-  },
-  {
-    command: '/mcp',
-    label: 'MCP',
-    description: 'Show MCP server status',
-    source: 'codex',
-  },
-  {
-    command: '/fast',
-    label: 'Fast',
-    description: 'Toggle Codex fast mode when available',
-    source: 'codex',
-  },
-  {
-    command: '/status',
-    label: 'Status',
-    description: 'Inspect the session, model, permissions, and token usage',
-    source: 'codex',
-  },
-  {
-    command: '/usage',
-    label: 'Usage',
-    description: 'View account token usage from Codex',
-    source: 'codex',
-  },
-  {
-    command: '/compact',
-    label: 'Compact',
-    description: 'Summarize long context to free tokens',
-    source: 'codex',
-  },
-  {
-    command: '/review',
-    label: 'Review',
-    description: 'Ask Codex to review the current working tree',
-    source: 'codex',
-  },
-  {
-    command: '/personality',
-    label: 'Personality',
-    description: 'Choose how Codex communicates in this session',
-    source: 'codex',
-  },
-  {
-    command: '/help',
-    label: 'Help',
-    description: 'Show available Codex slash commands',
-    source: 'codex',
-  },
-]
-
-const CLAUDE_SLASH_COMMANDS: SlashCommandOption[] = [
-  {
-    command: '/help',
-    label: 'Help',
-    description: 'Show available Claude Code slash commands',
-    source: 'claude',
-  },
-  {
-    command: '/model',
-    label: 'Model',
-    description: 'Change or inspect the active Claude model',
-    source: 'claude',
-  },
-  {
-    command: '/permissions',
-    label: 'Permissions',
-    description: 'Review or change Claude Code permission behavior',
-    source: 'claude',
-  },
-  {
-    command: '/cost',
-    label: 'Cost',
-    description: 'Show Claude Code usage for the current conversation',
-    source: 'claude',
-  },
-  {
-    command: '/compact',
-    label: 'Compact',
-    description: 'Compact the current Claude Code conversation',
-    source: 'claude',
-  },
-  {
-    command: '/clear',
-    label: 'Clear',
-    description: 'Clear the current Claude Code conversation',
-    source: 'claude',
-  },
-  {
-    command: '/config',
-    label: 'Config',
-    description: 'Open Claude Code configuration',
-    source: 'claude',
-  },
-  {
-    command: '/doctor',
-    label: 'Doctor',
-    description: 'Check Claude Code installation and account health',
-    source: 'claude',
-  },
-  {
-    command: '/memory',
-    label: 'Memory',
-    description: 'Edit or inspect Claude Code memory',
-    source: 'claude',
-  },
-]
-
-const SLASH_COMMANDS_BY_AGENT_KIND: Partial<Record<NonNullable<ComposerAgentKind>, SlashCommandOption[]>> = {
-  codex: CODEX_SLASH_COMMANDS,
-  claude: CLAUDE_SLASH_COMMANDS,
-}
-
 interface ComposerCapabilityContext {
   goalMode: boolean
   terminalProfile: boolean
@@ -259,14 +110,17 @@ const COMPOSER_CAPABILITIES_BY_AGENT_KIND: Partial<Record<
   }),
 }
 
-export function slashCommandsForAgentKind(kind: ComposerAgentKind): SlashCommandOption[] {
-  return kind ? SLASH_COMMANDS_BY_AGENT_KIND[kind] || [] : []
+export function slashCommandsForAgentKind(_kind: ComposerAgentKind): SlashCommandOption[] {
+  return []
 }
 
 export function mergeSlashCommands(commands: SlashCommandOption[]) {
   const seen = new Set<string>()
   return commands.filter(command => {
-    const commandId = `${command.source}:${command.scope || ''}:${command.command.trim().toLowerCase()}`
+    const normalizedCommand = command.command.trim().toLowerCase()
+    const commandId = command.source === 'skill'
+      ? `skill:${command.scope || ''}:${command.skillPath || ''}:${normalizedCommand}`
+      : normalizedCommand
     if (!commandId || seen.has(commandId)) return false
     seen.add(commandId)
     return true

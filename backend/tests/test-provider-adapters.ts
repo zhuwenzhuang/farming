@@ -789,11 +789,14 @@ function run() {
     acp: { kind: 'prompt' },
   });
   assert.strictEqual(providerCapabilities('opencode').terminalReadingAnchor, false);
+  assert.strictEqual(providerCapabilities('opencode').slashCommandDiscovery, true);
   assert.deepStrictEqual(providerCapabilities('qoder').goalSubmission, {
     terminal: { kind: 'command', prefix: '/goal set' },
     acp: { kind: 'prompt' },
   });
   assert.strictEqual(providerCapabilities('qoder').terminalReadingAnchor, true);
+  assert.strictEqual(providerCapabilities('qoder').slashCommandDiscovery, true);
+  assert.strictEqual(providerCapabilities('qwen').slashCommandDiscovery, true);
   assert.strictEqual(providerSupportsRuntime('opencode', 'json'), false);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
   assert.deepStrictEqual(providerConversationForkCapability('claude', 'acp'), {
@@ -965,7 +968,7 @@ function run() {
     terminalProfile: false,
     terminalReadingAnchor: true,
     terminalComposerInput: 'bracketed-paste',
-    slashCommandDiscovery: false,
+    slashCommandDiscovery: true,
     goals: false,
     goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
     conversationFork: {

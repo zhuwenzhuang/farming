@@ -154,6 +154,7 @@ import {
   isAgentTurnActive,
   isCodexAgentWorking,
   mergeSlashCommands,
+  providerIdForAgent,
   slashCommandsForAgentKind,
 } from './code/capabilities'
 import {
@@ -1527,6 +1528,7 @@ export function CodeWorkspace({
   const reportCodexModelCatalogError = useCallback((message: string) => {
     setCopyNotice({ id: Date.now(), kind: 'error', message })
   }, [])
+  const composerProviderId = providerIdForAgent(activeAgent, composerAgentKind)
   const {
     claudeSettings,
     discoveredSlashCommands,
@@ -1534,7 +1536,7 @@ export function CodeWorkspace({
     slashCatalogTargetKey,
     modelOptions: codexModelOptions,
   } = useComposerProviderCatalog({
-    providerKind: composerAgentKind || '',
+    providerKind: composerProviderId,
     homeId: activeProviderHomeId,
     workspace: activeAgent?.cwd,
     slashCommandDiscovery: activeAgent?.providerCapabilities?.slashCommandDiscovery === true,

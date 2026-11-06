@@ -197,6 +197,85 @@ async function run() {
     )));
     assert(!claudeExtensions.some(command => command.command === '/workspace-skill'));
     assert(!JSON.stringify(claudeExtensions).includes('secret'), 'Claude extension catalog should not expose skill body text');
+    assert(claudeCommands.some(command => command.command === '/security-review' && command.scope === 'Built-in'));
+    assert(codexCommands.some(command => command.command === '/goal' && command.scope === 'Built-in'));
+
+    mkdirp(path.join(homeDir, '.gemini', 'antigravity', 'builtin', 'skills', 'antigravity-guide'));
+    fs.writeFileSync(path.join(homeDir, '.gemini', 'antigravity', 'builtin', 'skills', 'antigravity-guide', 'SKILL.md'), [
+      '---',
+      'name: antigravity-guide',
+      'description: Builtin Antigravity guide',
+      '---',
+      'secret agy body',
+      '',
+    ].join('\n'));
+    mkdirp(path.join(workspace, '.gemini', 'commands'));
+    fs.writeFileSync(path.join(workspace, '.gemini', 'commands', 'perf-audit.md'), [
+      '---',
+      'description: Audit performance regressions',
+      '---',
+      'secret agy command',
+      '',
+    ].join('\n'));
+
+    const agyCommands = await withoutSyncFilesystem(() => discoverSlashCommands({
+      provider: 'agy',
+      providerHomePath: path.join(homeDir, '.gemini', 'antigravity'),
+      homeDir,
+      workspace,
+    }));
+    const agyNames = agyCommands.map(command => command.command);
+    for (const expected of ['/boost', '/teamwork', '/goal', '/plan', '/grill-me', '/schedule', '/browser', '/learn', '/antigravity-guide', '/perf-audit']) {
+      assert(agyNames.includes(expected), `Antigravity discovery should include ${expected}`);
+    }
+    assert(!JSON.stringify(agyCommands).includes('secret'), 'Antigravity discovery should not expose file body text');
+
+    mkdirp(path.join(homeDir, '.pi', 'agent', 'prompts'));
+    fs.writeFileSync(path.join(homeDir, '.pi', 'agent', 'prompts', 'drilldown.md'), 'secret pi prompt\n');
+    const piCommands = await withoutSyncFilesystem(() => discoverSlashCommands({
+      provider: 'pi',
+      providerHomePath: path.join(homeDir, '.pi', 'agent'),
+      homeDir,
+      workspace,
+    }));
+    assert(piCommands.some(command => command.command === '/drilldown'));
+    assert(piCommands.some(command => command.command === '/settings' && command.scope === 'Built-in'));
+
+    mkdirp(path.join(workspace, '.opencode', 'commands'));
+    fs.writeFileSync(path.join(workspace, '.opencode', 'commands', 'triage.md'), 'secret opencode command\n');
+    const opencodeCommands = await withoutSyncFilesystem(() => discoverSlashCommands({
+      provider: 'opencode',
+      providerHomePath: path.join(homeDir, '.opencode'),
+      homeDir,
+      workspace,
+    }));
+    assert(opencodeCommands.some(command => command.command === '/triage'));
+    assert(opencodeCommands.some(command => command.command === '/undo' && command.scope === 'Built-in'));
+
+    mkdirp(path.join(homeDir, '.qoder', 'external-commands'));
+    fs.writeFileSync(path.join(homeDir, '.qoder', 'external-commands', 'registry.json'), JSON.stringify({
+      commands: [{ name: 'ext-check', description: 'Run external check' }],
+    }));
+    const qoderCommands = await withoutSyncFilesystem(() => discoverSlashCommands({
+      provider: 'qoder',
+      providerHomePath: path.join(homeDir, '.qoder'),
+      homeDir,
+      workspace,
+    }));
+    assert(qoderCommands.some(command => command.command === '/ext-check' && command.description === 'Run external check'));
+    assert(qoderCommands.some(command => command.command === '/Simplified-Code' && command.scope === 'Built-in'));
+
+    mkdirp(path.join(workspace, '.qwen', 'commands'));
+    fs.writeFileSync(path.join(workspace, '.qwen', 'commands', 'sql-check.toml'), 'description = "Verify SQL plan"\nprompt = "secret qwen toml"\n');
+    const qwenCommands = await withoutSyncFilesystem(() => discoverSlashCommands({
+      provider: 'qwen',
+      providerHomePath: path.join(homeDir, '.qwen'),
+      homeDir,
+      workspace,
+    }));
+    assert(qwenCommands.some(command => command.command === '/sql-check' && command.description === 'Verify SQL plan'));
+    assert(qwenCommands.some(command => command.command === '/compress' && command.scope === 'Built-in'));
+    assert(!JSON.stringify(qwenCommands).includes('secret'), 'Qwen discovery should not expose TOML prompt body');
 
     assert.deepStrictEqual(
       await withoutSyncFilesystem(() => discoverSlashCommands({ provider: 'unknown', homeDir, workspace })),

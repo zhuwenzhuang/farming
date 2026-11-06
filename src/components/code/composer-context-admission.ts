@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { validateWorkspaceContext } from '@/lib/workspace-files'
-import { capabilitiesForAgent } from './capabilities'
+import { capabilitiesForAgent, providerIdForAgent } from './capabilities'
 import type { ComposerContextReference } from './composer-message'
 import { requestSlashCommands } from './useComposerProviderCatalog'
 
@@ -30,7 +30,7 @@ export async function validateComposerReferences(agent: Agent, references: Compo
     locations.length ? readers.locations(projectFilesWorkspaceId(agent.cwd), locations, AbortSignal.timeout(8000)) : undefined,
     skills.length ? (async () => {
       if (!agent.providerCapabilities?.slashCommandDiscovery) throw new Error('Skills are unavailable for this Agent.')
-      const commands = await readers.commands(capabilitiesForAgent(agent).kind || '', agent.providerHomeId || 'default', agent.cwd)
+      const commands = await readers.commands(providerIdForAgent(agent, capabilitiesForAgent(agent).kind), agent.providerHomeId || 'default', agent.cwd)
       for (const skill of skills) {
         if (!skill.path || !commands.some(command => command.source === 'skill' && command.command === skill.command
           && command.scope === skill.source && command.skillPath === skill.path)) {

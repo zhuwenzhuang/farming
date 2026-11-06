@@ -7,6 +7,7 @@ import readline from 'readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import { killOwnedProcessGroup, registerConfigProcessGroup, unregisterConfigProcessGroup } from '../config-process-ownership.cjs';
 import { readServerProcessIdentity } from '../server-process-identity.cjs';
+import { discoverSlashCommands } from '../slash-command-discovery.cjs';
 import { Readable, Writable } from 'stream';
 import {
   agent,
@@ -148,15 +149,26 @@ function readDefaultAgySettings(agyHomePath: string): { model: string; effort: A
 }
 
 const DEFAULT_AVAILABLE_COMMANDS: AvailableCommand[] = [
-  { name: 'help', description: 'Show available Antigravity slash commands' },
-  { name: 'model', description: 'Show or switch the active model' },
-  { name: 'effort', description: 'Show or change reasoning effort (low, medium, high, xhigh, max)' },
-  { name: 'quota', description: 'Inspect current model quota and reset windows' },
-  { name: 'credits', description: 'Inspect AI credits balance' },
+  { name: 'boost', description: 'Deep thinking, strategic planning, multiple perspectives, and rigorous verification', input: { hint: 'Goal or complex problem to investigate' } },
+  { name: 'teamwork', description: 'Coordinate a team of autonomous subagents to tackle a large project', input: { hint: 'Project objective for the agent team' } },
+  { name: 'goal', description: 'Run a thorough long-running task and do not stop until the goal is achieved', input: { hint: 'Objective and completion criteria' } },
+  { name: 'plan', description: 'Create a step-by-step plan before execution', input: { hint: 'Task to plan' } },
+  { name: 'grill-me', description: 'Align on a plan through an interactive design interview', input: { hint: 'Topic or design to align on' } },
+  { name: 'schedule', description: 'Run an instruction on a recurring schedule or set a one-time timer', input: { hint: 'Schedule and instruction' } },
+  { name: 'browser', description: 'Browse the web or interact with web applications', input: { hint: 'URL or browsing task' } },
+  { name: 'learn', description: 'Persist a learned behavior or setup across future tasks', input: { hint: 'Behavior or lesson to remember' } },
+  { name: 'compact', description: 'Compact the current conversation context' },
+  { name: 'model', description: 'Show or switch the active model', input: { hint: 'Optional model slug' } },
+  { name: 'effort', description: 'Show or change reasoning effort (low, medium, high, xhigh, max)', input: { hint: 'low | medium | high | xhigh | max' } },
   { name: 'skills', description: 'List available Antigravity skills' },
   { name: 'agents', description: 'List available custom agents' },
   { name: 'plugin', description: 'Manage, discover, and configure plugins' },
-  { name: 'compact', description: 'Compact the current conversation context' }
+  { name: 'quota', description: 'Inspect current model quota and reset windows' },
+  { name: 'credits', description: 'Inspect AI credits balance' },
+  { name: 'clear', description: 'Start a fresh Antigravity conversation' },
+  { name: 'status', description: 'Show current session and runtime status' },
+  { name: 'help', description: 'Show available Antigravity slash commands' },
+  { name: 'exit', description: 'Exit the Antigravity CLI' }
 ];
 
 const CLI_DIRECT_SLASH_COMMANDS = new Set([
@@ -535,16 +547,55 @@ class AgyAcpAgent {
     return created;
   }
 
-  private scheduleAvailableCommandsUpdate(sessionId: string): void {
+  private async resolveAvailableCommands(sessionId: string, extraCommands: AvailableCommand[] = []): Promise<AvailableCommand[]> {
+    const session = this.sessions.get(sessionId);
+    const merged = new Map<string, AvailableCommand>();
+    for (const command of DEFAULT_AVAILABLE_COMMANDS) {
+      merged.set(command.name.toLowerCase(), { ...command });
+    }
+    for (const command of extraCommands) {
+      const normalizedName = String(command.name || '').trim().replace(/^\/+/, '');
+      if (!normalizedName) continue;
+      const existing = merged.get(normalizedName.toLowerCase());
+      merged.set(normalizedName.toLowerCase(), {
+        name: normalizedName,
+        description: command.description || existing?.description || 'Antigravity command',
+        ...(command.input || existing?.input ? { input: command.input || existing?.input } : {})
+      });
+    }
+    try {
+      const discovered = await discoverSlashCommands({
+        provider: 'agy',
+        providerHomePath: this.options.agyHomePath,
+        workspace: session?.cwd
+      });
+      for (const item of discovered) {
+        if (!item.command.startsWith('/')) continue;
+        const name = item.command.replace(/^\/+/, '').trim();
+        if (!name) continue;
+        const existing = merged.get(name.toLowerCase());
+        merged.set(name.toLowerCase(), {
+          name,
+          description: item.description || existing?.description || 'Antigravity command',
+          ...(existing?.input ? { input: existing.input } : {})
+        });
+      }
+    } catch {
+      // Best-effort discovery fallback to DEFAULT_AVAILABLE_COMMANDS.
+    }
+    return [...merged.values()];
+  }
+
+  private scheduleAvailableCommandsUpdate(sessionId: string, extraCommands: AvailableCommand[] = []): void {
     setImmediate(() => {
-      void this.client
-        .notify('session/update', {
+      void this.resolveAvailableCommands(sessionId, extraCommands)
+        .then(availableCommands => this.client.notify('session/update', {
           sessionId,
           update: {
             sessionUpdate: 'available_commands_update',
-            availableCommands: DEFAULT_AVAILABLE_COMMANDS
+            availableCommands
           }
-        })
+        }))
         .catch(() => {
           // Ignore notifications after disconnect.
         });
@@ -1220,6 +1271,18 @@ class AgyAcpAgent {
             } else if (slashCommand.toLowerCase() === '/model') {
               const model = typeof data?.model === 'string' ? data.model.trim() : requestedValue;
               if (isValidAgyModelSlug(model)) confirmedModel = model;
+            } else if (slashCommand.toLowerCase() === '/help' && Array.isArray(data?.commands)) {
+              const helpCommands: AvailableCommand[] = [];
+              for (const raw of data.commands) {
+                if (!raw || typeof raw !== 'object') continue;
+                const entry = raw as Record<string, unknown>;
+                const name = String(entry.name || '').trim().replace(/^\/+/, '');
+                const description = String(entry.description || '').trim();
+                if (name) helpCommands.push({ name, description });
+              }
+              if (helpCommands.length > 0) {
+                this.scheduleAvailableCommandsUpdate(session.sessionId, helpCommands);
+              }
             }
           }
           const finalText = data && Object.keys(data).length > 0 && !emittedText

@@ -230,7 +230,7 @@ export function AcpComposer({
         ...(session.modes?.availableModes.length || session.configOptions.some(option => option.category === 'mode')
           ? [{ command: '/mode', label: 'Mode', description: 'Open Agent mode settings', source: 'farming' as const }] : []),
       ] : []
-    const provider: SlashCommandOption[] = [
+    const advertisedProvider: SlashCommandOption[] = [
       ...hostCommands,
       ...(sessionAuthoritative ? session?.availableCommands || [] : []),
     ].map(command => ({
@@ -239,6 +239,15 @@ export function AcpComposer({
       description: `${command.description}${command.input?.hint ? ` · ${command.input.hint}` : ''}`,
       source: 'custom',
     }))
+    const seenProviderCommands = new Set(advertisedProvider.map(command => command.command.trim().toLowerCase()))
+    const discoveredProvider = catalogCommands.filter(command => {
+      if (command.source === 'skill' || !command.command.trim().startsWith('/')) return false
+      const normalized = command.command.trim().toLowerCase()
+      if (seenProviderCommands.has(normalized)) return false
+      seenProviderCommands.add(normalized)
+      return true
+    })
+    const provider: SlashCommandOption[] = [...advertisedProvider, ...discoveredProvider]
     const skills = catalogCommands.filter(command => command.source === 'skill')
     const groups = ['Farming actions', 'Agent commands', 'Skills']
     return [...local, ...provider, ...skills]

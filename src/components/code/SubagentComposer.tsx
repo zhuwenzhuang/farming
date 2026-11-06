@@ -9,7 +9,7 @@ import { readRecentClipboardWrite } from '@/lib/clipboard'
 import { appPath } from '@/lib/base-path'
 import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
-import { capabilitiesForAgent } from './capabilities'
+import { capabilitiesForAgent, providerIdForAgent } from './capabilities'
 import { useComposerProviderCatalog } from './useComposerProviderCatalog'
 import { attachPastedText, prepareComposerPaste, restorePastedText } from './composer-paste'
 import { composerContextReferenceId } from './composer-message'
@@ -47,7 +47,7 @@ export function SubagentComposer({ agent: structuralAgent, active, controller, c
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
   const { discoveredSlashCommands, slashCatalogStatus } = useComposerProviderCatalog({
-    providerKind: capabilitiesForAgent(agent).kind || '',
+    providerKind: providerIdForAgent(agent, capabilitiesForAgent(agent).kind),
     homeId: agent.providerHomeId || 'default', workspace: agent.cwd,
     slashCommandDiscovery: agent.providerCapabilities?.slashCommandDiscovery === true,
     modelCatalogOpen: false, onModelCatalogError: setError,

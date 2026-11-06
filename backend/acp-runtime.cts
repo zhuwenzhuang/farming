@@ -2080,7 +2080,13 @@ class AcpRuntime extends EventEmitter {
           }
           binding.sessionId = returnedSessionId;
           this.claimRuntimeSession(binding, returnedSessionId);
+          const preOpenAvailableCommands = Array.isArray(binding.sessionState?.availableCommands)
+            ? binding.sessionState.availableCommands
+            : [];
           binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
+          if (preOpenAvailableCommands.length > 0) {
+            binding.sessionState.availableCommands = JSON.parse(JSON.stringify(preOpenAvailableCommands));
+          }
         }
         this.requireOpenBinding(binding);
         const normalizeModes = getProviderAdapter(provider)?.acp.normalizeModes;
@@ -2089,6 +2095,14 @@ class AcpRuntime extends EventEmitter {
           : sessionResponse?.modes) as SessionResponse['modes'] || null;
         binding.configOptions = sessionResponse?.configOptions || [];
         const initializedSessionState = this.requireSessionState(binding);
+        const responseAvailableCommands = (sessionResponse as SessionResponse & { availableCommands?: unknown })?.availableCommands;
+        if (
+          Array.isArray(responseAvailableCommands)
+          && responseAvailableCommands.length > 0
+          && initializedSessionState.availableCommands.length === 0
+        ) {
+          initializedSessionState.availableCommands = JSON.parse(JSON.stringify(responseAvailableCommands));
+        }
         if (options.forkOriginSessionId) {
           initializedSessionState.captureForkOrigin(options.forkOriginSessionId);
           // Publish a usable child only after its lineage boundary is durable.

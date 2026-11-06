@@ -977,6 +977,13 @@ console.log(JSON.stringify({
       { type: 'text', text: '/quota' },
     ]);
     const snapshotAfterSlash = runtime.getSession('agent-agy-test-1');
+    const availableCommandNames = (snapshotAfterSlash.availableCommands || []).map((cmd: { name: string }) => cmd.name);
+    for (const expectedCommand of ['boost', 'teamwork', 'goal', 'plan', 'grill-me', 'schedule', 'browser', 'learn', 'quota', 'model', 'effort', 'compact']) {
+      assert(
+        availableCommandNames.includes(expectedCommand),
+        `Antigravity ACP session availableCommands should include ${expectedCommand}`,
+      );
+    }
     assert(
       snapshotAfterSlash.entries.map(entrySummary).some((line: string) => (
         line.includes('Gemini 3.1 Pro') && line.includes('92% remaining')

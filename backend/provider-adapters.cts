@@ -889,7 +889,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       terminalProfile: false,
       terminalReadingAnchor: true,
       terminalComposerInput: 'bracketed-paste',
-      slashCommandDiscovery: false,
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -966,7 +966,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       terminalProfile: false,
       terminalReadingAnchor: false,
       terminalComposerInput: 'plain-text',
-      slashCommandDiscovery: false,
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -1024,7 +1024,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       terminalProfile: false,
       terminalReadingAnchor: true,
       terminalComposerInput: 'plain-text',
-      slashCommandDiscovery: false,
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal set' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -1099,7 +1099,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       terminalProfile: false,
       terminalReadingAnchor: false,
       terminalComposerInput: 'plain-text',
-      slashCommandDiscovery: false,
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
