@@ -5144,9 +5144,9 @@ export function AgentTranscriptPane({
         document.body,
       ) : null}
       {imagePreview ? <ContentViewerDialog title={imagePreview.label} closeLabel="Close image preview"
-        testId="code-agent-transcript-image-overlay" onClose={closeImagePreview} returnFocusRef={imagePreviewTriggerRef}>
-        <div className="code-content-viewer-image" onClick={closeImagePreview}>
-          <img src={imagePreview.url} alt={imagePreview.label} onClick={event => event.stopPropagation()} />
+        testId="code-agent-transcript-image-overlay" onClose={closeImagePreview} returnFocusRef={imagePreviewTriggerRef} dismissOnClick>
+        <div className="code-content-viewer-image">
+          <img src={imagePreview.url} alt={imagePreview.label} />
         </div>
       </ContentViewerDialog> : null}
       </AcpQuestionContext.Provider>

@@ -97,7 +97,14 @@
   font-size: 12px;
 }
 
-.code-pet-glass-rest-content button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-glass-rest-content button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+    outline: 0;
+  }
+}
+
 .code-pet-glass-rest-content button:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-accent);
@@ -360,7 +367,16 @@
   white-space: nowrap;
 }
 
-.code-pet-black-hole-status button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-black-hole-status button:hover {
+    border-color: var(--code-pet-black-hole-button-hover-border);
+    background:
+    var(--code-pet-black-hole-button-hover-bg);
+    color: var(--code-pet-black-hole-button-text);
+    outline: 0;
+  }
+}
+
 .code-pet-black-hole-status button:focus-visible {
   border-color: var(--code-pet-black-hole-button-hover-border);
   background:
@@ -511,7 +527,14 @@
   line-height: 1;
 }
 
-.code-pet-close:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-close:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text-strong);
+    outline: 0;
+  }
+}
+
 .code-pet-close:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text-strong);
@@ -537,7 +560,13 @@
   font-weight: 550;
 }
 
-.code-pet-actions button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-actions button:hover {
+    background: var(--code-bg-hover-strong);
+    outline: 0;
+  }
+}
+
 .code-pet-actions button:focus-visible {
   background: var(--code-bg-hover-strong);
   outline: 0;
@@ -548,7 +577,12 @@
   color: var(--code-text-on-emphasis);
 }
 
-.code-pet-actions button.primary:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-actions button.primary:hover {
+    background: var(--code-pet-actions-primary-hover);
+  }
+}
+
 .code-pet-actions button.primary:focus-visible {
   background: var(--code-pet-actions-primary-hover);
 }
@@ -672,7 +706,13 @@
   text-align: left;
 }
 
-.code-pet-appearance-select:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-appearance-select:hover {
+    background: var(--code-bg-selected);
+    outline: 0;
+  }
+}
+
 .code-pet-appearance-select:focus-visible,
 .code-pet-appearance-select.selected {
   background: var(--code-bg-selected);
@@ -732,7 +772,14 @@
   height: 13px;
 }
 
-.code-pet-appearance-preview:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-appearance-preview:hover {
+    border-color: var(--code-border-strong);
+    background: var(--code-accent-soft);
+    outline: 0;
+  }
+}
+
 .code-pet-appearance-preview:focus-visible {
   border-color: var(--code-border-strong);
   background: var(--code-accent-soft);
@@ -747,8 +794,10 @@
   border-color: var(--code-border);
 }
 
-.code-pet-appearance-select:hover {
-  color: var(--code-accent);
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-appearance-select:hover {
+    color: var(--code-accent);
+  }
 }
 
 .code-pet-appearance-select:focus-visible {
@@ -759,8 +808,10 @@
   color: var(--code-accent);
 }
 
-.code-pet-appearance-preview:hover {
-  color: var(--code-accent);
+@media (hover: hover) and (pointer: fine) {
+  .code-pet-appearance-preview:hover {
+    color: var(--code-accent);
+  }
 }
 
 .code-pet-appearance-preview:focus-visible {

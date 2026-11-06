@@ -462,21 +462,14 @@ const structuralSurfaceContracts = [
   ['src/styles/sidebar.css', '.code-sidebar-project-section', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/sidebar.css', '.code-sidebar-options', 'background', 'transparent'],
   ['src/styles/sidebar.css', '.code-sidebar-toggle,\n.code-sidebar-focus-toggle,\n.code-sidebar-search-toggle,\n.code-sidebar-history-toggle,\n.code-sidebar-plugins-toggle', 'background', 'transparent'],
-  ['src/styles/sidebar.css', '.code-sidebar-focus-toggle.active,\n.code-sidebar-search-toggle.active,\n.code-sidebar-history-toggle.active,\n.code-sidebar-plugins-toggle.active', 'background', 'var(--code-bg-selected)'],
   ['src/styles/share.css', '.code-share-button', 'background', 'transparent'],
   ['src/styles/files.css', '.code-open-editors-header,\n.code-files-header', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/git-history.css', '.code-git-history-section', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/git-history.css', '.code-git-history-header', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/git-history.css', '.code-git-history-section', '--code-git-history-node-bg', 'var(--code-navigation-surface)'],
-  ['src/styles/git-history.css', '.code-git-history-entry.selected > .code-git-history-commit,\n.code-git-history-commit:hover,\n.code-git-history-commit:focus-visible', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', '.code-open-editor-row.active,\n.code-open-editor-row:hover,\n.code-open-editor-row:has(.code-open-editor-main:focus)', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-surface', 'var(--code-navigation-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row-actions', 'background', 'linear-gradient(90deg, transparent 0, var(--code-agent-row-surface) 21px)'],
+  ['src/styles/agent-list.css', '.code-agent-row-actions', 'background', 'linear-gradient(90deg, transparent 0, var(--code-row-surface) 21px)'],
   ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', '.code-agents-section', 'border-radius', '0'],
-  ['src/styles/agent-list.css', '.code-agent-row:hover', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row', 'border-radius', '8px'],
   ['src/styles/sidebar.css', '.code-project-title-actions', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-open-editor-row', 'border-radius', '8px'],
@@ -490,9 +483,6 @@ const structuralSurfaceContracts = [
   ['src/styles/files.css', '.code-file-tree-row-frame', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'background', 'transparent'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'overflow', 'hidden'],
-  ['src/styles/files.css', '.code-file-tree-row-frame:hover', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', '.code-file-tree-row-frame.active,\n.code-file-tree-row-frame:has(.code-file-row.active)', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', '.code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.selected:not(.active))', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/files.css', '.code-file-row', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-row', 'background', 'transparent'],
   ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row', 'border-radius', '8px'],
@@ -607,19 +597,19 @@ const semanticStateContracts = [
   ['src/styles/main.css', '.kill-btn', 'color', 'var(--code-text-on-emphasis)'],
   ['src/styles/share.css', '.code-mobile-install-step', 'background', 'var(--code-bg-hover)'],
   ['src/styles/share.css', '.code-mobile-install-control', 'background', 'var(--code-bg-hover-strong)'],
-  ['src/styles/file-editor.css', '.code-file-editor-action:hover:not(:disabled)', 'background', 'var(--code-bg-hover)'],
   ['src/styles/settings.css', '.code-settings-update-actions button.primary:hover:not(:disabled),\n.code-settings-update-actions button.primary:focus-visible', 'background', 'var(--code-accent-hover)'],
   ['src/styles/ui-design.css', ".code-content-toolbar button:is(:hover, [aria-pressed='true']):not(:disabled),\n.code-content-viewer-actions > button:hover,\n.code-rich-content-retry:hover", 'background', 'var(--code-bg-hover)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of semanticStateContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
-  const declaration = root.nodes.flatMap(node => (
-    node.type === 'rule' && node.selector === selector ? node.nodes : []
-  )).find(node => node.type === 'decl' && node.prop === property)
-  assert(
-    declaration?.type === 'decl' && declaration.value === expectedValue,
-    `${sourcePath} ${selector} must use ${expectedValue} for ${property}`,
-  )
+  for (const target of postcss.list.comma(selector)) {
+    const values: string[] = []
+    root.walkRules(rule => {
+      if (!postcss.list.comma(rule.selector).includes(target)) return
+      rule.walkDecls(property, declaration => { values.push(declaration.value) })
+    })
+    assert(values.includes(expectedValue), `${sourcePath} ${target} must use ${expectedValue} for ${property}`)
+  }
 }
 
 console.log('test-code-appearance-css-contract passed')
@@ -642,4 +632,64 @@ for (const appearance of appearances) {
     const contrast = (Math.max(mark, background) + 0.05) / (Math.min(mark, background) + 0.05)
     assert(contrast >= 3, `${appearance}: chart mark ${color} contrast ${contrast} must be at least 3:1`)
   }
+}
+
+// Highlight ownership is checked across the composed CSS sources. Domain files
+// may expose actions, but they cannot reconstruct a migrated row's surface.
+const highlightRoot = postcss.parse(fs.readFileSync(path.join(projectRoot, 'src/styles/navigation-states.css'), 'utf8'))
+for (const selector of ['.code-agent-row', '.code-project-heading', '.code-sidebar-resource-row', '.code-open-editor-row', '.code-file-change-row', '.code-file-tree-row-frame']) {
+  let base = false
+  let state = false
+  highlightRoot.walkRules(rule => {
+    if (!rule.selector.includes(selector)) return
+    rule.walkDecls(decl => {
+      if (decl.prop === 'background' && decl.value === 'var(--code-row-surface)') base = true
+      if (decl.prop === '--code-row-surface' && decl.value === 'var(--code-active-item-surface)') state = true
+    })
+  })
+  assert(base && state, `${selector} must consume the shared row surface and state recipe`)
+}
+// Search-versus-sidebar selection is verified through rendered navigation in
+// navigation-highlight.spec.ts, not by inspecting component implementation text.
+for (const source of ['navigation-states', 'sidebar', 'agent-list', 'files', 'sidebar-resources', 'git-history', 'search', 'history', 'language-server', 'file-editor', 'ui-design', 'settings', 'plugin', 'review', 'main', 'composer', 'terminal', 'transcript', 'usage', 'share', 'empty', 'pet', 'desktop-backend']) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, `src/styles/${source}.css`), 'utf8'))
+  root.walkRules(rule => {
+    if (!rule.selector.includes(':hover')) return
+    let guarded = false
+    let parent: postcss.Container | postcss.Document | undefined = rule.parent
+    while (parent) {
+      if (parent instanceof postcss.AtRule && parent.name === 'media'
+        && parent.params.includes('(hover: hover)') && parent.params.includes('(pointer: fine)')) guarded = true
+      parent = parent.parent
+    }
+    assert(guarded, `${source}: hover must depend on input capability, not layout: ${rule.selector}`)
+  })
+}
+highlightRoot.walkRules(rule => {
+  if (!/(?:^|[^-]):focus(?!-)/.test(rule.selector)) return
+  rule.walkDecls(/^background(?:-color)?$/, () => assert.fail('Ordinary DOM focus cannot paint a navigation selection'))
+})
+
+for (const selector of ['.code-settings-segmented button', '.code-terminal-mode-toggle button', '.code-language-server-directions button', '.code-file-editor-action']) {
+  for (const state of [':hover', '.active', ':focus-visible']) {
+    let shared = false
+    highlightRoot.walkRules(rule => {
+      if (!rule.selector.includes(selector) || !rule.selector.includes(state)) return
+      rule.walkDecls('background', decl => { if (decl.value === 'var(--code-active-item-surface)') shared = true })
+    })
+    assert(shared, `${selector} ${state} must use the shared choice surface`)
+  }
+}
+
+// A domain rule must not out-rank the shared recipe by repainting a primary
+// row state. Revealing an action overlay is geometry, not another row surface.
+const sharedRowNames = ['code-agent-row', 'code-project-heading', 'code-project-agent-compact', 'code-sidebar-resource-row', 'code-open-editor-row', 'code-file-change-row', 'code-file-tree-row-frame']
+for (const source of ['sidebar', 'agent-list', 'sidebar-resources', 'files']) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, `src/styles/${source}.css`), 'utf8'))
+  root.walkRules(rule => {
+    const paintsRowState = postcss.list.comma(rule.selector).some(selector => sharedRowNames.some(name => (
+      new RegExp(`\\.${name}(?:\\.(?:active|selected)|:(?:hover|focus(?:-visible|-within)?))(?:[^ >]*)$`).test(selector)
+    )))
+    if (paintsRowState) rule.walkDecls(/^background(?:-color)?$/, () => assert.fail(`${source}: ${rule.selector} must delegate row state paint to navigation-states`))
+  })
 }

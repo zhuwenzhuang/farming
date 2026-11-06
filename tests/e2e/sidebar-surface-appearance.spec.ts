@@ -150,9 +150,12 @@ test.describe('shared sidebar surfaces', () => {
         await expect(history).toHaveScreenshot(`${layout}-${appearance}-history-selected.png`)
 
         // Sections and row types share one focus/hover fill. The selected
-        // row's parent must stay on the navigation base throughout.
+        // row's parent must stay on the navigation base throughout. WebKit
+        // requires a non-modifier key on a programmatically focused control
+        // to enter keyboard modality; DOM focus alone is deliberately unpainted.
         for (const control of [project.getByTestId('code-agent-row').first(), filesTitle, historyTitle, commit]) {
-          await control.focus()
+          await page.keyboard.press('Tab')
+          await control.press('ArrowRight')
           await expect(control).toHaveCSS('background-color', colors.active)
           await expect(history).toHaveCSS('background-color', colors.base)
         }
@@ -163,12 +166,14 @@ test.describe('shared sidebar surfaces', () => {
           ? page.getByTestId('code-file-touch-source').getByRole('textbox')
           : page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
         await openDrawer()
-        await file.focus()
+        await page.keyboard.press('Tab')
+        await file.press('ArrowRight')
         await expect(file.locator('..')).toHaveCSS('background-color', colors.active)
         const openEditorsTitle = project.locator('.code-open-editors-title')
         if (await openEditorsTitle.getAttribute('aria-expanded') !== 'true') await openEditorsTitle.click()
         const openEditor = project.locator('.code-open-editor-row').first()
-        await openEditor.locator('.code-open-editor-main').focus()
+        await page.keyboard.press('Tab')
+        await openEditor.locator('.code-open-editor-main').press('ArrowRight')
         await expect(openEditor).toHaveCSS('background-color', colors.active)
         await openEditor.hover()
         await expect(openEditor).toHaveCSS('background-color', colors.active)

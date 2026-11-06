@@ -31,7 +31,12 @@
   cursor: pointer;
 }
 
-.code-plugins-panel-header > button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugins-panel-header > button:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-plugins-panel-header > button:focus-visible {
   background: var(--code-bg-hover);
 }
@@ -84,7 +89,14 @@
   cursor: pointer;
 }
 
-.code-plugin-tabs > button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-tabs > button:hover {
+    background: var(--code-bg-selected);
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-plugin-tabs > button:focus-visible {
   background: var(--code-bg-selected);
   color: var(--code-text);
@@ -190,16 +202,29 @@
   color: var(--code-text-subtle);
 }
 
-.code-plugin-extension-home-tabs > button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-extension-home-tabs > button:hover:not(:disabled),
+  .code-plugin-extension-kind-tabs > button:hover:not(:disabled) {
+    color: var(--code-text);
+    outline: 0;
+    background: var(--code-bg-selected);
+  }
+}
+
 .code-plugin-extension-home-tabs > button:focus-visible:not(:disabled),
-.code-plugin-extension-kind-tabs > button:hover:not(:disabled),
 .code-plugin-extension-kind-tabs > button:focus-visible:not(:disabled) {
   color: var(--code-text);
   outline: 0;
   background: var(--code-bg-selected);
 }
 
-.code-plugin-extension-home-tabs > button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-extension-home-tabs > button:hover:not(:disabled) {
+    background: var(--code-bg-selected);
+    color: var(--code-text);
+  }
+}
+
 .code-plugin-extension-home-tabs > button:focus-visible:not(:disabled) {
   background: var(--code-bg-selected);
   color: var(--code-text);
@@ -255,9 +280,15 @@
   cursor: pointer;
 }
 
-.code-plugin-extension-tools > button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-extension-tools > button:hover:not(:disabled),
+  .code-plugin-detail-open:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-plugin-extension-tools > button:focus-visible:not(:disabled),
-.code-plugin-detail-open:hover:not(:disabled),
 .code-plugin-detail-open:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
   outline: 0;
@@ -362,13 +393,18 @@
   height: 14px;
 }
 
-.code-plugin-agent-add:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-agent-add:hover:not(:disabled),
+  .code-plugin-agent-actions button:hover:not(:disabled),
+  .code-plugin-agent-path-edit button:hover:not(:disabled),
+  .code-plugin-agent-form-actions button:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-plugin-agent-add:focus-visible:not(:disabled),
-.code-plugin-agent-actions button:hover:not(:disabled),
 .code-plugin-agent-actions button:focus-visible:not(:disabled),
-.code-plugin-agent-path-edit button:hover:not(:disabled),
 .code-plugin-agent-path-edit button:focus-visible:not(:disabled),
-.code-plugin-agent-form-actions button:hover:not(:disabled),
 .code-plugin-agent-form-actions button:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
 }
@@ -383,7 +419,13 @@
   outline-offset: 1px;
 }
 
-.code-plugin-agent-actions button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-agent-actions button:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--code-bg-hover-strong);
+  }
+}
+
 .code-plugin-agent-actions button:focus-visible:not(:disabled) {
   border-color: transparent;
   background: var(--code-bg-hover-strong);
@@ -470,7 +512,12 @@
   user-select: none;
 }
 
-.code-plugin-agent-drag:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-agent-drag:hover:not(:disabled) {
+    color: var(--code-text-muted);
+  }
+}
+
 .code-plugin-agent-drag:focus-visible:not(:disabled) {
   color: var(--code-text-muted);
 }
@@ -556,7 +603,12 @@
   cursor: pointer;
 }
 
-.code-plugin-agent-runtime-default:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-agent-runtime-default:hover:not(:disabled) {
+    background: var(--code-bg-hover-strong);
+  }
+}
+
 .code-plugin-agent-runtime-default:focus-visible:not(:disabled) {
   background: var(--code-bg-hover-strong);
 }
@@ -645,7 +697,13 @@
   transform: rotate(90deg);
 }
 
-.code-plugin-agent-defaults > summary:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-agent-defaults > summary:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-plugin-agent-defaults > summary:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -705,7 +763,12 @@
   background: transparent;
 }
 
-.code-plugin-agent-section .code-plugin-kind-section > summary:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-agent-section .code-plugin-kind-section > summary:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-plugin-agent-section .code-plugin-kind-section > summary:focus-visible {
   background: var(--code-bg-hover);
 }
@@ -753,7 +816,13 @@
   transform: rotate(90deg);
 }
 
-.code-plugin-kind-section > summary:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-kind-section > summary:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-plugin-kind-section > summary:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -806,7 +875,13 @@
   border-bottom: 0;
 }
 
-.code-plugin-extension:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-extension:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-plugin-extension:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -1025,7 +1100,13 @@
   cursor: pointer;
 }
 
-.code-plugin-detail-dialog > header > button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-detail-dialog > header > button:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-plugin-detail-dialog > header > button:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -1200,7 +1281,13 @@
   cursor: pointer;
 }
 
-.desktop-connections-header > button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .desktop-connections-header > button:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .desktop-connections-header > button:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -1264,10 +1351,12 @@
   cursor: pointer;
 }
 
-.desktop-connections-add:hover:not(:disabled),
-.desktop-connection-actions button:hover:not(:disabled),
-.desktop-connections-form button:hover:not(:disabled) {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .desktop-connections-add:hover:not(:disabled),
+  .desktop-connection-actions button:hover:not(:disabled),
+  .desktop-connections-form button:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
 }
 
 .desktop-connections-add:disabled,
@@ -1590,7 +1679,14 @@
   cursor: pointer;
 }
 
-.code-plugin-shared-config-actions button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-shared-config-actions button:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    outline: 2px solid var(--code-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
 .code-plugin-shared-config-actions button:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
   outline: 2px solid var(--code-focus-ring);
@@ -1723,8 +1819,10 @@
   text-underline-offset: 2px;
 }
 
-.code-plugin-browser-copy-address:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-browser-copy-address:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-plugin-browser-connector-metadata strong {
@@ -1863,7 +1961,12 @@
   font-size: 13px;
 }
 
-.code-plugin-browser-install:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-browser-install:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-plugin-browser-install:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
 }
@@ -2004,7 +2107,12 @@
   font-weight: 600;
 }
 
-.code-plugin-language-server-table-footer button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-language-server-table-footer button:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-plugin-language-server-table-footer button:focus-visible {
   background: var(--code-bg-hover);
 }
@@ -2022,7 +2130,12 @@
   font-size: 13px;
 }
 
-.code-plugin-toggle:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-plugin-toggle:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-plugin-toggle:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
 }

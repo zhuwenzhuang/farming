@@ -1,0 +1,215 @@
+/* Row highlight recipe. Domain CSS owns geometry, never these state surfaces.
+ * Selection is supplied by the collection; native pointer focus is not selection.
+ * See ui-design-protocol.md#highlight-ownership-and-composition.
+ */
+:is(
+  .code-agent-row, .code-agent-rail-button, .code-project-agent-compact,
+  .code-project-heading, .code-project-worktree, .code-pinned-title,
+  .code-sidebar-resource-row, .code-sidebar-resource-section-toggle,
+  .code-files-title, .code-open-editors-title, .code-file-change-group-toggle,
+  .code-git-history-title, .code-git-history-commit, .code-git-history-change,
+  .code-open-editor-row, .code-file-change-row, .code-file-tree-row-frame
+) {
+  --code-row-surface: var(--code-navigation-surface);
+  --code-row-foreground: var(--code-text-muted);
+  background: var(--code-row-surface);
+}
+
+:is(.code-search-result, .code-file-search-result, .code-history-card, .code-language-server-node) {
+  --code-row-surface: transparent;
+  background: var(--code-row-surface);
+}
+
+/* The graph's node cutout and trailing action scrims consume the row's actual
+ * surface, including keyboard focus, instead of reconstructing its state. */
+.code-git-history-commit { --code-git-history-node-bg: var(--code-row-surface); }
+
+:is(
+  .code-agent-row, .code-agent-rail-button, .code-project-agent-compact,
+  .code-sidebar-resource-row, .code-open-editor-row, .code-file-change-row,
+  .code-search-result, .code-file-search-result
+).active,
+.code-git-history-entry.selected > .code-git-history-commit,
+.code-language-server-node[aria-selected='true'],
+.code-file-tree-row-frame:has(.code-file-row.active) {
+  --code-row-surface: var(--code-active-item-surface);
+  --code-row-foreground: var(--code-text);
+  color: var(--code-text);
+}
+
+/* Focus a primary target, not its nested actions or a scroll container.
+ * Virtual trees may keep DOM focus on their row wrapper or the tree itself. */
+:is(
+  .code-agent-row, .code-agent-rail-button, .code-project-agent-compact,
+  .code-project-worktree, .code-pinned-title,
+  .code-sidebar-resource-row, .code-sidebar-resource-section-toggle,
+  .code-files-title, .code-open-editors-title, .code-file-change-group-toggle,
+  .code-git-history-title, .code-git-history-commit, .code-git-history-change,
+  .code-search-result, .code-file-search-result, .code-language-server-node,
+  .code-file-tree-row-frame
+):focus-visible:not(:disabled, [aria-disabled='true']),
+.code-project-heading:has(> .code-project-title:focus-visible),
+.code-open-editor-row:has(> .code-open-editor-main:focus-visible),
+.code-file-change-row:has(> .code-file-change-main:focus-visible),
+.code-history-card:has(> .code-history-card-primary:focus-visible),
+.code-language-server-node:has(> .code-language-server-location:focus-visible),
+.code-file-tree-row-frame:has(.code-file-row:focus-visible),
+.code-file-tree-viewport:has(:focus-visible) .code-file-tree-row-frame:has(.code-file-row.focused) {
+  --code-row-surface: var(--code-active-item-surface);
+  --code-row-foreground: var(--code-text);
+  color: var(--code-text);
+  outline: 0;
+  box-shadow: none;
+}
+
+/* Native pressed feedback is bounded by pointer release/cancellation. Independent
+ * action buttons never turn their parent into another selected-looking row. */
+:is(
+  .code-agent-row, .code-agent-rail-button, .code-project-agent-compact,
+  .code-project-worktree, .code-pinned-title,
+  .code-sidebar-resource-row, .code-sidebar-resource-section-toggle,
+  .code-files-title, .code-open-editors-title, .code-file-change-group-toggle,
+  .code-git-history-title, .code-git-history-commit, .code-git-history-change,
+  .code-search-result, .code-file-search-result, .code-file-tree-row-frame
+):active:not(:disabled, [aria-disabled='true']):not(:has(button:active)),
+.code-project-heading:has(> .code-project-title:active:not(:disabled)),
+.code-open-editor-row:has(> .code-open-editor-main:active:not(:disabled)),
+.code-file-change-row:has(> .code-file-change-main:active:not(:disabled)),
+.code-history-card:has(> .code-history-card-primary:active:not(:disabled)),
+.code-language-server-node:has(> .code-language-server-location:active:not(:disabled)) {
+  --code-row-surface: var(--code-active-item-surface);
+  --code-row-foreground: var(--code-text);
+  color: var(--code-text);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(
+    .code-agent-row, .code-agent-rail-button, .code-project-agent-compact,
+    .code-project-heading, .code-project-worktree, .code-pinned-title,
+    .code-sidebar-resource-row, .code-sidebar-resource-section-toggle,
+    .code-files-title, .code-open-editors-title, .code-file-change-group-toggle,
+    .code-git-history-title, .code-git-history-commit, .code-git-history-change,
+    .code-open-editor-row, .code-file-change-row, .code-file-tree-row-frame,
+    .code-search-result, .code-file-search-result, .code-history-card,
+    .code-language-server-node
+  ):hover:not(:disabled, [aria-disabled='true']):not(:has(:is(
+    .code-agent-row-actions, .code-agent-row-more, .code-project-title-actions,
+    .code-sidebar-resource-actions, .code-open-editor-actions, .code-file-row-actions,
+    .code-history-actions, .code-language-server-expand
+  ):hover)) {
+    --code-row-surface: var(--code-active-item-surface);
+    --code-row-foreground: var(--code-text);
+    color: var(--code-text);
+  }
+}
+
+/* Primary children never cover their owner's surface. In particular, a focused
+ * Changes button must not add a grey/alpha layer over the selected row. */
+:is(
+  .code-project-title, .code-open-editor-main, .code-file-change-main,
+  .code-file-row, .code-history-card-primary, .code-language-server-location
+) {
+  background: transparent;
+}
+
+:is(
+  .code-project-title, .code-open-editor-main, .code-file-change-main,
+  .code-file-row, .code-history-card-primary, .code-language-server-location
+):focus-visible {
+  outline: 0;
+  box-shadow: none;
+}
+
+/* No global button:focus fill: pointer focus must neither replace a toggle's
+ * selected surface nor leak into its row. Sidebar actions use their own recipe. */
+.code-sidebar :is(button, [tabindex]):focus {
+  outline: 0;
+  box-shadow: none;
+}
+
+:is(
+  .code-project-title-action, .code-agent-row-action, .code-agent-row-more,
+  .code-open-editor-close, .code-file-row-actions,
+  .code-sidebar-resource-header-action, .code-sidebar-resource-actions button,
+  .code-files-refresh, .code-git-history-refresh, .code-agent-row-question,
+  .code-language-server-expand,
+  .code-sidebar-toggle, .code-sidebar-focus-toggle, .code-sidebar-search-toggle,
+  .code-sidebar-history-toggle, .code-sidebar-plugins-toggle, .code-sidebar-options,
+  .code-pinned-dynamic-toggle
+):is(:focus-visible, :active):not(:disabled, [aria-disabled='true']),
+.code-sidebar [aria-haspopup='menu'][aria-expanded='true']:not(:disabled, [aria-disabled='true']),
+.code-sidebar [aria-haspopup='dialog'][aria-expanded='true']:not(:disabled, [aria-disabled='true']) {
+  background: var(--code-active-item-surface);
+}
+
+:is(
+  .code-sidebar-focus-toggle, .code-sidebar-search-toggle,
+  .code-sidebar-history-toggle, .code-sidebar-plugins-toggle,
+  .code-pinned-dynamic-toggle
+).active {
+  background: var(--code-active-item-surface);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(
+    .code-project-title-action, .code-agent-row-action, .code-agent-row-more,
+    .code-open-editor-close, .code-file-row-actions,
+    .code-sidebar-resource-header-action, .code-sidebar-resource-actions button,
+    .code-files-refresh, .code-git-history-refresh, .code-agent-row-question,
+    .code-language-server-expand,
+    .code-sidebar-toggle, .code-sidebar-focus-toggle, .code-sidebar-search-toggle,
+    .code-sidebar-history-toggle, .code-sidebar-plugins-toggle, .code-sidebar-options,
+    .code-pinned-dynamic-toggle
+  ):hover:not(:disabled, [aria-disabled='true']) {
+    background: var(--code-active-item-surface);
+  }
+}
+
+/* Compact choice collections share selection and hover just like navigation
+ * rows. Text-entry focus and semantic operation status keep their own recipe. */
+:is(
+  .code-settings-segmented button, .code-terminal-mode-toggle button,
+  .code-language-server-directions button, .code-file-editor-action,
+  .code-terminal-search-button.option, .code-settings-permission-toggle
+):is(.active, [aria-pressed='true']),
+:is(
+  .code-settings-segmented button, .code-terminal-mode-toggle button,
+  .code-language-server-directions button, .code-file-editor-action,
+  .code-terminal-search-button.option, .code-settings-permission-toggle
+):is(:focus-visible, :active):not(:disabled, [aria-disabled='true']) {
+  background: var(--code-active-item-surface);
+  box-shadow: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(
+    .code-settings-segmented button, .code-terminal-mode-toggle button,
+    .code-language-server-directions button, .code-file-editor-action,
+    .code-terminal-search-button.option, .code-settings-permission-toggle
+  ):hover:not(:disabled, [aria-disabled='true']) {
+    background: var(--code-active-item-surface);
+  }
+}
+
+/* Coarse/no-hover inputs cannot reveal actions by hovering, even when a wide
+ * viewport uses desktop geometry. Do not emulate hover or select the parent. */
+@media (hover: none), (pointer: coarse) {
+  .code-project-title-actions,
+  .code-open-editor-actions,
+  .code-sidebar-resource-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .code-agent-row-actions {
+    opacity: 1;
+  }
+
+  .code-agent-row .code-agent-row-actions button {
+    pointer-events: auto;
+  }
+
+  .code-file-row-actions {
+    display: grid;
+  }
+}

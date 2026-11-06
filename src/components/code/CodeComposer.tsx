@@ -37,6 +37,7 @@ import {
 import type { CodeCopy } from './copy'
 import type { PermissionModeColor, PermissionModeOption } from './composer-profile'
 import { ComposerAttachments, type ComposerAttachmentView } from './ComposerAttachments'
+import { ComposerContextWindow } from './ComposerContextWindow'
 import { ComposerContextMenu } from './ComposerContextMenu'
 import { useComposerContextCompletion, type ComposerContextCandidate } from './useComposerContextCompletion'
 import type { ComposerContextReference } from './composer-message'
@@ -1019,24 +1020,12 @@ export function CodeComposer({
 
             <div className="code-composer-right-tools" data-testid="code-composer-right-tools">
               {contextWindow && (
-            <div
-              className="code-composer-context-window"
-              data-testid="code-composer-context-window"
-              tabIndex={0}
-              role="img"
-              aria-label={contextWindowTitle}
-            >
-              <span
-                className="code-context-window-ring"
-                aria-hidden="true"
-                style={{ '--context-percent': contextWindow.percentUsed } as CSSProperties}
-              />
-              <div className="code-context-window-popover" role="tooltip">
+            <ComposerContextWindow testId="code-composer-context-window"
+              label={contextWindowTitle} percentUsed={contextWindow.percentUsed}>
                 <span>Context window:</span>
                 <strong>{contextWindow.percentUsed}% used ({contextWindow.percentLeft}% left)</strong>
                 <strong>{formatContextTokens(contextWindow.usedTokens)} / {formatContextTokens(contextWindow.limitTokens)} tokens used</strong>
-              </div>
-            </div>
+            </ComposerContextWindow>
               )}
               {showModelPicker && (
             <div className="code-composer-menu-anchor model-picker" ref={modelMenuAnchorRef}>

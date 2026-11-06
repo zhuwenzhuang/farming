@@ -60,9 +60,16 @@
   font-weight: 500;
 }
 
-.farming-browser-toolbar button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .farming-browser-toolbar button:hover:not(:disabled),
+  .farming-browser-placeholder button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text-strong);
+    outline: 0;
+  }
+}
+
 .farming-browser-toolbar button:focus-visible,
-.farming-browser-placeholder button:hover,
 .farming-browser-placeholder button:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text-strong);
@@ -110,7 +117,13 @@
   color: var(--code-text-muted) !important;
 }
 
-.farming-browser-native-tab:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .farming-browser-native-tab:hover:not(:disabled) {
+    background: var(--code-bg-hover) !important;
+    color: var(--code-text-strong) !important;
+  }
+}
+
 .farming-browser-native-tab:focus-visible,
 .farming-browser-native-tab.selected {
   background: var(--code-bg-hover) !important;
@@ -225,7 +238,13 @@
   color: var(--code-text) !important;
 }
 
-.farming-browser-native-control:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .farming-browser-native-control:hover:not(:disabled) {
+    background: var(--code-bg-hover) !important;
+    color: var(--code-text-strong) !important;
+  }
+}
+
 .farming-browser-native-control:focus-visible {
   background: var(--code-bg-hover) !important;
   color: var(--code-text-strong) !important;
@@ -438,7 +457,14 @@
   cursor: pointer;
 }
 
-.farming-browser-activity-close:hover,
+@media (hover: hover) and (pointer: fine) {
+  .farming-browser-activity-close:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text-strong);
+    outline: none;
+  }
+}
+
 .farming-browser-activity-close:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text-strong);

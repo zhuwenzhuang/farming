@@ -136,10 +136,12 @@ function BrowserRow({
       className={`farming-browser-row code-sidebar-resource-row ${active ? 'active' : ''} ${activeRuntime ? 'running' : ''}`}
       data-testid="farming-browser-row"
       data-browser-id={resource.id}
+      aria-current={active ? 'page' : undefined}
       role="button"
       tabIndex={0}
       onClick={() => onOpen(resource)}
       onKeyDown={event => {
+        if (event.target !== event.currentTarget) return
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           onOpen(resource)

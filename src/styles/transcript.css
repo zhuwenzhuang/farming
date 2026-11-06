@@ -232,7 +232,13 @@
   font: inherit;
 }
 
-.code-agent-transcript-load-error button:not(:disabled):hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-load-error button:not(:disabled):hover {
+    background: var(--code-warning-soft);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-load-error button:not(:disabled):focus-visible {
   background: var(--code-warning-soft);
   outline: none;
@@ -337,9 +343,11 @@ button.code-agent-transcript-message-source {
   cursor: pointer;
 }
 
-button.code-agent-transcript-message-source:hover {
-  color: var(--code-text);
-  text-decoration: underline;
+@media (hover: hover) and (pointer: fine) {
+  button.code-agent-transcript-message-source:hover {
+    color: var(--code-text);
+    text-decoration: underline;
+  }
 }
 
 .code-agent-transcript-message-unavailable {
@@ -365,9 +373,15 @@ button.code-agent-transcript-message-source:hover {
   right: 10px;
 }
 
-.code-agent-transcript-user:hover > .code-agent-transcript-message-time,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-user:hover > .code-agent-transcript-message-time,
+  .code-agent-transcript-answer:hover .code-agent-transcript-message-time {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .code-agent-transcript-user:has(:focus-visible) > .code-agent-transcript-message-time,
-.code-agent-transcript-answer:hover .code-agent-transcript-message-time,
 .code-agent-transcript-answer:has(:focus-visible) .code-agent-transcript-message-time {
   opacity: 1;
   transform: translateY(0);
@@ -585,7 +599,13 @@ button.code-agent-transcript-message-source:hover {
   overflow: hidden;
 }
 
-.code-agent-transcript-steer-bubble:hover .code-agent-transcript-message-time-steer,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-steer-bubble:hover .code-agent-transcript-message-time-steer {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .code-agent-transcript-steer-bubble:has(:focus-visible) .code-agent-transcript-message-time-steer {
   opacity: 1;
   transform: translateY(0);
@@ -873,9 +893,11 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-message-expand:hover {
-  color: var(--code-text);
-  text-decoration: underline;
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-message-expand:hover {
+    color: var(--code-text);
+    text-decoration: underline;
+  }
 }
 
 .code-agent-transcript-message-expand:focus-visible {
@@ -939,9 +961,11 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-collaboration-event:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text-muted);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-collaboration-event:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text-muted);
+  }
 }
 
 .code-agent-transcript-collaboration-event:focus-visible {
@@ -1027,14 +1051,28 @@ button.code-agent-transcript-message-source:hover {
   font-size: 12px;
 }
 
-.code-agent-transcript-collaboration-activities-earlier:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-collaboration-activities-earlier:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-collaboration-activities-earlier:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
   outline: none;
 }
 
-.code-agent-transcript-collaboration-earlier:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-collaboration-earlier:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-collaboration-earlier:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -1104,7 +1142,13 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-process-group-summary:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-process-group-summary:hover {
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-process-group-summary:focus-visible {
   color: var(--code-text);
   outline: none;
@@ -1166,7 +1210,13 @@ button.code-agent-transcript-message-source:hover {
   -webkit-user-select: text;
 }
 
-.code-agent-transcript-process-title-toggle:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-process-title-toggle:hover {
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-process-title-toggle:focus-visible {
   color: var(--code-text);
   outline: none;
@@ -1212,13 +1262,25 @@ button.code-agent-transcript-message-source:hover {
   transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
-.code-agent-transcript-process-item:hover .code-agent-transcript-copy,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-process-item:hover .code-agent-transcript-copy {
+    opacity: 1;
+  }
+}
+
 .code-agent-transcript-copy.copied,
 .code-agent-transcript-copy:focus-visible {
   opacity: 1;
 }
 
-.code-agent-transcript-copy:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-copy:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-copy.copied,
 .code-agent-transcript-copy:focus-visible {
   background: var(--code-bg-hover);
@@ -1265,10 +1327,16 @@ button.code-agent-transcript-message-source:hover {
   transform: translateY(2px);
 }
 
-.code-agent-transcript-copy:hover::after,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-copy:hover::after,
+  .code-agent-transcript-answer-action:hover::after {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .code-agent-transcript-copy.copied::after,
 .code-agent-transcript-copy:focus-visible::after,
-.code-agent-transcript-answer-action:hover::after,
 .code-agent-transcript-answer-action.copied::after,
 .code-agent-transcript-answer-action:focus-visible::after {
   opacity: 1;
@@ -1443,9 +1511,14 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-terminal-copy:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-terminal-copy:hover,
+  .code-agent-transcript-terminal-stop:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-agent-transcript-terminal-copy:focus-visible,
-.code-agent-transcript-terminal-stop:hover,
 .code-agent-transcript-terminal-stop:focus-visible {
   background: var(--code-bg-hover);
 }
@@ -1493,7 +1566,13 @@ button.code-agent-transcript-message-source:hover {
   font: inherit;
 }
 
-.code-agent-transcript-terminal-sync-error button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-terminal-sync-error button:hover {
+    background: var(--code-warning-soft);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-terminal-sync-error button:focus-visible {
   background: var(--code-warning-soft);
   outline: none;
@@ -1635,7 +1714,12 @@ button.code-agent-transcript-message-source:hover {
   display: none;
 }
 
-:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:hover,
+@media (hover: hover) and (pointer: fine) {
+  :is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 :is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:focus-visible {
   background: var(--code-bg-hover);
 }
@@ -1713,7 +1797,12 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-subagent-control:not(:disabled):hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-subagent-control:not(:disabled):hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-agent-transcript-subagent-control:not(:disabled):focus-visible {
   background: var(--code-bg-hover);
 }
@@ -1932,7 +2021,14 @@ button.code-agent-transcript-message-source:hover {
   mask-size: contain;
 }
 
-.code-agent-transcript-file-link:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-file-link:hover {
+    background: var(--code-accent-soft);
+    color: var(--code-accent);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-file-link:focus-visible {
   background: var(--code-accent-soft);
   color: var(--code-accent);
@@ -1970,7 +2066,13 @@ button.code-agent-transcript-message-source:hover {
   margin-left: 2px;
 }
 
-.code-agent-transcript-answer:hover .code-agent-transcript-answer-actions,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-answer:hover .code-agent-transcript-answer-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .code-agent-transcript-answer:focus-within .code-agent-transcript-answer-actions {
   opacity: 1;
   pointer-events: auto;
@@ -2004,7 +2106,13 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-selection-actions button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-selection-actions button:hover {
+    background: color-mix(in srgb, currentColor 15%, transparent);
+    outline: none;
+  }
+}
+
 .code-agent-transcript-selection-actions button:focus-visible {
   background: color-mix(in srgb, currentColor 15%, transparent);
   outline: none;
@@ -2023,7 +2131,13 @@ button.code-agent-transcript-message-source:hover {
   cursor: pointer;
 }
 
-.code-agent-transcript-answer-action:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-answer-action:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
 .code-agent-transcript-answer-action.copied,
 .code-agent-transcript-answer-action:focus-visible {
   background: var(--code-bg-hover);
@@ -2116,7 +2230,13 @@ button.code-agent-transcript-result-summary {
   cursor: pointer;
 }
 
-button.code-agent-transcript-result-summary:hover,
+@media (hover: hover) and (pointer: fine) {
+  button.code-agent-transcript-result-summary:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
 button.code-agent-transcript-result-summary:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -2196,7 +2316,12 @@ button.code-agent-transcript-result-summary:focus-visible {
   cursor: pointer;
 }
 
-.code-agent-transcript-change-review-dialog > header > button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-change-review-dialog > header > button:hover {
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-agent-transcript-change-review-dialog > header > button:focus-visible {
   background: var(--code-bg-hover);
 }
@@ -2307,8 +2432,10 @@ button.code-agent-transcript-result-summary:focus-visible {
   display: none;
 }
 
-.code-agent-transcript-result-file > summary:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-result-file > summary:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-agent-transcript-result-file-copy {
@@ -2367,15 +2494,40 @@ button.code-agent-transcript-result-summary:focus-visible {
   color: var(--code-text-subtle);
 }
 
-.code-agent-transcript-process-summary:is(:hover, :focus-visible) .code-agent-transcript-chevron,
-.code-agent-transcript-collaboration-event:is(:hover, :focus-visible) .code-agent-transcript-chevron,
-.code-agent-transcript-process-title-toggle:is(:hover, :focus-visible) .code-agent-transcript-process-item-chevron,
-.code-agent-transcript-process-group-summary:is(:hover, :focus-visible) .code-agent-transcript-process-item-chevron,
-.code-agent-transcript-plan-driver-summary:is(:hover, :focus-visible) .code-agent-transcript-plan-driver-chevron,
-button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-agent-transcript-result-chevron,
-.code-agent-transcript-result-file > summary:is(:hover, :focus-visible) .code-agent-transcript-result-file-chevron,
-:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:is(:hover, :focus-visible) svg {
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-process-summary:is(:hover, :focus-visible) .code-agent-transcript-chevron,
+  .code-agent-transcript-collaboration-event:is(:hover, :focus-visible) .code-agent-transcript-chevron,
+  .code-agent-transcript-process-title-toggle:is(:hover, :focus-visible) .code-agent-transcript-process-item-chevron,
+  .code-agent-transcript-process-group-summary:is(:hover, :focus-visible) .code-agent-transcript-process-item-chevron,
+  .code-agent-transcript-plan-driver-summary:is(:hover, :focus-visible) .code-agent-transcript-plan-driver-chevron,
+  button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-agent-transcript-result-chevron,
+  .code-agent-transcript-result-file > summary:is(:hover, :focus-visible) .code-agent-transcript-result-file-chevron,
+  :is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:is(:hover, :focus-visible) svg {
+    opacity: 0.9;
+  }
+}
+
+.code-agent-transcript-process-summary:is(:focus-visible) .code-agent-transcript-chevron,
+.code-agent-transcript-collaboration-event:is(:focus-visible) .code-agent-transcript-chevron,
+.code-agent-transcript-process-title-toggle:is(:focus-visible) .code-agent-transcript-process-item-chevron,
+.code-agent-transcript-process-group-summary:is(:focus-visible) .code-agent-transcript-process-item-chevron,
+.code-agent-transcript-plan-driver-summary:is(:focus-visible) .code-agent-transcript-plan-driver-chevron,
+button.code-agent-transcript-result-summary:is(:focus-visible) .code-agent-transcript-result-chevron,
+.code-agent-transcript-result-file > summary:is(:focus-visible) .code-agent-transcript-result-file-chevron,
+:is(.code-agent-transcript-subagent-action, .code-agent-transcript-context) > summary:is(:focus-visible) svg {
   opacity: 0.9;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .code-agent-transcript-chevron,
+  .code-agent-transcript-process-item-chevron,
+  .code-agent-transcript-plan-driver-chevron,
+  .code-agent-transcript-result-chevron,
+  .code-agent-transcript-result-file-chevron,
+  .code-agent-transcript-subagent-action > summary svg,
+  .code-agent-transcript-context > summary svg {
+    opacity: 0.9;
+  }
 }
 
 .code-agent-transcript-result-file-stats .added,
@@ -2494,7 +2646,13 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   cursor: pointer;
 }
 
-.code-agent-transcript-result-show-more:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-result-show-more:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
 .code-agent-transcript-result-show-more:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -2512,7 +2670,12 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   cursor: pointer;
 }
 
-.code-agent-transcript-result-review:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-result-review:hover {
+    background: var(--code-bg-muted);
+  }
+}
+
 .code-agent-transcript-result-review:focus-visible {
   background: var(--code-bg-muted);
 }
@@ -2531,7 +2694,13 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   pointer-events: none;
 }
 
-.code-agent-transcript-result-review.agent-review-commit:is(:hover, :focus-visible) .code-agent-transcript-review-and-commit-sparkle {
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-result-review.agent-review-commit:is(:hover, :focus-visible) .code-agent-transcript-review-and-commit-sparkle {
+    opacity: 0.76;
+  }
+}
+
+.code-agent-transcript-result-review.agent-review-commit:is(:focus-visible) .code-agent-transcript-review-and-commit-sparkle {
   opacity: 0.76;
 }
 
@@ -2586,8 +2755,10 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   cursor: pointer;
 }
 
-.code-agent-transcript-jump-bottom:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-jump-bottom:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-agent-transcript-jump-bottom svg {
@@ -2709,8 +2880,10 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   color: var(--code-text-subtle);
 }
 
-.code-agent-transcript-process-earlier:hover {
-  color: var(--code-text-muted);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-process-earlier:hover {
+    color: var(--code-text-muted);
+  }
 }
 
 .code-agent-transcript-process-earlier:focus-visible {
@@ -2753,12 +2926,16 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   -webkit-backdrop-filter: none;
 }
 
-.code-agent-transcript-jump-bottom:hover {
-  border-color: transparent;
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-jump-bottom:hover {
+    border-color: transparent;
+  }
 }
 
-.code-agent-transcript-jump-bottom:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-jump-bottom:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-agent-transcript-process-item {
@@ -2983,9 +3160,11 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   margin-right: max(var(--code-transcript-controls-space, 68px), calc((100% - var(--code-transcript-column-width, 980px)) / 2));
 }
 
-.code-agent-transcript-sticky-turn:hover {
-  background: var(--code-bg-muted);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-transcript-sticky-turn:hover {
+    background: var(--code-bg-muted);
+    color: var(--code-text);
+  }
 }
 
 .code-agent-transcript-sticky-turn:focus-visible {
@@ -3110,4 +3289,10 @@ body.code-mode:not(.code-compact-layout) .code-agent-transcript.wide-layout {
 }
 body.code-mode:not(.code-compact-layout) .code-agent-work-pane.has-chat-width-toggle .code-agent-transcript {
   --code-transcript-controls-space: 98px;
+}
+
+/* Process actions remain discoverable without emulating hover on wide touch
+ * layouts; completed-answer actions already stay visible in every layout. */
+@media (hover: none), (pointer: coarse) {
+  .code-agent-transcript-copy { opacity: 1; }
 }

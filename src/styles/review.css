@@ -93,7 +93,11 @@
   cursor: pointer;
   font-size: 13px;
 }
-.review-commit:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .review-commit:hover {
+    text-decoration: underline;
+  }
+}
 .review-commit svg { width: 13px; height: 13px; fill: currentColor; }
 
 .review-rebase {
@@ -136,7 +140,13 @@
   font-size: 12px;
 }
 
-.review-files-actions button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .review-files-actions button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+  }
+}
+
 .review-files-actions button.active {
   background: var(--code-bg-hover);
   color: var(--code-accent);
@@ -218,7 +228,12 @@
   font-size: 12px;
   text-align: center;
 }
-.review-skipped-row:hover { background: var(--code-warning-soft); color: var(--code-warning); }
+@media (hover: hover) and (pointer: fine) {
+  .review-skipped-row:hover {
+    background: var(--code-warning-soft);
+    color: var(--code-warning);
+  }
+}
 
 .review-files-list { background: var(--code-bg-canvas); }
 
@@ -287,7 +302,12 @@
   text-align: left;
 }
 
-.review-file-select:hover .review-file-name { color: var(--code-accent); text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .review-file-select:hover .review-file-name {
+    color: var(--code-accent);
+    text-decoration: underline;
+  }
+}
 
 .review-file-select:focus-visible,
 .review-review-status button:focus-visible,
@@ -417,13 +437,22 @@
   white-space: nowrap;
 }
 
-.review-review-status button:hover { color: var(--code-accent); text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .review-review-status button:hover {
+    color: var(--code-accent);
+    text-decoration: underline;
+  }
+}
 .review-review-status.pending button {
   color: var(--code-text-muted);
   cursor: wait;
   text-decoration: none;
 }
-.review-file-change:hover .review-review-status button,
+@media (hover: hover) and (pointer: fine) {
+  .review-file-change:hover .review-review-status button {
+    opacity: 1;
+  }
+}
 .review-file-change:focus-within .review-review-status button,
 .review-file-change.reviewing .review-review-status button { opacity: 1; }
 
@@ -434,8 +463,12 @@
   border-bottom: 1px solid var(--code-border);
   background: var(--code-bg-raised);
 }
-.review-file-change.selected > .review-file-change-header,
-.review-file-change-header:hover { background: linear-gradient(var(--code-bg-hover), var(--code-bg-hover)), var(--code-bg-raised); }
+@media (hover: hover) and (pointer: fine) {
+  .review-file-change-header:hover {
+    background: linear-gradient(var(--code-bg-hover), var(--code-bg-hover)), var(--code-bg-raised);
+  }
+}
+.review-file-change.selected > .review-file-change-header { background: linear-gradient(var(--code-bg-hover), var(--code-bg-hover)), var(--code-bg-raised); }
 
 .review-file-expand {
   width: 30px;
@@ -447,7 +480,11 @@
   cursor: pointer;
 }
 
-.review-file-expand:hover { color: var(--code-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .review-file-expand:hover {
+    color: var(--code-accent);
+  }
+}
 .review-file-expand svg { width: 16px; height: 16px; fill: currentColor; }
 
 .review-inline-diff {
@@ -507,7 +544,12 @@
   cursor: pointer;
   font: inherit;
 }
-.review-context-controls button:hover { background: var(--code-bg-hover); color: var(--code-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .review-context-controls button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+  }
+}
 .review-context-controls button:disabled { cursor: wait; opacity: 0.55; }
 .review-context-controls button:focus-visible { outline: 2px solid var(--code-focus-ring); outline-offset: 0; }
 .review-diff-hunk.loading { justify-content: space-between; }
@@ -546,7 +588,11 @@
 }
 
 .review-line-number { cursor: pointer; }
-.review-line-number:hover { color: var(--code-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .review-line-number:hover {
+    color: var(--code-accent);
+  }
+}
 .review-line-number:focus-visible { outline: 2px solid var(--code-focus-ring); outline-offset: -2px; }
 
 .review-diff-row code {
@@ -749,7 +795,12 @@
   color: var(--code-accent);
   font-size: 10px;
 }
-.review-comment-thread > header button:hover { background: var(--code-bg-hover); color: var(--code-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .review-comment-thread > header button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+  }
+}
 .review-comment-thread > header svg { width: 12px; height: 12px; fill: currentColor; }
 .review-comment-thread p { margin: 0; padding: 8px; line-height: 1.45; white-space: pre-wrap; }
 
@@ -855,7 +906,11 @@
   color: var(--code-accent);
   cursor: pointer;
 }
-.review-source-trigger:hover { background: var(--code-bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .review-source-trigger:hover {
+    background: var(--code-bg-hover);
+  }
+}
 .review-source-trigger strong {
   overflow: hidden;
   color: inherit;
@@ -996,4 +1051,8 @@
 @media (max-width: 600px) {
   .review-comparison-endpoints { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .review-comparison-endpoints > span { display: none; }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .review-review-status button { opacity: 1; }
 }

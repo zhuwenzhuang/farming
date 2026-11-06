@@ -126,7 +126,7 @@ export function ComposerAttachments({ attachments, onRemove, references = [], on
       {references.length > 4 ? <button type="button" className="code-composer-context-overflow" onClick={() => setExpanded(value => !value)}>
         {expanded ? 'Show less' : `+${references.length - 4}`}
       </button> : null}
-      {imagePreview ? <ContentViewerDialog title={imagePreview.name} closeLabel="Close preview" onClose={() => setImagePreview(null)} returnFocusRef={imageTriggerRef} testId="composer-image-viewer">
+      {imagePreview ? <ContentViewerDialog title={imagePreview.name} closeLabel="Close preview" onClose={() => setImagePreview(null)} returnFocusRef={imageTriggerRef} testId="composer-image-viewer" dismissOnClick>
         <div className="code-content-viewer-image"><img src={imagePreview.previewUrl} alt={imagePreview.name} /></div>
       </ContentViewerDialog> : null}
       {preview ? <div className="code-menu-surface code-composer-context-preview" role="dialog" aria-label={preview.label}>

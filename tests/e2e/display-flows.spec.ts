@@ -3367,7 +3367,7 @@ test.describe('display-backed agent flows', () => {
     await expect(primaryProjectGroup).toHaveCount(1)
     await expect(page.getByTestId('code-search-result')).toHaveCount(1)
     await expect(page.getByTestId('code-search-panel')).toContainText('child')
-    await expect(page.getByTestId('code-agent-row').first()).toHaveClass(/search-selected/)
+    await expect(page.getByTestId('code-sidebar').locator('.code-agent-row.active, .search-selected')).toHaveCount(0)
     await page.getByTestId('code-search-result').click()
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(childStartedRow).toHaveClass(/active/)

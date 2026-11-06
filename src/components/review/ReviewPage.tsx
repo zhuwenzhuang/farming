@@ -1,4 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { replaceInteractionHistoryState } from '@/lib/interaction-layer'
 import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
 import { Fragment, memo, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -1456,7 +1457,7 @@ export function ReviewPage() {
         params.set('head', request.head)
         params.set('reviewId', revision.reviewId)
         params.set('comparison', initialCapturedSourceId)
-        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+        replaceInteractionHistoryState(null, `${window.location.pathname}?${params.toString()}`)
         setSessionRevisions([revision])
         setReviewSessionRevision(revision)
         setReviewView('final')
@@ -1517,7 +1518,7 @@ export function ReviewPage() {
           params.set('root', review.root)
           params.set('base', review.basePatchset)
           params.set('head', review.patchset)
-          window.history.replaceState(null, '', `${window.location.pathname}?${params}`)
+          replaceInteractionHistoryState(null, `${window.location.pathname}?${params}`)
           replaceReviewRequestRef.current(request)
           return
         }
@@ -1870,7 +1871,7 @@ export function ReviewPage() {
     params.set('head', request.head)
     params.set('reviewId', revision.reviewId)
     params.set('comparison', sourceId)
-    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+    replaceInteractionHistoryState(null, `${window.location.pathname}?${params.toString()}`)
     setSessionRevisions(current => [...current.filter(item => item.reviewId === revision.reviewId && item.head !== revision.head), revision].sort((a, b) => a.number - b.number))
     setReviewSessionRevision(revision)
     setReviewView(view)
@@ -1927,7 +1928,7 @@ export function ReviewPage() {
     params.set('base', source.base)
     params.set('head', source.head)
     params.set('comparison', source.id)
-    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+    replaceInteractionHistoryState(null, `${window.location.pathname}?${params.toString()}`)
     setComparisonSourceId(source.id)
     setShowComparisonSources(false)
     setReviewView('final')

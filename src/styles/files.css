@@ -99,14 +99,6 @@
   cursor: pointer;
 }
 
-.code-open-editors-title:hover,
-.code-open-editors-title:focus-visible,
-.code-files-title:hover,
-.code-files-title:focus-visible {
-  color: var(--code-text);
-  outline: 0;
-}
-
 .code-files-refresh {
   width: var(--code-sidebar-file-row-height);
   height: var(--code-sidebar-file-row-height);
@@ -126,9 +118,14 @@
   transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
 }
 
-.code-files-refresh:hover,
-.code-files-refresh:focus-visible {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-files-refresh:hover:not(:disabled) {
+    color: var(--code-text-muted);
+    outline: 0;
+  }
+}
+
+.code-files-refresh:focus-visible:not(:disabled) {
   color: var(--code-text-muted);
   outline: 0;
 }
@@ -384,7 +381,13 @@
   cursor: pointer;
 }
 
-.code-file-change-review:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-change-review:hover {
+    color: var(--code-text);
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-file-change-review:focus-visible {
   color: var(--code-text);
   background: var(--code-bg-hover);
@@ -432,13 +435,6 @@ body.code-mode .code-file-change-group-toggle {
   color: var(--code-text-muted);
 }
 
-.code-file-change-group-toggle:hover,
-.code-file-change-group-toggle:focus-visible {
-  color: var(--code-text);
-  outline: 0;
-  background: var(--code-bg-hover);
-}
-
 .code-file-change-group-toggle > span:nth-child(2) {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -480,12 +476,6 @@ body.code-mode .code-file-change-group-toggle {
   );
 }
 
-.code-file-change-row.active,
-.code-file-change-row:hover,
-.code-file-change-row:focus-within {
-  background: var(--code-active-item-surface);
-}
-
 .code-file-change-main {
   border-radius: inherit;
   min-width: 0;
@@ -498,7 +488,7 @@ body.code-mode .code-file-change-group-toggle {
   padding: 3px 4px 3px min(var(--change-indent), 25%);
   border: 0;
   background: transparent;
-  color: var(--code-text-muted);
+  color: var(--code-row-foreground, var(--code-text-muted));
   font: inherit;
   font-size: var(--code-file-entry-font-size);
   line-height: var(--code-file-entry-line-height);
@@ -511,12 +501,6 @@ body.code-mode .code-file-change-group-toggle {
 .code-file-change-main.directory {
   color: var(--code-text);
   grid-template-columns: 14px minmax(0, 1fr) 18px;
-}
-
-.code-file-change-main:hover,
-.code-file-change-main:focus-visible {
-  background: transparent;
-  outline: 0;
 }
 
 .code-file-change-name,
@@ -597,7 +581,6 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-open-editor-row {
-  --code-open-editor-row-action-surface: var(--code-navigation-surface);
   min-width: 0;
   min-height: var(--code-open-editor-row-height);
   position: relative;
@@ -605,13 +588,6 @@ body.code-mode .code-file-change-group-toggle {
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   border-radius: 8px;
-}
-
-.code-open-editor-row.active,
-.code-open-editor-row:hover,
-.code-open-editor-row:has(.code-open-editor-main:focus) {
-  --code-open-editor-row-action-surface: var(--code-active-item-surface);
-  background: var(--code-active-item-surface);
 }
 
 .code-open-editor-main {
@@ -625,16 +601,9 @@ body.code-mode .code-file-change-group-toggle {
   border: 0;
   border-radius: inherit;
   background: transparent;
-  color: var(--code-text-muted);
+  color: var(--code-row-foreground, var(--code-text-muted));
   text-align: left;
   cursor: pointer;
-}
-
-.code-open-editor-main:hover,
-.code-open-editor-main:focus-visible {
-  background: transparent;
-  outline: 0;
-  color: var(--code-text);
 }
 
 .code-open-editor-name,
@@ -680,7 +649,7 @@ body.code-mode .code-file-change-group-toggle {
   justify-content: flex-end;
   padding-left: 21px;
   border-radius: 8px;
-  background: linear-gradient(90deg, transparent 0, var(--code-open-editor-row-action-surface) 21px, var(--code-open-editor-row-action-surface) 100%);
+  background: linear-gradient(90deg, transparent 0, var(--code-row-surface) 21px, var(--code-row-surface) 100%);
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
@@ -688,7 +657,13 @@ body.code-mode .code-file-change-group-toggle {
   transition: opacity 120ms ease;
 }
 
-.code-open-editor-row:hover .code-open-editor-actions,
+@media (hover: hover) and (pointer: fine) {
+  .code-open-editor-row:hover .code-open-editor-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .code-open-editor-row:focus-within .code-open-editor-actions {
   opacity: 1;
   pointer-events: auto;
@@ -706,9 +681,10 @@ body.code-mode .code-file-change-group-toggle {
   cursor: pointer;
 }
 
-.code-open-editor-close:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-open-editor-close:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-open-editor-close::before,
@@ -764,13 +740,6 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-search-result.jump {
   grid-template-columns: 34px minmax(0, 1fr) auto;
-}
-
-.code-file-search-result.active,
-.code-file-search-result:hover,
-.code-file-search-result:focus-visible {
-  background: var(--code-bg-hover);
-  outline: 0;
 }
 
 .code-file-search-result > .code-file-type-icon {
@@ -851,7 +820,13 @@ body.code-mode .code-file-change-group-toggle {
   cursor: pointer;
 }
 
-.code-file-search-ignored-action:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-search-ignored-action:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-file-search-ignored-action:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -903,28 +878,6 @@ body.code-mode .code-file-change-group-toggle {
   overflow: hidden;
   content-visibility: auto;
   contain-intrinsic-block-size: var(--code-file-entry-height);
-}
-
-.code-file-tree-row-frame:hover {
-  background: var(--code-active-item-surface);
-}
-
-.code-file-tree-row-frame:has(.code-file-row.focused:not(.selected):not(.active)),
-.code-file-tree-row-frame:has(.code-file-row.opening:not(.selected):not(.active)) {
-  background: var(--code-active-item-surface);
-}
-
-.code-file-tree-row-frame.active,
-.code-file-tree-row-frame:has(.code-file-row.active) {
-  background: var(--code-active-item-surface);
-}
-
-.code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.selected:not(.active)) {
-  background: var(--code-active-item-surface);
-}
-
-.code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.located.selected:not(.active)) {
-  background: var(--code-active-item-surface);
 }
 
 .code-file-row {
@@ -987,17 +940,14 @@ body.code-mode .code-file-change-group-toggle {
   box-shadow: none !important;
 }
 
-.code-file-row:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-row:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-file-row.focused {
   color: var(--code-text);
-}
-
-body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
-  box-shadow: inset 3px 0 0 var(--code-warning);
-  color: var(--code-warning);
 }
 
 .code-file-row.active {
@@ -1122,7 +1072,8 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-file-row-actions {
   width: 24px;
-  height: 24px;
+  /* The wide touch action must not grow the virtual row beyond its metric. */
+  height: calc(var(--code-file-entry-height) - 4px);
   display: none;
   place-items: center;
   padding: 0;
@@ -1141,9 +1092,14 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   height: var(--code-ui-icon-size);
 }
 
-.code-file-row-actions:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-row-actions:hover {
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-file-row-actions:focus-visible {
-  background: var(--code-bg-hover);
   color: var(--code-text);
   outline: 0;
 }
@@ -1401,7 +1357,14 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   text-overflow: ellipsis;
 }
 
-.code-file-inline-blame:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-inline-blame:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-file-inline-blame:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -1479,7 +1442,12 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   text-decoration: none;
 }
 
-.code-file-blame-detail-commit-link:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-blame-detail-commit-link:hover {
+    text-decoration: underline;
+  }
+}
+
 .code-file-blame-detail-commit-link:focus-visible {
   text-decoration: underline;
 }
@@ -1569,7 +1537,14 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   transform: rotate(-45deg);
 }
 
-.code-file-blame-detail-close:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-blame-detail-close:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-file-blame-detail-close:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -1694,7 +1669,14 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   transform: rotate(-45deg);
 }
 
-.code-file-line-changes-close:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-line-changes-close:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-file-line-changes-close:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -1893,10 +1875,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       font-size: 14px;
     }
 
-  body.code-mode.code-compact-layout .code-file-tree-row-frame:hover:not(.active):not(:has(.code-file-row.focused, .code-file-row.selected, .code-file-row.opening, .code-file-row.active)) {
-      background: transparent;
-    }
-
   body.code-mode.code-compact-layout .code-file-row.directory {
       grid-template-columns: 14px minmax(48px, 1fr) minmax(0, auto);
     }
@@ -1938,24 +1916,20 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-warning);
 }
 
-.code-file-save-confirm-actions button:hover:not(:disabled) {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-save-confirm-actions button:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
 }
 
-.code-file-operation-dialog .code-rename-actions button:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-operation-dialog .code-rename-actions button:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-file-row.ignored .code-file-name {
   color: var(--code-text-quiet);
-}
-
-.code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
-  box-shadow: none;
-}
-
-.code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
-  color: var(--code-text);
 }
 
 .code-file-descendant-status.renamed {
@@ -1990,8 +1964,10 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-text);
 }
 
-.code-file-tree-row:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-tree-row:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-file-tree-row.active {
@@ -2031,8 +2007,10 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   cursor: help;
 }
 
-.code-file-header-path:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-header-path:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-file-header-path-tooltip {

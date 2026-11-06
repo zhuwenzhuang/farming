@@ -157,20 +157,32 @@
 }
 
 .code-settings-segmented button.active {
-  background: var(--code-bg-raised);
   color: var(--code-accent);
-  box-shadow: 0 1px 2px var(--code-shadow-color);
 }
 
-.code-settings-segmented button:hover,
-.code-settings-segmented button:focus-visible,
-.code-agent-home-provider-header button:hover,
-.code-agent-home-provider-header button:focus-visible,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-home-provider-header button:hover,
 .code-agent-home-actions button:hover,
+.code-agent-home-form-actions button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+    outline: none;
+  }
+  .code-settings-segmented button:hover {
+    color: var(--code-accent);
+    outline: none;
+  }
+}
+
+.code-agent-home-provider-header button:focus-visible,
 .code-agent-home-actions button:focus-visible,
-.code-agent-home-form-actions button:hover,
 .code-agent-home-form-actions button:focus-visible {
   background: var(--code-bg-hover);
+  color: var(--code-accent);
+  outline: none;
+}
+
+.code-settings-segmented button:focus-visible {
   color: var(--code-accent);
   outline: none;
 }
@@ -344,7 +356,14 @@
   background: var(--code-bg-muted);
 }
 
-.code-settings-update-actions button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions button:hover:not(:disabled) {
+    background: var(--code-bg-hover-strong);
+    color: var(--code-text-strong);
+    outline: none;
+  }
+}
+
 .code-settings-update-actions button:focus-visible {
   background: var(--code-bg-hover-strong);
   color: var(--code-text-strong);
@@ -373,7 +392,13 @@
   font-weight: 650;
 }
 
-.code-agent-home-form-actions .primary:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-home-form-actions .primary:hover {
+    background: var(--code-accent-hover);
+    color: var(--code-text-on-emphasis);
+  }
+}
+
 .code-agent-home-form-actions .primary:focus-visible {
   background: var(--code-accent-hover);
   color: var(--code-text-on-emphasis);
@@ -389,9 +414,15 @@
   opacity: 1;
 }
 
-.code-agent-home-actions button:disabled:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-home-actions button:disabled:hover,
+  .code-agent-home-form-actions button:disabled:hover {
+    background: var(--code-code-bg);
+    color: var(--code-text-quiet);
+  }
+}
+
 .code-agent-home-actions button:disabled:focus-visible,
-.code-agent-home-form-actions button:disabled:hover,
 .code-agent-home-form-actions button:disabled:focus-visible {
   background: var(--code-code-bg);
   color: var(--code-text-quiet);
@@ -562,7 +593,15 @@
   font-weight: 500;
 }
 
-.code-agent-home-provider-header .code-agent-home-add:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-home-provider-header .code-agent-home-add:hover {
+    background: transparent;
+    color: var(--code-text-strong);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
 .code-agent-home-provider-header .code-agent-home-add:focus-visible {
   background: transparent;
   color: var(--code-text-strong);
@@ -587,7 +626,15 @@
   color: var(--code-text-subtle);
 }
 
-.code-agent-home-actions button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-home-actions button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
 .code-agent-home-actions button:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-accent);
@@ -802,7 +849,14 @@
   font-size: 12px;
 }
 
-.code-settings-pet-appearance-select:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-pet-appearance-select:hover {
+    background: var(--code-bg-selected);
+    color: var(--code-text-strong);
+    outline: 0;
+  }
+}
+
 .code-settings-pet-appearance-select:focus-visible,
 .code-settings-pet-appearance-select.selected {
   background: var(--code-bg-selected);
@@ -832,7 +886,15 @@
   height: 13px;
 }
 
-.code-settings-pet-appearance-preview:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-pet-appearance-preview:hover {
+    border-color: var(--code-border-strong);
+    background: var(--code-accent-soft);
+    color: var(--code-text-strong);
+    outline: 0;
+  }
+}
+
 .code-settings-pet-appearance-preview:focus-visible {
   border-color: var(--code-border-strong);
   background: var(--code-accent-soft);
@@ -968,16 +1030,28 @@
 }
 
 .code-settings-permission-toggle {
+  position: relative;
   width: 18px;
+  flex-shrink: 0;
   height: 18px;
   display: inline-grid;
   place-items: center;
   padding: 0;
-  border: 1px solid var(--code-text-quiet);
+  border: 0;
   border-radius: 3px;
   background: transparent;
   color: transparent;
   cursor: pointer;
+}
+
+.code-settings-permission-toggle::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 1px solid var(--code-text-quiet);
+  border-radius: 3px;
 }
 
 .code-settings-permission-toggle svg {
@@ -988,17 +1062,25 @@
 }
 
 .code-settings-permission-toggle.active {
-  border-color: var(--code-focus-ring);
-  background: var(--code-bg-selected);
   color: var(--code-accent);
+}
+
+.code-settings-permission-toggle.active::before {
+  border-color: var(--code-focus-ring);
 }
 
 .code-settings-permission-toggle.active svg {
   opacity: 1;
 }
 
-.code-settings-permission-toggle:hover:not(:disabled),
-.code-settings-permission-toggle:focus-visible {
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-permission-toggle:hover:not(:disabled)::before {
+    border-color: var(--code-text-muted);
+    outline: none;
+  }
+}
+
+.code-settings-permission-toggle:focus-visible::before {
   border-color: var(--code-text-muted);
   outline: none;
 }
@@ -1006,6 +1088,14 @@
 .code-settings-permission-toggle:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .code-settings-permission-toggle {
+    width: var(--code-touch-target-size);
+    height: var(--code-touch-target-size);
+    border-radius: var(--code-dialog-action-radius);
+  }
 }
 
 .code-settings-inline-preferences {
@@ -1089,12 +1179,15 @@
 }
 
 .code-settings-segmented button.active {
-  background: var(--code-bg-selected);
   color: var(--code-text-strong);
-  box-shadow: none;
 }
 
-.code-settings-segmented button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-segmented button:hover {
+    color: var(--code-text);
+  }
+}
+
 .code-settings-segmented button:focus-visible {
   color: var(--code-text);
 }
@@ -1238,7 +1331,15 @@
   font-weight: 600;
 }
 
-.code-settings-update-actions button:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions button:hover:not(:disabled) {
+    border-color: var(--code-focus-ring);
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+    outline: none;
+  }
+}
+
 .code-settings-update-actions button:focus-visible {
   border-color: var(--code-focus-ring);
   background: var(--code-bg-hover);
@@ -1246,7 +1347,14 @@
   outline: none;
 }
 
-.code-settings-update-actions button.primary:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions button.primary:hover:not(:disabled) {
+    border-color: var(--code-accent-hover);
+    background: var(--code-accent-hover);
+    color: var(--code-text-on-emphasis);
+  }
+}
+
 .code-settings-update-actions button.primary:focus-visible {
   border-color: var(--code-accent-hover);
   background: var(--code-accent-hover);
@@ -1553,12 +1661,16 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
   border-color: var(--code-border);
 }
 
-.code-settings-update-actions button:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions button:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
-.code-settings-update-actions button:hover {
-  color: var(--code-accent);
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions button:hover {
+    color: var(--code-accent);
+  }
 }
 
 .code-agent-home-form input:not(.code-field) {
@@ -1581,32 +1693,40 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
   color: var(--code-text-on-emphasis);
 }
 
-.code-settings-update-actions .primary:hover {
-  background: var(--code-accent-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions .primary:hover {
+    background: var(--code-accent-hover);
+  }
 }
 
 .code-settings-update-actions .primary:focus-visible {
   background: var(--code-accent-hover);
 }
 
-.code-agent-home-form-actions .primary:hover {
-  border-color: var(--code-focus-ring);
+@media (hover: hover) and (pointer: fine) {
+  .code-agent-home-form-actions .primary:hover {
+    border-color: var(--code-focus-ring);
+  }
 }
 
 .code-agent-home-form-actions .primary:focus-visible {
   border-color: var(--code-focus-ring);
 }
 
-.code-settings-update-actions .primary:hover {
-  border-color: var(--code-focus-ring);
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions .primary:hover {
+    border-color: var(--code-focus-ring);
+  }
 }
 
 .code-settings-update-actions .primary:focus-visible {
   border-color: var(--code-focus-ring);
 }
 
-.code-settings-update-actions .primary:hover {
-  color: var(--code-text-on-emphasis);
+@media (hover: hover) and (pointer: fine) {
+  .code-settings-update-actions .primary:hover {
+    color: var(--code-text-on-emphasis);
+  }
 }
 
 .code-settings-update-actions .primary:focus-visible {

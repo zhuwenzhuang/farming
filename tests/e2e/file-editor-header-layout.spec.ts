@@ -656,7 +656,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       }
     })
     await projectTitle.hover()
-    await expect(projectTitle, `${appearance} Project hover`).toHaveCSS('background-color', surfaces.row)
+    await expect(project.locator('.code-project-heading'), `${appearance} Project hover`).toHaveCSS('background-color', surfaces.row)
+    await expect(projectTitle).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(projectTitle, `${appearance} Project radius`).toHaveCSS('border-radius', '8px')
     await agentRow.hover()
     const agentHoverLayers = await agentRow.evaluate(element => ({

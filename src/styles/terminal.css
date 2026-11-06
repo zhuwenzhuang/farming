@@ -74,10 +74,16 @@
   transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.code-terminal-mode-toggle:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-mode-toggle:hover {
+    border-color: var(--code-panel-border);
+    box-shadow: none;
+    opacity: 1;
+  }
+}
+
 .code-terminal-mode-toggle:focus-within {
   border-color: var(--code-panel-border);
-  background: var(--code-bg-hover);
   box-shadow: none;
   opacity: 1;
 }
@@ -104,17 +110,22 @@
   fill: currentColor;
 }
 
-.code-terminal-mode-toggle button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-mode-toggle button:hover {
+    color: var(--code-text);
+    opacity: 1;
+    outline: none;
+  }
+}
+
 .code-terminal-mode-toggle button:focus-visible {
   color: var(--code-text);
-  background: var(--code-bg-hover);
   opacity: 1;
   outline: none;
 }
 
 .code-terminal-mode-toggle button.active {
   color: var(--code-text);
-  background: var(--code-bg-selected);
   opacity: 1;
 }
 
@@ -185,7 +196,14 @@
   cursor: pointer;
 }
 
-.code-terminal-search-button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-search-button:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: none;
+  }
+}
+
 .code-terminal-search-button:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
@@ -197,7 +215,6 @@
 }
 
 .code-terminal-search-button.option.active {
-  background: var(--code-accent-soft);
   color: var(--code-accent);
 }
 
@@ -310,7 +327,13 @@
   border-color: var(--code-workbench-divider);
 }
 
-.code-terminal-status-card button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-status-card button:hover {
+    background: var(--code-bg-hover);
+    outline: none;
+  }
+}
+
 .code-terminal-status-card button:focus-visible {
   background: var(--code-bg-hover);
   outline: none;
@@ -338,8 +361,10 @@
   cursor: pointer;
 }
 
-.code-terminal-jump-bottom:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-jump-bottom:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-terminal-jump-bottom svg {
@@ -458,10 +483,12 @@
   cursor: pointer;
 }
 
-.terminal-context-menu-item:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-  border-color: var(--code-workbench-divider);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .terminal-context-menu-item:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+    border-color: var(--code-workbench-divider);
+    color: var(--code-text);
+  }
 }
 
 .terminal-context-menu-item:disabled {
@@ -574,7 +601,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     }
 
   body.code-mode.code-compact-layout .code-terminal-mode-toggle button.active {
-      background: var(--code-bg-hover-strong);
       opacity: 1;
     }
 
@@ -652,12 +678,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   -webkit-backdrop-filter: none;
 }
 
-.code-terminal-jump-bottom:hover {
-  border-color: var(--code-border);
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-jump-bottom:hover {
+    border-color: var(--code-border);
+  }
 }
 
-.code-terminal-jump-bottom:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-jump-bottom:hover {
+    color: var(--code-text);
+  }
 }
 
 .code-terminal-mode-toggle {
@@ -668,8 +698,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   background: transparent;
 }
 
-.terminal-context-menu-item:hover:not(:disabled) {
-  outline: 2px solid var(--code-focus-ring);
+@media (hover: hover) and (pointer: fine) {
+  .terminal-context-menu-item:hover:not(:disabled) {
+    outline: 2px solid var(--code-focus-ring);
+  }
 }
 
 .terminal-context-menu-item:focus-visible {
@@ -688,12 +720,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   color: var(--code-text);
 }
 
-.code-terminal-toolbar button:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-toolbar button:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
-.code-terminal-toolbar button:hover {
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-terminal-toolbar button:hover {
+    color: var(--code-text);
+  }
 }
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {

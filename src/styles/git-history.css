@@ -43,12 +43,6 @@
   cursor: pointer;
 }
 
-.code-git-history-title:hover,
-.code-git-history-title:focus-visible {
-  color: var(--code-text);
-  outline: 0;
-}
-
 .code-git-history-section {
   --code-git-history-node-bg: var(--code-navigation-surface);
   min-width: 0;
@@ -124,7 +118,14 @@
   flex: 0 0 12px;
 }
 
-.code-git-history-scope:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-git-history-scope:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-git-history-scope:focus-visible,
 .code-git-history-scope[aria-expanded='true'] {
   background: var(--code-bg-hover);
@@ -169,7 +170,13 @@
   cursor: pointer;
 }
 
-.code-git-history-scope-menu button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-git-history-scope-menu button:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+  }
+}
+
 .code-git-history-scope-menu button:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -205,9 +212,14 @@
   cursor: pointer;
 }
 
-.code-git-history-refresh:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-git-history-refresh:hover {
+    color: var(--code-text);
+    outline: 0;
+  }
+}
+
 .code-git-history-refresh:focus-visible {
-  background: var(--code-bg-hover);
   color: var(--code-text);
   outline: 0;
 }
@@ -246,14 +258,6 @@
   color: var(--code-text);
   text-align: left;
   cursor: pointer;
-}
-
-.code-git-history-entry.selected > .code-git-history-commit,
-.code-git-history-commit:hover,
-.code-git-history-commit:focus-visible {
-  --code-git-history-node-bg: var(--code-active-item-surface);
-  background: var(--code-active-item-surface);
-  outline: 0;
 }
 
 .code-git-history-graph {
@@ -497,7 +501,14 @@
   cursor: pointer;
 }
 
-.code-git-history-review:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-git-history-review:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-accent);
+    outline: 0;
+  }
+}
+
 .code-git-history-review:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-accent);
@@ -548,12 +559,6 @@
 
 button.code-git-history-change {
   cursor: pointer;
-}
-
-button.code-git-history-change:hover,
-button.code-git-history-change:focus-visible {
-  background: var(--code-bg-hover);
-  outline: 0;
 }
 
 .code-git-history-change img {
@@ -620,7 +625,14 @@ button.code-git-history-change:focus-visible {
   cursor: pointer;
 }
 
-.code-git-history-load-more:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-git-history-load-more:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    outline: 0;
+  }
+}
+
 .code-git-history-load-more:focus-visible {
   text-decoration: underline;
   text-underline-offset: 2px;

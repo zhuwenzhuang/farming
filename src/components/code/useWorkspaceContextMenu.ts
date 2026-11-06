@@ -214,7 +214,7 @@ export function useWorkspaceContextMenu({
     enabled: Boolean(contextMenu),
     elements: () => [contextMenuRef.current, contextMenu && 'returnFocusTarget' in contextMenu ? contextMenu.returnFocusTarget : null],
     onDismiss: reason => {
-      if (reason === 'escape') closeContextMenuAndRestoreFocus()
+      if (reason !== 'outside-pointer') closeContextMenuAndRestoreFocus()
       else closeContextMenu()
     },
   })

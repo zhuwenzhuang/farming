@@ -89,10 +89,10 @@
   color: var(--code-text-subtle);
 }
 
-.code-language-server-directions button.active,
-.code-language-server-directions button:hover,
-.code-language-server-panel > header button:hover {
-  background: var(--code-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .code-language-server-panel > header button:hover {
+    background: var(--code-bg-hover);
+  }
 }
 
 .code-language-server-directions button.active {
@@ -171,23 +171,11 @@
 }
 
 .code-language-server-node {
+  border-radius: 5px;
   min-width: 0;
   display: flex;
   align-items: center;
   padding-right: 6px;
-}
-
-.code-language-server-node.root {
-  background: var(--code-accent-soft);
-}
-
-.code-language-server-node[aria-selected="true"] {
-  background: var(--code-bg-selected);
-}
-
-.code-language-server-node:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: -2px;
 }
 
 .code-language-server-expand {
@@ -225,17 +213,11 @@
   gap: 6px;
   padding: 4px;
   border: 0;
-  border-radius: 5px;
+  border-radius: inherit;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
-}
-
-.code-language-server-location:hover,
-.code-language-server-location:focus-visible {
-  background: var(--code-bg-hover);
-  outline: 0;
 }
 
 .code-language-server-node-content,

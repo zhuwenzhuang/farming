@@ -140,16 +140,26 @@
   cursor: pointer;
 }
 
-.code-menu-surface.code-menu-list :where(button, summary):is(:hover, :focus-visible, [aria-selected="true"], [aria-checked="true"]):not(:disabled),
-.code-menu-surface .code-menu-item:is(:hover, :focus-visible, .selected, .active):not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .code-menu-surface.code-menu-list :where(button, summary):hover:not(:disabled, [aria-disabled="true"]),
+  .code-menu-surface .code-menu-item:hover:not(:disabled, [aria-disabled="true"]) {
+    background: var(--code-active-item-surface);
+    color: var(--code-text);
+  }
+}
+
+.code-menu-surface.code-menu-list :where(button, summary):is([aria-selected="true"], [aria-checked="true"]),
+.code-menu-surface .code-menu-item:is(.selected, .active),
+.code-menu-surface.code-menu-list :where(button, summary):is(:focus-visible, :active):not(:disabled, [aria-disabled="true"]),
+.code-menu-surface .code-menu-item:is(:focus-visible, :active):not(:disabled, [aria-disabled="true"]) {
   background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
 .code-menu-surface.code-menu-list :where(button, summary):focus-visible,
 .code-menu-surface .code-menu-item:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: -2px;
+  outline: 0;
+  box-shadow: none;
 }
 
 .code-menu-surface.code-menu-list :where(button):disabled,
@@ -236,11 +246,23 @@ textarea.code-field {
   cursor: pointer;
 }
 
-.code-dialog-actions button:hover:not(:disabled) { background: var(--code-bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .code-dialog-actions button:hover:not(:disabled) {
+    background: var(--code-bg-hover);
+  }
+}
 .code-dialog-actions button.primary { background: var(--code-accent); color: var(--code-text-on-emphasis); }
-.code-dialog-actions button.primary:hover:not(:disabled) { background: var(--code-accent-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .code-dialog-actions button.primary:hover:not(:disabled) {
+    background: var(--code-accent-hover);
+  }
+}
 .code-dialog-actions button.danger { background: var(--code-danger); color: var(--code-text-on-emphasis); }
-.code-dialog-actions button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--code-danger) 82%, var(--code-text)); }
+@media (hover: hover) and (pointer: fine) {
+  .code-dialog-actions button.danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--code-danger) 82%, var(--code-text));
+  }
+}
 .code-dialog-actions button:focus-visible { outline: 2px solid var(--code-focus-ring); outline-offset: 2px; }
 .code-dialog-actions button:disabled { opacity: 0.48; cursor: not-allowed; }
 
@@ -262,8 +284,10 @@ textarea.code-field {
   font-weight: 600;
 }
 
-.code-feedback-action:hover {
-  background: var(--code-bg-selected);
+@media (hover: hover) and (pointer: fine) {
+  .code-feedback-action:hover {
+    background: var(--code-bg-selected);
+  }
 }
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
@@ -337,9 +361,16 @@ textarea.code-field {
   background: var(--code-bg-hover);
 }
 
-.code-content-toolbar button:is(:hover, [aria-pressed='true']):not(:disabled),
-.code-content-viewer-actions > button:hover,
-.code-rich-content-retry:hover {
+@media (hover: hover) and (pointer: fine) {
+  .code-content-toolbar button:is(:hover, [aria-pressed='true']):not(:disabled),
+  .code-content-viewer-actions > button:hover,
+  .code-rich-content-retry:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
+}
+
+.code-content-toolbar button:is([aria-pressed='true']):not(:disabled) {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
@@ -384,7 +415,7 @@ textarea.code-field {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  cursor: default;
+  cursor: zoom-out;
 }
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
@@ -477,9 +508,11 @@ textarea.code-field {
   height: var(--code-ui-icon-size);
 }
 
-.code-dialog-close:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-dialog-close:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .code-dialog-close:focus-visible {

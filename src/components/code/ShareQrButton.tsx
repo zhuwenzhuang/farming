@@ -1,4 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { replaceInteractionHistoryState } from '@/lib/interaction-layer'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type qrcode from 'qrcode-generator'
 import qrCodeModuleUrl from 'qrcode-generator?url'
@@ -331,9 +332,8 @@ export function ShareQrButton({
         workspaceShareTargetWithCurrentReadingAnchor(shareTarget),
         copy.rotateOwnerTokenFailed,
       )
-      window.history.replaceState(
+      replaceInteractionHistoryState(
         window.history.state,
-        '',
         ownerUrlWithRotatedToken(window.location.href, credential.tokenLabel),
       )
       if (rotationSeq !== rotationSeqRef.current) return

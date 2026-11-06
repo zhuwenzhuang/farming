@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import { registerInteractionLayer, type InteractionLayer } from '@/lib/interaction-layer'
+import { refreshInteractionLayers, registerInteractionLayer, type InteractionLayer } from '@/lib/interaction-layer'
 
 export function useInteractionLayer({
   enabled,
@@ -13,4 +13,9 @@ export function useInteractionLayer({
     const owner = current.current.elements().find(element => element)?.ownerDocument ?? document
     return registerInteractionLayer(owner, () => current.current)
   }, [enabled])
+
+  useLayoutEffect(() => {
+    const owner = current.current.elements().find(element => element)?.ownerDocument ?? document
+    refreshInteractionLayers(owner)
+  })
 }

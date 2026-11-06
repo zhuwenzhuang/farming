@@ -31,7 +31,7 @@ const expectedSources = [
   'src/styles/sidebar.css',
   'src/styles/transcript.css',
   'src/styles/agent-list.css',
-  'src/styles/sidebar-focus.css',
+  'src/styles/navigation-states.css',
 ];
 
 assert.deepStrictEqual(

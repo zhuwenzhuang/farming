@@ -248,26 +248,26 @@ export function CodeOverlays({
     open: Boolean(renameDialog),
     dialogRef: renameDialogRef,
     dismissOnPointerOutside: true,
-    onEscape: reason => onCloseRenameDialog(reason === 'escape'),
+    onEscape: reason => onCloseRenameDialog(reason !== 'outside-pointer'),
   })
   useModalFocusScope({
     open: Boolean(archiveExitDialog),
     dialogRef: archiveExitDialogRef,
     dismissOnPointerOutside: true,
-    onEscape: reason => onCloseArchiveExitDialog(reason === 'escape'),
+    onEscape: reason => onCloseArchiveExitDialog(reason !== 'outside-pointer'),
   })
   useModalFocusScope({
     open: Boolean(removeProjectDialog),
     dialogRef: removeProjectDialogRef,
     dismissOnPointerOutside: !removeProjectDialog?.busy,
     escapeEnabled: !removeProjectDialog?.busy,
-    onEscape: reason => onCloseRemoveProjectDialog(reason === 'escape'),
+    onEscape: reason => onCloseRemoveProjectDialog(reason !== 'outside-pointer'),
   })
   useModalFocusScope({
     open: Boolean(deleteWorktreeDialog),
     dialogRef: deleteWorktreeDialogRef,
     dismissOnPointerOutside: true,
-    onEscape: reason => onCloseDeleteWorktreeDialog(reason === 'escape'),
+    onEscape: reason => onCloseDeleteWorktreeDialog(reason !== 'outside-pointer'),
   })
   const agentMenuAvailabilityState = agentMenuAvailability(contextMenuAgent, {
     canCreateBrowser: canCreateAgentBrowser,

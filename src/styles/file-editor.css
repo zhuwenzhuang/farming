@@ -153,8 +153,10 @@
   box-shadow: inset -2px 0 var(--code-text-subtle);
 }
 
-.code-file-editor-tab:hover:not(.active) {
-  background: var(--code-file-editor-active-tab-surface);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-editor-tab:hover:not(.active) {
+    background: var(--code-file-editor-active-tab-surface);
+  }
 }
 
 .code-file-editor-tab:focus-visible {
@@ -226,16 +228,24 @@
   transform: rotate(-45deg);
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .code-file-editor-tab:hover .code-file-editor-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .code-file-editor-tab.active:not(.dirty, .warning) .code-file-editor-close,
-.code-file-editor-tab:hover .code-file-editor-close,
 .code-file-editor-tab:has(.code-file-editor-close:focus-visible) .code-file-editor-close {
   opacity: 1;
   pointer-events: auto;
 }
 
-.code-file-editor-close:hover {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-editor-close:hover {
+    background: var(--code-bg-hover);
+    color: var(--code-text);
+  }
 }
 
 .code-file-editor-dirty {
@@ -246,7 +256,12 @@
   background: var(--code-warning);
 }
 
-.code-file-editor-tab:hover .code-file-editor-dirty,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-editor-tab:hover .code-file-editor-dirty {
+    opacity: 0;
+  }
+}
+
 .code-file-editor-tab:has(.code-file-editor-close:focus-visible) .code-file-editor-dirty {
   opacity: 0;
 }
@@ -316,7 +331,14 @@
   color: var(--code-text);
 }
 
-.code-file-editor-breadcrumb:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-editor-breadcrumb:hover {
+    color: var(--code-text);
+    outline: 0;
+    background: var(--code-bg-hover);
+  }
+}
+
 .code-file-editor-breadcrumb:focus-visible {
   color: var(--code-text);
   outline: 0;
@@ -403,13 +425,13 @@
   cursor: pointer;
 }
 
-.code-file-editor-action:hover:not(:disabled) {
-  background: var(--code-bg-hover);
-  color: var(--code-text);
+@media (hover: hover) and (pointer: fine) {
+  .code-file-editor-action:hover:not(:disabled) {
+    color: var(--code-text);
+  }
 }
 
 .code-file-editor-action.active {
-  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 
@@ -696,7 +718,14 @@
   transform: rotate(-45deg);
 }
 
-.code-file-diff-close:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-file-diff-close:hover {
+    background: var(--code-bg-hover);
+    outline: 0;
+    color: var(--code-text);
+  }
+}
+
 .code-file-diff-close:focus-visible {
   background: var(--code-bg-hover);
   outline: 0;
@@ -869,9 +898,17 @@ body.code-mode .code-file-editor-fallback-textarea {
   cursor: pointer;
 }
 
-.code-spreadsheet-toolbar button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .code-spreadsheet-toolbar button:hover,
+  .code-spreadsheet-download:hover {
+    border-color: var(--code-accent);
+    background: var(--code-accent-soft);
+    color: var(--code-accent);
+    outline: 0;
+  }
+}
+
 .code-spreadsheet-toolbar button:focus-visible,
-.code-spreadsheet-download:hover,
 .code-spreadsheet-download:focus-visible {
   border-color: var(--code-accent);
   background: var(--code-accent-soft);
@@ -1146,14 +1183,29 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab {
     min-height: 44px;
-    grid-template-columns: 16px minmax(0, 1fr) 44px;
+    grid-template-columns: 16px minmax(0, 1fr) 58px;
     padding-right: 0;
   }
 
-  body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab-tail,
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab-tail {
+    width: 58px;
+    height: 44px;
+  }
+
   body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-close {
     width: 44px;
     height: 44px;
+  }
+
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor-close {
+    opacity: 1;
+    pointer-events: auto;
+    inset: 0 0 auto auto;
+  }
+
+  body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor-dirty {
+    left: 0;
+    opacity: 1;
   }
 
   body.code-mode.code-compact-layout.code-mobile-touch .code-file-editor:not(.markdown-reading) .code-file-editor-tab-strip > .code-file-editor-actions {
@@ -1305,7 +1357,6 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
     border-color: transparent;
-    background: transparent;
     color: var(--code-accent);
   }
 }
@@ -1319,9 +1370,13 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
 
-  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
-body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
-    background: var(--code-bg-hover);
+  @media (hover: hover) and (pointer: fine) {
+    body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled) {
+      outline: 0;
+    }
+  }
+
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
     outline: 0;
   }
 }
@@ -1372,10 +1427,6 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
     left: 0 !important;
     width: 100% !important;
   }
-}
-
-body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
-  box-shadow: none;
 }
 
 @media (max-width: 393px) {
