@@ -177,11 +177,21 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       if (current && String(current.bindingEpoch || '') === String(payload.bindingEpoch || '')) {
         const next = { ...current, ...payload };
         this.sessions.set(agentId, next);
-        this.emit('agent-runtime', clone(next));
+        const runtimeChanged = Object.keys(payload).some(key => (
+          key !== 'agentId'
+          && key !== 'bindingEpoch'
+          && key !== 'revision'
+          && key !== 'title'
+          && key !== 'updatedAt'
+        ));
+        if (runtimeChanged) {
+          this.emit('agent-runtime', clone(next));
+        }
         this.emit('session', {
           agentId,
           revision: Number(next.revision || 0),
           title: String(next.title || ''),
+          ...(typeof next.updatedAt === 'string' ? { updatedAt: next.updatedAt } : {}),
         });
       }
     }

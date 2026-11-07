@@ -226,6 +226,68 @@ async function run() {
     'Pi inventory must follow settings.json sessionDir changes instead of fingerprinting only the default root',
   );
 
+  const agyHome = path.join(root, 'agy');
+  const agySessionId = '7e226e8d-251c-46e7-8d30-32ad256613f6';
+  const agyBrainSessionRoot = path.join(agyHome, 'brain', agySessionId);
+  const agyLogsDir = path.join(agyBrainSessionRoot, '.system_generated', 'logs');
+  const agyStepsDir = path.join(agyBrainSessionRoot, '.system_generated', 'steps', '1');
+  const agyTasksDir = path.join(agyBrainSessionRoot, '.system_generated', 'tasks');
+  const agyMessagesDir = path.join(agyBrainSessionRoot, '.system_generated', 'messages');
+  const agyScratchDir = path.join(agyBrainSessionRoot, 'scratch');
+  const agyUploadsDir = path.join(agyBrainSessionRoot, '.user_uploaded');
+  fs.mkdirSync(agyLogsDir, { recursive: true });
+  fs.mkdirSync(agyStepsDir, { recursive: true });
+  fs.mkdirSync(agyTasksDir, { recursive: true });
+  fs.mkdirSync(agyMessagesDir, { recursive: true });
+  fs.mkdirSync(agyScratchDir, { recursive: true });
+  fs.mkdirSync(agyUploadsDir, { recursive: true });
+  const agyTranscript = path.join(agyLogsDir, 'transcript.jsonl');
+  fs.writeFileSync(agyTranscript, `${JSON.stringify({
+    type: 'USER_INPUT',
+    created_at: '2026-08-01T00:00:00.000Z',
+    content: 'Antigravity scoped brain inventory',
+    cwd: '/repo/agy-inventory',
+  })}\n`);
+  fs.writeFileSync(path.join(agyStepsDir, 'output.txt'), 'step output');
+  fs.writeFileSync(path.join(agyTasksDir, 'task.json'), '{}');
+  fs.writeFileSync(path.join(agyMessagesDir, 'msg.json'), '{}');
+  fs.writeFileSync(path.join(agyScratchDir, 'note.md'), 'scratch');
+  fs.writeFileSync(path.join(agyUploadsDir, 'image.png'), 'png');
+  const agyHistory = new AgentSessionInventory({
+    cacheFile: path.join(root, 'cache', 'agy-history.json'),
+  });
+  caches.push(agyHistory);
+  const agyVisitedDirs: string[] = [];
+  const originalAgyReaddir = fs.promises.readdir;
+  fs.promises.readdir = async (...args: Parameters<typeof fs.promises.readdir>) => {
+    agyVisitedDirs.push(path.resolve(String(args[0])));
+    return originalAgyReaddir(...args);
+  };
+  let agySessions;
+  try {
+    agySessions = await agyHistory.list(() => ({
+      providerHomes: { agy: [{ id: 'default', path: agyHome }] },
+      providerSessionBindings: [],
+    }));
+  } finally {
+    fs.promises.readdir = originalAgyReaddir;
+  }
+  assert.deepStrictEqual(agySessions.map(session => session.id), [agySessionId]);
+  for (const ignoredDir of [
+    path.dirname(agyStepsDir),
+    agyStepsDir,
+    agyTasksDir,
+    agyMessagesDir,
+    agyScratchDir,
+    agyUploadsDir,
+  ]) {
+    assert.strictEqual(
+      agyVisitedDirs.includes(path.resolve(ignoredDir)),
+      false,
+      `Antigravity session inventory must not traverse ${ignoredDir}`,
+    );
+  }
+
   const scaleHome = path.join(root, 'scale-codex');
   const scaleSessionsRoot = path.join(scaleHome, 'sessions');
   const scaleSessionsDir = path.join(scaleSessionsRoot, '2026', '08', '01');
@@ -488,10 +550,20 @@ async function run() {
   fs.writeFileSync(path.join(skillsRoot, 'SKILL.md'), '---\nname: Second\n---\n');
   assert.strictEqual((await extensions.get('codex', codexHome)).extensions[0].name, 'Second');
   assert.strictEqual(extensionLoads, 2, 'Plugins should reconcile a changed Home before returning');
-  assert.ok(
-    activeFsWatcherCount() > initialWatcherCount,
-    'The active-handle probe must observe a real non-History filesystem watcher',
+  assert.strictEqual(
+    activeFsWatcherCount() - initialWatcherCount,
+    0,
+    'Extension inventory must use on-demand fingerprinting without leaving recursive filesystem watchers open',
   );
+  const probeWatcher = fs.watch(root);
+  try {
+    assert.ok(
+      activeFsWatcherCount() > initialWatcherCount,
+      'The active-handle probe must observe a real non-History filesystem watcher',
+    );
+  } finally {
+    probeWatcher.close();
+  }
 
   const migrationCacheFile = path.join(root, 'cache', 'migration-extensions.json');
   const legacyExtensions = new AgentExtensionInventory({

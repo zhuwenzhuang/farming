@@ -7,6 +7,7 @@ import HomeHeroVisual from './HomeHeroVisual.vue'
 import HomeInstall from './HomeInstall.vue'
 import ImageViewer from './ImageViewer.vue'
 import IntegrationIcons from './IntegrationIcons.vue'
+import InteractiveShowcase from './InteractiveShowcase.vue'
 import PageActions from './PageActions.vue'
 import ProviderIcons from './ProviderIcons.vue'
 import ThemeImage from './ThemeImage.vue'
@@ -25,6 +26,7 @@ export default {
   }),
   enhanceApp({ app, router }) {
     app.component('IntegrationIcons', IntegrationIcons)
+    app.component('InteractiveShowcase', InteractiveShowcase)
     app.component('ProviderIcons', ProviderIcons)
     app.component('ThemeImage', ThemeImage)
 

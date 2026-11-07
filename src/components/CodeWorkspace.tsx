@@ -5849,6 +5849,35 @@ export function CodeWorkspace({
     })
   }, [visibleSearchTargets.length])
 
+  const sidebarWorktreeCreation = useMemo(() => (
+    readOnly ? undefined : {
+      statusByWorkspace: Object.fromEntries(Object.values(worktreeCreation.creations).map(creation => [creation.workspace,
+        creation.state === 'succeeded' ? copy.worktreeCreation.created
+          : creation.state === 'unknown' ? copy.worktreeCreation.unconfirmed
+            : creation.state === 'confirming' ? copy.worktreeCreation.verifying
+              : creation.state === 'failed' ? copy.permanentWorktreeFailed
+                : creation.phase === 'register' ? copy.worktreeCreation.register
+                  : creation.phase === 'checkout' ? copy.worktreeCreation.checkout : copy.worktreeCreation.checking,
+      ])),
+      onOpen: worktreeCreation.reopen,
+    }
+  ), [copy.permanentWorktreeFailed, copy.worktreeCreation, readOnly, worktreeCreation.creations, worktreeCreation.reopen])
+  const sidebarOpenMenuTarget = useMemo(() => (
+    projectMenu ? { kind: 'project' as const, id: projectMenu.projectId }
+      : agentMenu ? { kind: 'agent' as const, id: agentMenu.agentId }
+        : agentSessionMenu ? { kind: 'session' as const, id: agentSessionMenu.sessionId } : null
+  ), [agentMenu, agentSessionMenu, projectMenu])
+  const handleOpenRelatedSession = useCallback((target: RelatedSessionTarget) => {
+    setRelatedSession(target)
+    openAgentTargetRef.current(target.parentAgentId, { focusTerminal: false })
+  }, [])
+  const handleOpenMainAgent = useCallback(() => {
+    if (!hiddenMainAgent) return
+    workspaceFileOpenRequestRef.current.invalidate()
+    setMainPaneMode('terminal')
+    onWorkspaceViewChange('projects')
+    onOpenTerminal(hiddenMainAgent.id)
+  }, [hiddenMainAgent, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
   const workspaceStyle = {
     '--code-sidebar-width': `${sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth}px`,
   } as CSSProperties
@@ -5878,22 +5907,10 @@ export function CodeWorkspace({
       {!readOnly && <WorktreeCreationDialog controller={worktreeCreation} copy={copy} onOpenProject={openCreatedWorktreeProject} />}
       <AgentSidebarDisclosureProvider resourceAgentIds={sidebarResourceAgentIds}>
       <CodeSidebar
-        worktreeCreation={readOnly ? undefined : {
-          statusByWorkspace: Object.fromEntries(Object.values(worktreeCreation.creations).map(creation => [creation.workspace,
-            creation.state === 'succeeded' ? copy.worktreeCreation.created
-              : creation.state === 'unknown' ? copy.worktreeCreation.unconfirmed
-                : creation.state === 'confirming' ? copy.worktreeCreation.verifying
-                : creation.state === 'failed' ? copy.permanentWorktreeFailed
-                  : creation.phase === 'register' ? copy.worktreeCreation.register
-                    : creation.phase === 'checkout' ? copy.worktreeCreation.checkout : copy.worktreeCreation.checking,
-          ])),
-          onOpen: worktreeCreation.reopen,
-        }}
+        worktreeCreation={sidebarWorktreeCreation}
         relatedSession={sidebarPane === 'terminal' ? relatedSession : null}
-        openMenuTarget={projectMenu ? { kind: 'project', id: projectMenu.projectId }
-          : agentMenu ? { kind: 'agent', id: agentMenu.agentId }
-            : agentSessionMenu ? { kind: 'session', id: agentSessionMenu.sessionId } : null}
-        onOpenRelatedSession={target => { setRelatedSession(target); openAgentTargetRef.current(target.parentAgentId, { focusTerminal: false }) }}
+        openMenuTarget={sidebarOpenMenuTarget}
+        onOpenRelatedSession={handleOpenRelatedSession}
         readOnly={readOnly}
         sidebarCollapsed={sidebarCollapsed}
         sidebarPinned={sidebarPinned}
@@ -5957,13 +5974,7 @@ export function CodeWorkspace({
         onDismissNavigationModal={dismissMobileNavigation}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
-        onOpenMainAgent={() => {
-          if (!hiddenMainAgent) return
-          workspaceFileOpenRequestRef.current.invalidate()
-          setMainPaneMode('terminal')
-          onWorkspaceViewChange('projects')
-          onOpenTerminal(hiddenMainAgent.id)
-        }}
+        onOpenMainAgent={handleOpenMainAgent}
         onRestartMainAgent={onRestartMainAgent}
         onProjectListKeyDown={handleProjectListKeyDown}
         onToggleProject={toggleProject}

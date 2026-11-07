@@ -110,7 +110,11 @@ function literalComposerDocument(text) {
                         ...(index ? [{ type: 'hardBreak' }] : []), ...(line ? [{ type: 'text', text: line }] : []),
                     ]) }] } };
 }
+const documentTextCache = new WeakMap();
 function composerDocumentText(document) {
+    const cached = documentTextCache.get(document);
+    if (cached !== undefined)
+        return cached;
     function text(node) {
         if (node.type === 'text')
             return node.text || '';
@@ -120,7 +124,9 @@ function composerDocumentText(document) {
             return '---';
         return (node.content || []).map(text).join(['paragraph', 'heading', 'codeBlock'].includes(node.type) ? '' : '\n');
     }
-    return text(document.doc);
+    const computed = text(document.doc);
+    documentTextCache.set(document, computed);
+    return computed;
 }
 /** Model projection is never parsed back into the visible document. */
 function composerDocumentPrompt(document) {

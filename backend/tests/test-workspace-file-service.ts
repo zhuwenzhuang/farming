@@ -647,6 +647,8 @@ async function run() {
     if (fs.existsSync(service.rgPath)) {
       const search = await service.search(workspace, 'external');
       assert(search.matches.some(match => match.path === 'src/App.tsx'));
+      const literalMetacharSearch = await service.search(workspace, 'configured).');
+      assert(Array.isArray(literalMetacharSearch.matches));
 
       const pathSearch = await service.search(workspace, 'NewFile');
       assert.strictEqual(pathSearch.matches[0].kind, 'path');

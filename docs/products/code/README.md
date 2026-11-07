@@ -5,6 +5,7 @@
 Farming Code is the default browser workspace. User guidance is maintained on
 the public documentation site:
 
+- [Interactive Desktop + Phone Demo](https://zhuwenzhuang.github.io/farming/en/#interactive-demo)
 - [Overview](https://zhuwenzhuang.github.io/farming/en/code/overview)
 - [Projects and Agents](https://zhuwenzhuang.github.io/farming/en/code/projects-and-agents)
 - [Chat](https://zhuwenzhuang.github.io/farming/en/code/chat)

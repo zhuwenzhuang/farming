@@ -134,12 +134,23 @@ export function useAcpSession(agentId: string, active: boolean, refreshSignal: s
     ))
   }, [agentId])
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  const refreshInFlightRef = useRef(false)
+  const refreshQueuedRef = useRef(false)
+  const refreshAbortRef = useRef<AbortController | null>(null)
+
+  const refresh = useCallback(async (options?: { force?: boolean }) => {
     if (!agentId || !active) return
+    if (!options?.force && refreshInFlightRef.current) {
+      refreshQueuedRef.current = true
+      return
+    }
+    refreshInFlightRef.current = true
+    refreshQueuedRef.current = false
     const requestMutationSequence = mutationSequenceRef.current
     const lease = refreshOwnershipRef.current.begin()
+    const signal = refreshAbortRef.current?.signal
     try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), { signal })
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), signal ? { signal } : undefined)
       const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot | null; pending?: boolean; error?: string } | null
       if (response.status === 202 && body?.pending === true && body.session === null) {
         if (!lease.isCurrent() || mutationRef.current || mutationSequenceRef.current !== requestMutationSequence) return
@@ -168,10 +179,22 @@ export function useAcpSession(agentId: string, active: boolean, refreshSignal: s
       ) return
       setValidatedScope('')
       setError(nextError instanceof Error ? nextError.message : 'Failed to read ACP session')
+    } finally {
+      if (lease.isCurrent()) {
+        refreshInFlightRef.current = false
+        if (refreshQueuedRef.current) {
+          refreshQueuedRef.current = false
+          void refresh()
+        }
+      }
     }
   }, [active, agentId, setError, setSession, validationScope])
 
   useEffect(() => {
+    const controller = new AbortController()
+    refreshAbortRef.current = controller
+    refreshInFlightRef.current = false
+    refreshQueuedRef.current = false
     refreshOwnershipRef.current.invalidate()
     mutationOwnershipRef.current.invalidate()
     mutationSequenceRef.current += 1
@@ -182,12 +205,16 @@ export function useAcpSession(agentId: string, active: boolean, refreshSignal: s
     setUpdatingId('')
     setAuthenticatingId('')
     setLoggingOut(false)
+    return () => {
+      controller.abort()
+      if (refreshAbortRef.current === controller) refreshAbortRef.current = null
+      refreshInFlightRef.current = false
+      refreshQueuedRef.current = false
+    }
   }, [active, agentId])
 
   useEffect(() => {
-    const controller = new AbortController()
-    void refresh(controller.signal)
-    return () => controller.abort()
+    void refresh()
   }, [refresh, refreshSignal])
 
   useEffect(() => {
@@ -310,7 +337,7 @@ export function useAcpSession(agentId: string, active: boolean, refreshSignal: s
         || accountMutationRef.current?.sequence !== sequence
       ) return false
       setError('')
-      await refresh()
+      await refresh({ force: true })
       return lease.isCurrent()
         && accountMutationRef.current?.sequence === sequence
     } catch (nextError) {
@@ -345,7 +372,7 @@ export function useAcpSession(agentId: string, active: boolean, refreshSignal: s
         || accountMutationRef.current?.sequence !== sequence
       ) return false
       setError('')
-      await refresh()
+      await refresh({ force: true })
       return lease.isCurrent()
         && accountMutationRef.current?.sequence === sequence
     } catch (nextError) {

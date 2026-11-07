@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import {
@@ -307,6 +307,7 @@ export function useComposerFollowUpController({
   // One in-flight request per composer, shared by main and side panes. Unknown
   // and failed heads stop this FIFO; neither reconnect nor a newer send skips it.
   const flushSubmissions = useCallback((candidateAgents: Agent[]) => {
+    if (!Object.values(composerByAgentKeyRef.current).some(state => state?.submissions?.[0]?.status === 'queued')) return
     candidateAgents.forEach(structuralAgent => {
       const agent = agentWithCurrentLiveState(structuralAgent)
       if (!isAcpRuntime(agent) || agent.archived || agent.status !== 'running') return
@@ -317,7 +318,7 @@ export function useComposerFollowUpController({
       deliverSubmission(agent, key, message)
     })
   }, [deliverSubmission, isPromptStartFenced])
-  useEffect(() => { if (flushQueues) flushSubmissions(agents) }, [agents, composerByAgentKey, flushQueues, flushSubmissions])
+  useLayoutEffect(() => { if (flushQueues) flushSubmissions(agents) }, [agents, composerByAgentKey, flushQueues, flushSubmissions])
 
   const discardAcpSubmission = useCallback((messageId: string) => {
     if (!activeComposerKey || !admissionsRef.current.canDiscardOrEdit(activeComposerKey, messageId)
@@ -399,6 +400,7 @@ export function useComposerFollowUpController({
   }, [agents, flushQueues, reconcilePromptStartFence])
 
   const flushPendingFollowUps = useCallback((candidateAgents: Agent[]) => {
+    if (!Object.values(composerByAgentKeyRef.current).some(state => (state?.pendingFollowUp?.messages.length || 0) > 0)) return
     const pendingFlushes: Array<{
       agent: Agent
       composerKey: string

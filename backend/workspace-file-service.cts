@@ -3957,6 +3957,7 @@ class WorkspaceFileService {
 
     const args = [
       '--json',
+      '--fixed-strings',
       '--color',
       'never',
       '--line-number',

@@ -17,11 +17,13 @@ async function run() {
     const browser = { version: 1, source: 'browser', id: 'browser:1', operation: 'terminal.input', outcome: 'observed',
       startedAt: Date.now(), durationMs: 201, slow: true, stages: { frame: 201 }, metrics: { inputUnits: 1 }, input: 'PRIVATE_TYPED_VALUE' };
     assert.equal(journal.ingest([browser, { ...browser, source: 'server' }]), 1);
+    assert.equal(journal.ingest([browser]), 1);
     await journal.flush();
     const file = path.join(directory, 'logs', 'interactions.jsonl');
     let contents = await fs.readFile(file, 'utf8');
     assert.doesNotMatch(contents, /PRIVATE_TYPED_VALUE/);
     assert.match(contents, /"source":"server"/, 'slow browser observation backfills the fast matching server span');
+    assert.equal(contents.trim().split('\n').filter(line => JSON.parse(line).source === 'server').length, 1, 'server span must only be persisted once');
     assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
     for (let i = 0; i < 12; i++) {
       for (let j = 0; j < 30; j++) journal.recorder.begin('file.save').end('failed');

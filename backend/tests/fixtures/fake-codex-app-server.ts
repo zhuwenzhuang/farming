@@ -297,7 +297,8 @@ async function resultFor(method, params) {
         displayName: model.toUpperCase(),
         description: 'test model',
         hidden: false,
-        supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }],
+        supportedReasoningEfforts: (process.env.FARMING_TEST_MODEL_MATRIX === '1' && model === 'gpt-5.6'
+          ? ['medium', 'high'] : ['medium']).map(reasoningEffort => ({ reasoningEffort, description: reasoningEffort })),
         defaultReasoningEffort: 'medium',
         inputModalities: ['text', 'image'],
         supportsPersonality: false,

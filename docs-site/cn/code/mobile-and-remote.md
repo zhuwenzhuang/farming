@@ -2,6 +2,8 @@
 
 Farming 后端运行在开发机上，电脑或手机浏览器通过带鉴权 URL 连接。Agent、Terminal 和项目文件不会因为你换了一台浏览器就迁移到客户端设备。
 
+<InteractiveShowcase />
+
 <ThemeImage light="/cn/assets/mobile-chat.png" dark="/cn/assets/mobile-chat-dark.png" paper="/cn/assets/mobile-chat-paper.png" alt="手机上的 Agent Chat" />
 
 ## 手机使用

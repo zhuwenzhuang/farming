@@ -768,7 +768,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
-      version: '0.99.1',
+      version: '0.101.0',
       sharedRuntime: true,
       config: {
         approvalModes: {

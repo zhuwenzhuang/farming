@@ -198,6 +198,27 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function cloneRecord<T extends JsonRecord | null>(record: T): T {
+  if (!record) return record;
+  const copy: JsonRecord = { ...record };
+  for (const [key, value] of Object.entries(copy)) {
+    if (value !== null && typeof value === 'object') {
+      copy[key] = Array.isArray(value) && value.length === 0 ? [] : cloneJson(value);
+    }
+  }
+  return copy as T;
+}
+
+function fileStatSignature(file: string, generation: number): string | null {
+  if (!file) return null;
+  try {
+    const stat = fs.statSync(file, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${generation}`;
+  } catch {
+    return null;
+  }
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return isDeepStrictEqual(left, right);
 }
@@ -233,6 +254,9 @@ class FarmingSessionStore {
   writeJsonAsync: AsyncJsonWriter;
   metadataWriteGenerations: Map<string, number>;
   stateWriteGenerations: Map<string, number>;
+  metadataRecordCache: Map<string, { signature: string; record: AgentRecord | null }>;
+  agentStateCache: Map<string, { signature: string; state: AgentStateRecord | null }>;
+  mergedRecordCache: Map<string, { signature: string; record: AgentRecord }>;
   index: SessionIndex | null;
   legacyProviderSessionRecords: Record<string, string>;
   providerSessionRecords: Map<string, string>;
@@ -256,6 +280,9 @@ class FarmingSessionStore {
         });
     this.metadataWriteGenerations = new Map();
     this.stateWriteGenerations = new Map();
+    this.metadataRecordCache = new Map();
+    this.agentStateCache = new Map();
+    this.mergedRecordCache = new Map();
     this.index = null;
     this.legacyProviderSessionRecords = {};
     this.providerSessionRecords = new Map<string, string>();
@@ -414,23 +441,52 @@ class FarmingSessionStore {
     return isAgentRecordId(id) ? storageLayout.agentStateFile(this.configDir, String(id)) : '';
   }
 
-  readMetadataRecord(id: string): AgentRecord | null {
+  readMetadataRecordWithSignature(id: string): { signature: string; record: AgentRecord | null } | null {
     const file = this.sessionFile(id);
     if (!file) return null;
+    const signature = fileStatSignature(file, this.metadataWriteGenerations.get(id) || 0);
+    if (!signature) {
+      this.metadataRecordCache.delete(id);
+      this.mergedRecordCache.delete(id);
+      return null;
+    }
+    const cached = this.metadataRecordCache.get(id);
+    if (cached && cached.signature === signature) return cached;
     try {
-      if (!fs.existsSync(file)) return null;
-      const parsed = objectRecord(JSON.parse(fs.readFileSync(file, 'utf8')));
-      return parsed as AgentRecord | null;
+      const parsed = objectRecord(JSON.parse(fs.readFileSync(file, 'utf8'))) as AgentRecord | null;
+      const entry = { signature, record: parsed ? cloneRecord(parsed) : null };
+      this.metadataRecordCache.set(id, entry);
+      return entry;
     } catch {
+      this.metadataRecordCache.delete(id);
+      this.mergedRecordCache.delete(id);
       return null;
     }
   }
 
-  readAgentState(id: string): AgentStateRecord | null {
+  readMetadataRecord(id: string): AgentRecord | null {
+    const entry = this.readMetadataRecordWithSignature(id);
+    return entry?.record ? cloneRecord(entry.record) : null;
+  }
+
+  readAgentStateWithSignature(
+    id: string,
+    hasStateFile?: boolean,
+  ): { signature: string; state: AgentStateRecord | null } | null {
+    if (hasStateFile === false) {
+      this.agentStateCache.delete(id);
+      return null;
+    }
     const file = this.agentStateFile(id);
     if (!file) return null;
+    const signature = fileStatSignature(file, this.stateWriteGenerations.get(id) || 0);
+    if (!signature) {
+      this.agentStateCache.delete(id);
+      return null;
+    }
+    const cached = this.agentStateCache.get(id);
+    if (cached && cached.signature === signature) return cached;
     try {
-      if (!fs.existsSync(file)) return null;
       const parsed = objectRecord(JSON.parse(fs.readFileSync(file, 'utf8')));
       if (
         !parsed
@@ -438,29 +494,58 @@ class FarmingSessionStore {
         || parsed.agentRecordId !== id
         || parsed.agentStateVersion !== AGENT_STATE_VERSION
       ) {
-        return null;
+        const invalidEntry = { signature, state: null };
+        this.agentStateCache.set(id, invalidEntry);
+        return invalidEntry;
       }
-      return {
+      const state: AgentStateRecord = cloneRecord({
         ...parsed,
         agentRecordId: id,
         agentStateVersion: AGENT_STATE_VERSION,
-      };
+      });
+      const entry = { signature, state };
+      this.agentStateCache.set(id, entry);
+      return entry;
     } catch {
+      this.agentStateCache.delete(id);
       return null;
     }
   }
 
-  readRecord(id: string): AgentRecord | null {
-    const metadata = this.readMetadataRecord(id);
-    if (!metadata) return null;
-    if (!isAgentRecordId(id)) return this.withCanonicalIdentity(metadata);
-    const state = this.readAgentState(id);
-    if (!state) return this.withCanonicalIdentity({ ...metadata, agentRecordId: id });
-    const merged: AgentRecord = { ...metadata, agentRecordId: id };
-    AGENT_STATE_FIELDS.forEach(field => {
-      if (Object.prototype.hasOwnProperty.call(state, field)) merged[field] = cloneJson(state[field]);
-    });
-    return this.withCanonicalIdentity(merged);
+  readAgentState(id: string): AgentStateRecord | null {
+    const entry = this.readAgentStateWithSignature(id);
+    return entry?.state ? cloneRecord(entry.state) : null;
+  }
+
+  readRecord(id: string, options: { hasStateFile?: boolean } = {}): AgentRecord | null {
+    const metadataEntry = this.readMetadataRecordWithSignature(id);
+    const metadata = metadataEntry?.record || null;
+    if (!metadataEntry || !metadata) return null;
+    const stateEntry = isAgentRecordId(id)
+      ? this.readAgentStateWithSignature(id, options.hasStateFile)
+      : null;
+    const mergedSignature = `${metadataEntry.signature}|${stateEntry ? stateEntry.signature : 'none'}`;
+    const cachedMerged = this.mergedRecordCache.get(id);
+    if (cachedMerged && cachedMerged.signature === mergedSignature) {
+      return cloneRecord(cachedMerged.record);
+    }
+    let resolved: AgentRecord;
+    if (!isAgentRecordId(id)) {
+      resolved = this.withCanonicalIdentity(cloneRecord(metadata));
+    } else {
+      const state = stateEntry?.state || null;
+      if (!state) {
+        resolved = this.withCanonicalIdentity({ ...cloneRecord(metadata), agentRecordId: id });
+      } else {
+        const merged: AgentRecord = { ...cloneRecord(metadata), agentRecordId: id };
+        AGENT_STATE_FIELDS.forEach(field => {
+          if (Object.prototype.hasOwnProperty.call(state, field)) merged[field] = cloneJson(state[field]);
+        });
+        resolved = this.withCanonicalIdentity(merged);
+      }
+    }
+    this.mergedRecordCache.set(id, { signature: mergedSignature, record: resolved });
+    return cloneRecord(resolved);
   }
 
   withCanonicalIdentity(record: AgentRecord): AgentRecord {
@@ -723,11 +808,12 @@ class FarmingSessionStore {
     } catch {
       return [];
     }
+    const nameSet = new Set(names);
     return names
       .filter(name => name.endsWith('.json') && !name.endsWith('.state.json'))
       .map(name => name.slice(0, -5))
       .filter(id => safeSessionFileName(id))
-      .map(id => this.readRecord(id))
+      .map(id => this.readRecord(id, { hasStateFile: nameSet.has(`${id}.state.json`) }))
       .filter((record): record is AgentRecord => record !== null && record.kind === 'agent');
   }
 
@@ -1116,6 +1202,9 @@ class FarmingSessionStore {
           if (error?.code !== 'ENOENT') throw caught;
         }
       }
+      this.metadataRecordCache.delete(id);
+      this.agentStateCache.delete(id);
+      this.mergedRecordCache.delete(id);
       this.providerSessionRecords.delete(sessionKey);
     }
     return [...purgedKeys];

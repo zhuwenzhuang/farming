@@ -1,5 +1,5 @@
 import type { AgentGoal } from '../../../shared/agent-goal'
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
@@ -63,7 +63,7 @@ export function agentWorkPaneModeStorageIdentity(agent: Agent) {
   return agent.restartedFromAgentIds?.[0] || agent.id
 }
 
-export function AgentWorkPane({
+export const AgentWorkPane = memo(function AgentWorkPane({
   agent,
   mounted,
   active,
@@ -214,4 +214,4 @@ export function AgentWorkPane({
       ) : null}
     </section>
   )
-}
+})

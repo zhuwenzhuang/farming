@@ -1,6 +1,6 @@
 import { replaceComposerText } from './composer-document-editor'
 import { composerDocumentText, literalComposerDocument } from '../../../shared/composer-document.js'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import { existingComposerStateUpdateKey } from './agent-composer-state-key'
 import {
@@ -13,7 +13,6 @@ import {
 import {
   acpComposerStateAliasKeysForAgent,
   acpComposerStateKeyForAgent,
-  isAcpComposerStateKey,
 } from './acp/acp-composer-state'
 import {
   loadAgentComposerCheckpoint,
@@ -217,23 +216,31 @@ export function useAgentComposerState({
     })
   }, [agents, commitComposerState, nextCheckpointTimestamp, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
 
-  const resolveComposerStateKey = useCallback((composerKey: string) => {
-    if (!composerKey) return ''
+  const canonicalKeyByAlias = useMemo(() => {
+    const map = new Map<string, string>()
     for (const agent of agents) {
-      const acpState = isAcpComposerStateKey(composerKey)
-      const canonicalKey = acpState
-        ? acpComposerStateKeyForAgent(agent)
-        : composerStateKeyForAgent(agent)
-      if (!canonicalKey) continue
-      const aliasKeys = acpState
-        ? acpComposerStateAliasKeysForAgent(agent)
-        : composerStateAliasKeysForAgent(agent)
-      if (composerKey === canonicalKey || aliasKeys.includes(composerKey)) {
-        return canonicalKey
+      const terminalCanonicalKey = composerStateKeyForAgent(agent)
+      if (terminalCanonicalKey) {
+        if (!map.has(terminalCanonicalKey)) map.set(terminalCanonicalKey, terminalCanonicalKey)
+        for (const aliasKey of composerStateAliasKeysForAgent(agent)) {
+          if (!map.has(aliasKey)) map.set(aliasKey, terminalCanonicalKey)
+        }
+      }
+      const acpCanonicalKey = acpComposerStateKeyForAgent(agent)
+      if (acpCanonicalKey) {
+        if (!map.has(acpCanonicalKey)) map.set(acpCanonicalKey, acpCanonicalKey)
+        for (const aliasKey of acpComposerStateAliasKeysForAgent(agent)) {
+          if (!map.has(aliasKey)) map.set(aliasKey, acpCanonicalKey)
+        }
       }
     }
-    return composerKey
+    return map
   }, [agents])
+
+  const resolveComposerStateKey = useCallback((composerKey: string) => {
+    if (!composerKey) return ''
+    return canonicalKeyByAlias.get(composerKey) ?? composerKey
+  }, [canonicalKeyByAlias])
 
   const updateComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
     commitComposerState(current => {
@@ -241,7 +248,8 @@ export function useAgentComposerState({
       if (!canonicalKey) return current
       const previous = current[canonicalKey] ?? createDefaultAgentComposerState()
       const updated = updater(previous)
-      const nextState = updated.draftDocument && composerDocumentText(updated.draftDocument) !== updated.draft
+      const draftChanged = updated.draft !== previous.draft || updated.draftDocument !== previous.draftDocument
+      const nextState = draftChanged && updated.draftDocument && composerDocumentText(updated.draftDocument) !== updated.draft
         ? { ...updated, draftDocument: updated.draft ? replaceComposerText(updated.draftDocument, updated.draft) : undefined }
         : updated
       if (nextState === previous) return current
@@ -259,7 +267,8 @@ export function useAgentComposerState({
       const previous = current[updateKey]
       if (!previous) return current
       const updated = updater(previous)
-      const nextState = updated.draftDocument && composerDocumentText(updated.draftDocument) !== updated.draft
+      const draftChanged = updated.draft !== previous.draft || updated.draftDocument !== previous.draftDocument
+      const nextState = draftChanged && updated.draftDocument && composerDocumentText(updated.draftDocument) !== updated.draft
         ? { ...updated, draftDocument: updated.draft ? replaceComposerText(updated.draftDocument, updated.draft) : undefined }
         : updated
       if (nextState === previous) return current

@@ -231,6 +231,35 @@ async function main() {
       'facade retained a stale runtime error after an idle patch',
     );
     assert.strictEqual(first.getSession('agent-1').error, '');
+    const seqBeforeNoopPatch = host.service.state.seq;
+    host.service.state.patchBinding('agent-1', {
+      state: 'idle',
+      error: '',
+      stopReason: '',
+    });
+    assert.strictEqual(
+      host.service.state.seq,
+      seqBeforeNoopPatch,
+      'patching unchanged fields must not publish a duplicate binding-patch event',
+    );
+    const runtimeCountBeforeSessionPatch = bindingPatchEvents.length;
+    const sessionPatchEvents = [];
+    first.on('session', event => sessionPatchEvents.push(event));
+    host.service.state.patchBinding('agent-1', {
+      revision: 9,
+      title: 'Streamed revision title',
+      updatedAt: '2026-11-07T00:00:09.000Z',
+    });
+    await waitFor(
+      () => sessionPatchEvents.some(event => event.revision === 9),
+      'facade did not emit session event for revision patch',
+    );
+    assert.strictEqual(
+      bindingPatchEvents.length,
+      runtimeCountBeforeSessionPatch,
+      'session-only binding-patch must not emit redundant agent-runtime events',
+    );
+    assert.strictEqual(sessionPatchEvents.at(-1)?.updatedAt, '2026-11-07T00:00:09.000Z');
 
     const initialHostEpoch = first.client.hostEpoch;
     const initialControllerGeneration = first.client.controllerGeneration;

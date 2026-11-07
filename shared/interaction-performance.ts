@@ -15,7 +15,14 @@ export const PERFORMANCE_METRICS = [
   'outputBytes', 'outputChunks', 'activeAgents', 'connections', 'heapBytes', 'cpuMs', 'windowMs',
 ] as const
 export type PerformanceMetrics = Partial<Record<typeof PERFORMANCE_METRICS[number], number>>
-const REQUEST_KINDS = ['read-file', 'save-file', 'tree', 'search', 'tree-decorations', 'capability', 'request', 'notify', 'other'] as const
+const REQUEST_KINDS = [
+  'read-file', 'save-file', 'tree', 'search', 'tree-decorations',
+  'file-link-access', 'diff', 'changes', 'branch', 'branches', 'switch-branch',
+  'worktrees', 'history', 'history-changes', 'line-changes', 'blame', 'blame-capability',
+  'create-preview', 'renew-preview', 'delete-preview', 'context-paths',
+  'move-entry', 'create-entry', 'rename-entry', 'delete-entry',
+  'capability', 'request', 'notify', 'other',
+] as const
 export function performanceRequestKind(value: unknown): typeof REQUEST_KINDS[number] {
   return REQUEST_KINDS.find(kind => kind === value) ?? 'other'
 }

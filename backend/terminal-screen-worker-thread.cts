@@ -164,10 +164,11 @@ async function handleRequest(message: TerminalScreenWorkerMessage): Promise<unkn
   switch (message.type) {
     case 'append':
       await appendEntries(message.entries);
-      return currentState({
-        includeRenderOutput: false,
-        refreshPreview: false,
-      });
+      return {
+        runtimeEpoch,
+        outputSeq: appliedOutputSeq,
+        stateRevision: appliedStateRevision,
+      };
     case 'set-runtime-epoch':
       runtimeEpoch = typeof message.runtimeEpoch === 'string' ? message.runtimeEpoch : '';
       appliedOutputSeq = 0;

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "dependencies": {
     "codex": {
-      "version": "0.166.0",
+      "version": "0.167.0",
       "probe": {
         "args": [
           "--version"
@@ -10,105 +10,105 @@
       },
       "artifacts": {
         "darwin-arm64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-darwin-arm64.tgz",
-          "integrity": "sha512-5fWH6qqUInACcRADIewjlnRxDb4QLe0uriwehiZz0+viuAAB8I+WWefqw4xwHvyKaxeiGX4uK56+vrgfvFk3FQ==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-darwin-arm64.tgz",
+          "integrity": "sha512-7YtMDZX/jbWH9+fCVQg7BVsov8WvBzu4iuedXJEDlUdZxaTrYX2bEQwHIn3p0gxgSMfm30HGK9+bZm1aGSZaHw==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-apple-darwin",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-darwin-arm64",
-            "version": "0.166.0-darwin-arm64",
+            "version": "0.167.0-darwin-arm64",
             "entry": "vendor/aarch64-apple-darwin/bin/codex"
           }
         },
         "darwin-x64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-darwin-x64.tgz",
-          "integrity": "sha512-Vj5wXJPizKmrzNtnRNQf9PP6FJkG3iJU/UO3NE4WvkENZGoQfmImdwf4MVRI5NgwjSuC6LT0HbBRHPVVnwGHuw==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-darwin-x64.tgz",
+          "integrity": "sha512-wKoBiI6SBSg8fqiEYEOJs/NM/ZzKaCgy1cseX9LJbuDq3GCCKkeW9BUGe1ZEkyhhZ5Yfj+HzdUfp698abP2tDA==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-apple-darwin",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-darwin-x64",
-            "version": "0.166.0-darwin-x64",
+            "version": "0.167.0-darwin-x64",
             "entry": "vendor/x86_64-apple-darwin/bin/codex"
           }
         },
         "linux-arm64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-linux-arm64.tgz",
-          "integrity": "sha512-w0ScAsBr9aZKtIFrh6HN6KU2yjKKeSCzYfbb7DB0Ccj4BYPzeZtUeQprbycLCwuX3AFQdbdjapmLho2iot74jQ==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-linux-arm64.tgz",
+          "integrity": "sha512-5cv+sybRWqpRJL6KCv3YSnIx1GHRmjek997C38n1Zfno4HomKDLkNSjWLDOOc2+ISlVNSRRnySWq4zKmzlY12g==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-arm64",
-            "version": "0.166.0-linux-arm64",
+            "version": "0.167.0-linux-arm64",
             "entry": "vendor/aarch64-unknown-linux-musl/bin/codex"
           }
         },
         "linux-arm64-musl": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-linux-arm64.tgz",
-          "integrity": "sha512-w0ScAsBr9aZKtIFrh6HN6KU2yjKKeSCzYfbb7DB0Ccj4BYPzeZtUeQprbycLCwuX3AFQdbdjapmLho2iot74jQ==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-linux-arm64.tgz",
+          "integrity": "sha512-5cv+sybRWqpRJL6KCv3YSnIx1GHRmjek997C38n1Zfno4HomKDLkNSjWLDOOc2+ISlVNSRRnySWq4zKmzlY12g==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-arm64",
-            "version": "0.166.0-linux-arm64",
+            "version": "0.167.0-linux-arm64",
             "entry": "vendor/aarch64-unknown-linux-musl/bin/codex"
           }
         },
         "linux-x64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-linux-x64.tgz",
-          "integrity": "sha512-CxDm3+D1cpbGJeHrdzINoG+3wn9BVncP4qpZaaNYkxe8iPtRJOYyCJnnPoVjWRIBvI9vPKbRoifsMSA5xDaUpw==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-linux-x64.tgz",
+          "integrity": "sha512-FNc7danfUng9Sp6w+Fh7kofNHHZpA6VMyNKWsWrS3OwHly69gywTWeiuwrUPXpJSho8Df4xqRsHfHRPzj7zYQg==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-x64",
-            "version": "0.166.0-linux-x64",
+            "version": "0.167.0-linux-x64",
             "entry": "vendor/x86_64-unknown-linux-musl/bin/codex"
           }
         },
         "linux-x64-musl": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-linux-x64.tgz",
-          "integrity": "sha512-CxDm3+D1cpbGJeHrdzINoG+3wn9BVncP4qpZaaNYkxe8iPtRJOYyCJnnPoVjWRIBvI9vPKbRoifsMSA5xDaUpw==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-linux-x64.tgz",
+          "integrity": "sha512-FNc7danfUng9Sp6w+Fh7kofNHHZpA6VMyNKWsWrS3OwHly69gywTWeiuwrUPXpJSho8Df4xqRsHfHRPzj7zYQg==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-unknown-linux-musl",
           "entry": "bin/codex",
           "installedPackage": {
             "name": "@openai/codex-linux-x64",
-            "version": "0.166.0-linux-x64",
+            "version": "0.167.0-linux-x64",
             "entry": "vendor/x86_64-unknown-linux-musl/bin/codex"
           }
         },
         "win32-arm64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-win32-arm64.tgz",
-          "integrity": "sha512-LWO1cyGlxbKgeUM7QJ1a6QMSsJi++3PqgIi6BmIUBoj/kzZqRIR69UDMQgeU/9izzJFYMSbwt++lHnUFyjQXlA==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-win32-arm64.tgz",
+          "integrity": "sha512-dYeYQZ66LCNnFXyF5vHRsbJQLyfbY3G8vDyn6XG3NxcwMFz4stkgSdC94UPc1NhCxkhpufHlkAm1oe+Z28Pw5Q==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/aarch64-pc-windows-msvc",
           "entry": "bin/codex.exe",
           "installedPackage": {
             "name": "@openai/codex-win32-arm64",
-            "version": "0.166.0-win32-arm64",
+            "version": "0.167.0-win32-arm64",
             "entry": "vendor/aarch64-pc-windows-msvc/bin/codex.exe"
           }
         },
         "win32-x64": {
-          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-win32-x64.tgz",
-          "integrity": "sha512-NS8Ps5oG5r19pCrMCUXwUqOui6odnUIoBlQkrjCJ+h1k6KiwCzC/+mI9d3nSZCqFoVONPBTmqyq8NYq3YaFGyA==",
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-win32-x64.tgz",
+          "integrity": "sha512-duPCBwflc8qhQdLekbL8fDYF646tW4gj0/l9BDnsVhEzoqm6OwxMAJXDFwSOLUUJPCmjBeM+eHYAx4fP/hwfjg==",
           "archive": "tgz",
           "archivePrefix": "package/vendor/x86_64-pc-windows-msvc",
           "entry": "bin/codex.exe",
           "installedPackage": {
             "name": "@openai/codex-win32-x64",
-            "version": "0.166.0-win32-x64",
+            "version": "0.167.0-win32-x64",
             "entry": "vendor/x86_64-pc-windows-msvc/bin/codex.exe"
           }
         }
       }
     },
     "claude": {
-      "version": "0.3.312",
+      "version": "0.3.318",
       "reportedVersion": "2.1.0",
       "managedProbe": false,
       "probe": {
@@ -118,98 +118,98 @@
       },
       "artifacts": {
         "darwin-arm64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.3.312.tgz",
-          "integrity": "sha512-AVmdMOuoeE3Y9f4wAIPcEAAS0OFaZw1L6l11YuyqfS0B/+DYxkWxS/ZYZ1NbUy57eaIW/vdEgz9Q5M99Pl6ZJw==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.3.318.tgz",
+          "integrity": "sha512-AWoXeDXzAMD3RaA21lWuHvCrKd8xmbTTmKjovninn4j07jheoVSMzFbCFjpp4kk5TdhT36JtWPkAxvjNMbcO8w==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-darwin-arm64",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude"
           }
         },
         "darwin-x64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.3.312.tgz",
-          "integrity": "sha512-Dmxyil+GPzF1WENoFOi1Cx0roSdJA6HewGAfAFvsH5vYrzb6G0REGuoQQ0n3u8i8qFgtl1m/WSl4u5t+MdiHWA==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.3.318.tgz",
+          "integrity": "sha512-6CkZ5PCdebSY/LePp16sf/HYRtM6zVuxtn8qYICFS5KUZFsjccJJ9swVsOdHXNHi4SWZcSmIFTwoUbfFCzisRw==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-darwin-x64",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude"
           }
         },
         "linux-arm64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.3.312.tgz",
-          "integrity": "sha512-jebsXksKh7g7u1x+RxjYQXM50TCN0e7GthebXa+n5IebF3pPqtmyWGVIiEEjvpajn3P6Zh8BWUVuufUpXn8ccA==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.3.318.tgz",
+          "integrity": "sha512-mBm4su17aMitLBBCQj3bHdejyUDY6z/ormGih+HG24N689RSbdKECjGjkT87tDBIR/4jyoqmuSeHqM1DI8TJlg==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-arm64",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude"
           }
         },
         "linux-arm64-musl": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.312.tgz",
-          "integrity": "sha512-9GT0JzbfhODwsCO3MCg79wPH47qARCuKECcryeAJnVczplAlXSIiBw1+6UcqL5+0wSYFu6D/tvw/AiVy+PkHsg==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.318.tgz",
+          "integrity": "sha512-l4LSYFOrvlYCrUImGfxMTQ0wg+T3s9CBhrBvPF/0oJGKZg+QnxHHU8jUVm9e9/xYmDRTtqFIrr4id/5AfH4XGw==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-arm64-musl",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude"
           }
         },
         "linux-x64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.3.312.tgz",
-          "integrity": "sha512-UOsqza2uo5gqlX2OU72LhkQvIaNJKUQMJIi1poX2NtYqaWACqNo/TZPWfOBzxhyWmX8BLWaOlcuZGPLgcCJOTg==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.3.318.tgz",
+          "integrity": "sha512-+mE+ueBD3oRFdaG16rd0h+LMjdeivGxL0pr/+FZK7JeLWVu+yPSw/f/X02b9oK36/DWykiFTu2G6HnJ9/+YO6w==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-x64",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude"
           }
         },
         "linux-x64-musl": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.312.tgz",
-          "integrity": "sha512-zM+PB6qVybdwtlqElXQ4+wCwk2v/jjT3Xau4foydzy/g5pGRTuGT3PTcfDLeG0j9zF8IxLaCQ/+Bl9MABPQD8g==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.318.tgz",
+          "integrity": "sha512-SAF3lj/2OzTU84p+OOA13QEKA9+5fYAw0M9E7AJjdnRmVFGqQfbV7Do1i1f9Sj0mIubB3rLTRphGRw8O4HZjgA==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-x64-musl",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude"
           }
         },
         "win32-arm64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.3.312.tgz",
-          "integrity": "sha512-Li9CyzsC2mzGmF1wtt/R59ChBLww6nc2dLn6tb+bgTDcd6kqvW44x5rIH+lRmBcpTNHR/8VO/k+GlmnkxqeaQQ==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.3.318.tgz",
+          "integrity": "sha512-19iVSZ4379QbZU1XnGUtfFvhKS1WzS8H1sbU/DbrzqbJ5Kq1eB1drj+obB1fCxTh6m26tRPj0zMJmdeu/jk3Gw==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude.exe",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-win32-arm64",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude.exe"
           }
         },
         "win32-x64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.3.312.tgz",
-          "integrity": "sha512-9GgGHHFEQnXx6EPhkPplOw1ndqmys8+Z+uOR68EIQlXGZm+wE+BmfypyHAoZhjs4151iWdQgNzjDT7wet3crdw==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.3.318.tgz",
+          "integrity": "sha512-ZdKVWpyVNVt0cXrOf8sUBaxcxLEAP+oGMdQDLBWr/BqOxTWLy7TBWOj1kzw+wVg/9WIkjkgQWeJzGXPWulR1sA==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude.exe",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-win32-x64",
-            "version": "0.3.312",
+            "version": "0.3.318",
             "entry": "claude.exe"
           }
         }
@@ -275,5 +275,5 @@
       }
     }
   },
-  "manifestId": "1fec58e50ac2bd64afcd36847f6a14a048faa278b8316143a268e7e6f9a98bcc"
+  "manifestId": "f724f81b86d3f2e489d0cb27dd5351c3c6e026acf24f5dfa1d2b636ac7dbdbb8"
 }

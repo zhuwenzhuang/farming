@@ -6,7 +6,7 @@ import { AcpRuntime } from '../acp-runtime.cts';
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-model-isolation-'));
-  const runtime = new AcpRuntime();
+  const runtime = new AcpRuntime({ configDir: root });
   const prepare = (agentId: string, sessionId = '', model = '') => runtime.prepareAgent({
     agentId, provider: 'codex', providerHomeId: 'model-isolation', providerHomePath: root,
     cwd: root, projectWorkspace: root, sessionId, model,
@@ -43,11 +43,38 @@ async function run() {
     assert.equal(await readModel('model-second'), 'gpt-6-astra', 'reconnection restores only the selected Session override');
     assert.equal(await readModel('model-first'), 'gpt-5.6');
     assert.equal(await readModel('model-history'), 'gpt-5.6');
+    const fork = await runtime.forkSession('model-first');
+    await prepare('model-side', fork.sessionId);
+    const modelOptions = runtime.requireBinding('model-side').configOptions.find(option => option.id === 'model')?.options;
+    assert.ok(modelOptions);
+    const metadata = (id: string) => {
+      const option = modelOptions.find(option => option.value === id);
+      return option && '_meta' in option ? option._meta : undefined;
+    };
+    assert.deepEqual(metadata('gpt-5.6'), { farming: { modelConfig: { version: 1,
+      reasoningOptions: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }],
+    } } });
+    assert.deepEqual(metadata('gpt-6-astra'), { farming: { modelConfig: { version: 1,
+      reasoningOptions: [{ value: 'medium', name: 'Medium' }],
+    } } });
+    await runtime.setSessionConfigOptions('model-side', [
+      { configId: 'model', value: 'gpt-6-astra' },
+      { configId: 'reasoning_effort', value: 'medium' },
+    ]);
+    assert.equal(await readModel('model-side'), 'gpt-6-astra');
+    assert.equal(await readModel('model-first'), 'gpt-5.6');
+    await runtime.retainAgent('model-side');
+    await runtime.reconnectAgent('model-side');
+    await runtime.setSessionConfigOptions('model-side', [
+      { configId: 'model', value: 'gpt-5.6' },
+      { configId: 'reasoning_effort', value: 'medium' },
+    ]);
+    assert.equal(await readModel('model-side'), 'gpt-5.6');
   } finally {
     await runtime.dispose();
     fs.rmSync(root, { recursive: true, force: true });
   }
-  console.log('Codex ACP model isolation across shared new, historical and reconnected Sessions passed');
+  console.log('Codex ACP model capabilities and isolation across shared, forked and reconnected Sessions passed');
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1; });

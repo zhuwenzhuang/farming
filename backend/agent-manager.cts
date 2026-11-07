@@ -7156,7 +7156,9 @@ class AgentManager extends EventEmitter {
       agent.subagentRetained = false;
       agent.subagentSupervisionExpiresAt = Date.now() + 60_000;
     }
-    this.sessionPersistence.scheduleState(agent);
+    if (result.reconnected === true) {
+      this.sessionPersistence.scheduleState(agent);
+    }
     return result;
   }
 

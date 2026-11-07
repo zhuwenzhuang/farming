@@ -461,7 +461,7 @@ const structuralSurfaceContracts = [
   ['src/styles/sidebar.css', '.code-project-row', 'background', 'linear-gradient(to bottom, var(--code-navigation-surface) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height))'],
   ['src/styles/sidebar.css', '.code-sidebar-project-section', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/sidebar.css', '.code-sidebar-options', 'background', 'transparent'],
-  ['src/styles/sidebar.css', '.code-sidebar-toggle,\n.code-sidebar-focus-toggle,\n.code-sidebar-search-toggle,\n.code-sidebar-history-toggle,\n.code-sidebar-plugins-toggle', 'background', 'transparent'],
+  ['src/styles/sidebar.css', '.code-sidebar-toggle,\n.code-sidebar-pin-toggle,\n.code-sidebar-focus-toggle,\n.code-sidebar-search-toggle,\n.code-sidebar-history-toggle,\n.code-sidebar-plugins-toggle', 'background', 'transparent'],
   ['src/styles/share.css', '.code-share-button', 'background', 'transparent'],
   ['src/styles/files.css', '.code-open-editors-header,\n.code-files-header', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/git-history.css', '.code-git-history-section', 'background', 'var(--code-navigation-surface)'],

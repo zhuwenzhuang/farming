@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.99.1';
-const expectedSdkVersion = '0.3.312';
-const expectedBundleSha256 = 'c990873eee7a47ee851ba4b51653049ae66d23ad1a4c972ae89667e126dfbb90';
+const expectedVersion = '0.101.0';
+const expectedSdkVersion = '0.3.318';
+const expectedBundleSha256 = 'dbf1a30c1d1a87b3c69dc36ad30ba60527a1aac08b9ccd413bd938f420c66788';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 // Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
@@ -19,6 +19,7 @@ const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
 });
 const sdkPackageJsonPath = path.join(path.dirname(sdkEntry), 'package.json');
 const acpAgentEntry = path.join(packageRoot, 'dist', 'acp-agent.js');
+const claudeCliEntry = path.join(packageRoot, 'dist', 'claude-cli.js');
 const sourceLicense = path.join(packageRoot, 'LICENSE');
 const sdkLicense = path.join(path.dirname(sdkPackageJsonPath), 'LICENSE.md');
 const targetDirectory = path.join(projectRoot, 'dist', 'acp');
@@ -55,14 +56,15 @@ function farmingClaudePlugin(): esbuild.Plugin {
         return build.resolve(args.path, { kind: args.kind, resolveDir: projectRoot });
       });
       build.onLoad({ filter: /.*/ }, args => {
-        if (path.resolve(args.path) === path.resolve(acpAgentEntry)) {
+        if (path.resolve(args.path) === path.resolve(claudeCliEntry)) {
           const source = fs.readFileSync(args.path, 'utf8');
           const start = source.indexOf(executableFunctionStart);
           const end = source.indexOf(executableFunctionEnd);
           if (start < 0 || end <= start || source.indexOf(executableFunctionStart, start + 1) >= 0) {
             throw new Error('Expected one reviewed Claude executable resolver');
           }
-          let executableSource = source.slice(0, start)
+          return {
+            contents: source.slice(0, start)
               + [
                 'export async function claudeCliPath() {',
                 '    if (process.env.CLAUDE_CODE_EXECUTABLE) {',
@@ -72,7 +74,12 @@ function farmingClaudePlugin(): esbuild.Plugin {
                 '}',
                 '',
               ].join('\n')
-              + source.slice(end);
+              + source.slice(end),
+            loader: 'js',
+          };
+        }
+        if (path.resolve(args.path) === path.resolve(acpAgentEntry)) {
+          let executableSource = fs.readFileSync(args.path, 'utf8');
           const liveAnchor = '                    case "assistant": {\n';
           const replayAnchor = '            if (pending?.stopped || isReplayHiddenMetaMessage(message)) {\n';
           if (executableSource.split(liveAnchor).length !== 2 || executableSource.split(replayAnchor).length !== 2) {

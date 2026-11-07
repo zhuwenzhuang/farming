@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://zhuwenzhuang.github.io/farming/cn/">在线文档</a> ·
+  <a href="https://zhuwenzhuang.github.io/farming/cn/#interactive-demo">在线交互演示</a> ·
   <a href="./README.md">English</a>
 </p>
 
@@ -72,9 +73,7 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 ### Browser Resource
 
-Farming 让人和 Agent 使用同一个 Project Browser，方便直接完成登录、检查实时页面并将控制权交还给 Agent。详见 [Farming Browser](docs/products/code/browser-agent-cli.zh_cn.md)。
-
-[![Farming Browser 共享浏览器会话](./docs-site/public/cn/assets/browser-viewer.png)](./docs-site/public/cn/assets/browser-viewer.png)
+Farming 让人和 Agent 使用同一个 Project Browser。详见 [Farming Browser](docs/products/code/browser-agent-cli.zh_cn.md)。
 
 ## 支持的 Agent
 
@@ -93,7 +92,9 @@ Farming 让人和 Agent 使用同一个 Project Browser，方便直接完成登�
 
 ## 远程使用
 
-在开发机上运行 Farming，再从能够访问这台机器的电脑或手机打开带鉴权 URL。浏览器断开后 Agent 仍会继续运行。远程访问和安全说明见[运行与维护](./docs/operations/README.zh_cn.md)。
+在开发机上运行 Farming，再从能够访问这台机器的电脑或手机打开带鉴权 URL。浏览器断开后 Agent 仍会继续运行，手机端发送的指令也会与桌面工作区实时同步。可直接在文档站体验[桌面与手机端交互式演示](https://zhuwenzhuang.github.io/farming/cn/#interactive-demo)；远程访问和安全说明见[运行与维护](./docs/operations/README.zh_cn.md)。
+
+[![Farming Code 桌面与手机端实时协同演示](./docs/products/code/assets/20-code-desktop-mobile-sync.webp)](https://zhuwenzhuang.github.io/farming/cn/#interactive-demo)
 
 <p align="center">
   <a href="./docs/products/code/assets/05-mobile-agent-chat.png"><img src="./docs/products/code/assets/05-mobile-agent-chat.webp" alt="手机浏览器中的 Farming Code" width="360"></a>

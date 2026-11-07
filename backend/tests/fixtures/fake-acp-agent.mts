@@ -1653,6 +1653,131 @@ class FakeAgent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('particle bursts')) {
+      const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' } },
+      });
+      await wait(140);
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'breakout-progress-1',
+          content: {
+            type: 'text',
+            text: 'I will add a radial particle emitter on brick collision and render floating 2x–4x combo popups in index.html.',
+          },
+        },
+      });
+      await wait(240);
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'breakout-read-game',
+          title: 'Read src/game.ts',
+          kind: 'read',
+          status: 'in_progress',
+          locations: [{ path: path.join(process.cwd(), 'src/game.ts'), line: 1 }],
+        },
+      });
+      await wait(320);
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'breakout-read-game',
+          status: 'completed',
+        },
+      });
+      await wait(180);
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'breakout-edit-particles',
+          title: 'Edit src/particles.ts',
+          kind: 'edit',
+          status: 'in_progress',
+        },
+      });
+      await wait(360);
+      const particlesV2 = [
+        'export function onBrickHit(x: number, y: number, color: string, combo: number) {',
+        '  spawnParticleBurst(x, y, color, 16);',
+        '  spawnShockwave(x, y, color);',
+        '  spawnComboPopup(x, y, `+${combo * 100} · ${combo}x COMBO!`);',
+        '}',
+        '',
+      ].join('\n');
+      fs.writeFileSync(path.join(process.cwd(), 'src', 'particles.ts'), particlesV2);
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'breakout-edit-particles',
+          status: 'completed',
+          content: [{
+            type: 'diff',
+            path: path.join(process.cwd(), 'src/particles.ts'),
+            oldText: 'export function onBrickHit() {\n  // Plain brick hit\n}\n',
+            newText: particlesV2,
+          }],
+        },
+      });
+      await wait(180);
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'breakout-edit-html',
+          title: 'Edit index.html',
+          kind: 'edit',
+          status: 'in_progress',
+        },
+      });
+      await wait(360);
+      const v2Path = [
+        path.join(process.cwd(), '..', '.index-v2.html'),
+        path.join(process.cwd(), '.index-v2.html'),
+      ].find(candidate => fs.existsSync(candidate));
+      if (v2Path) {
+        fs.copyFileSync(v2Path, path.join(process.cwd(), 'index.html'));
+      }
+      await client.notify('session/update', {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'breakout-edit-html',
+          status: 'completed',
+          content: [{
+            type: 'diff',
+            path: path.join(process.cwd(), 'index.html'),
+            oldText: '<div class="hud-combo">COMBO ×1</div>\n',
+            newText: '<div class="hud-combo active">COMBO ×3 🔥</div>\n',
+          }],
+        },
+      });
+      const answerChunks = [
+        '### Particle bursts & combo popups added\n\n',
+        'Every brick hit now spawns a radial particle burst and increments the active combo multiplier.\n\n',
+        '- **Particle emitter:** 16 glowing shards burst outward with gravity on impact.\n- **Combo popups:** Consecutive hits trigger **2x–4x COMBO!** floating score badges.\n',
+      ];
+      for (const chunk of answerChunks) {
+        await wait(200);
+        await client.notify('session/update', {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'breakout-final-answer',
+            content: { type: 'text', text: chunk },
+          },
+        });
+      }
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('rich timeline')) {
       const releaseStory = promptText.includes('release readiness story');
       await client.notify('session/update', {

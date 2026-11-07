@@ -251,4 +251,16 @@ test('opening, native child state, rich content, paths and model isolation selec
   assert(scripts['release:fast-screen:agent-opening'].includes('a new Agent dialog'));
   assert.deepEqual(selectBrowserScreen(['src/components/code/UnknownOpeningPane.tsx']).unmapped,
     ['src/components/code/UnknownOpeningPane.tsx']);
+  const highlightAndAuthPlan = selectBrowserScreen([
+    'extensions/browser/frontend/BrowserSidebarPortals.tsx',
+    'extensions/computer/frontend/ComputerSection.tsx',
+    'frontend/runtime-paths.ts',
+    'src/components/code/navigation-highlight.ts',
+    'src/hooks/useInteractionLayer.ts',
+    'tests/e2e/navigation-highlight.spec.ts',
+    'tests/e2e/share-short-link.spec.ts',
+  ]);
+  assert.deepEqual(highlightAndAuthPlan.unmapped, []);
+  assert.deepEqual(highlightAndAuthPlan.lanes.map(lane => lane.name),
+    ['mobile-auth', 'interaction', 'ui-contract-oracles', 'sidebar', 'ui-boundaries', 'computer-resource']);
 });

@@ -80,14 +80,19 @@ export function literalComposerDocument(text: string): ComposerDocument {
     ...(index ? [{ type: 'hardBreak' }] : []), ...(line ? [{ type: 'text', text: line }] : []),
   ]) }] } }
 }
+const documentTextCache = new WeakMap<ComposerDocument, string>()
 export function composerDocumentText(document: ComposerDocument): string {
+  const cached = documentTextCache.get(document)
+  if (cached !== undefined) return cached
   function text(node: ComposerDocumentNode): string {
     if (node.type === 'text') return node.text || ''
     if (node.type === 'hardBreak') return '\n'
     if (node.type === 'horizontalRule') return '---'
     return (node.content || []).map(text).join(['paragraph', 'heading', 'codeBlock'].includes(node.type) ? '' : '\n')
   }
-  return text(document.doc)
+  const computed = text(document.doc)
+  documentTextCache.set(document, computed)
+  return computed
 }
 /** Model projection is never parsed back into the visible document. */
 export function composerDocumentPrompt(document: ComposerDocument): string {

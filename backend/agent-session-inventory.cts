@@ -5,6 +5,7 @@ import {
   agentSessionHistoryProviders,
   compareAgentSessions,
   isSafePiSessionId,
+  isSafeSessionId,
   listAgentSessions,
   normalizeProvider,
   readPiSessionMetadata,
@@ -206,11 +207,36 @@ const INVENTORY_PROVIDER_POLICIES = {
     watchPaths: homePath => [path.join(homePath, 'projects')],
   },
   agy: {
-    activityDirectoryDepth: 3,
+    activityDirectoryDepth: 1,
     appendOnlyRoots: homePath => [path.join(homePath, 'brain')],
     appendTolerantPaths: () => [],
     enrichWithAppendOnlyActivity: true,
-    fingerprintDepth: 4,
+    fingerprintDepth: 1,
+    resolveSource: async homePath => {
+      const brainRoot = path.join(homePath, 'brain');
+      let entries: import('fs').Dirent[] = [];
+      try {
+        entries = await fsp.readdir(brainRoot, { withFileTypes: true });
+      } catch (caught) {
+        const error = caught as NodeJS.ErrnoException;
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw caught;
+      }
+      const logRoots = entries
+        .filter(entry => entry.isDirectory() && isSafeSessionId(entry.name))
+        .map(entry => path.join(brainRoot, entry.name, '.system_generated', 'logs'))
+        .sort((left, right) => left.localeCompare(right));
+      return {
+        activityDirectoryDepth: 1,
+        activityRoots: logRoots,
+        appendOnlyRoots: [brainRoot],
+        fingerprintDepth: 1,
+        fingerprintPaths: [
+          path.join(homePath, 'conversation_summaries.db'),
+          path.join(homePath, 'conversations'),
+          ...logRoots,
+        ],
+      };
+    },
     sourceMayChangeDuringLoad: true,
     watchPaths: homePath => [
       path.join(homePath, 'conversation_summaries.db'),

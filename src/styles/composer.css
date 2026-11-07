@@ -2772,8 +2772,8 @@ body.code-mode .code-composer .code-rich-input[aria-disabled="true"] {
 
   .code-composer-right-tools > .code-composer-menu-anchor.model-picker {
     min-width: 0;
-    max-width: 128px;
-    flex: 0 1 128px;
+    max-width: min(172px, 46vw);
+    flex: 0 1 auto;
     overflow: hidden;
   }
 
@@ -2792,8 +2792,15 @@ body.code-mode .code-composer .code-rich-input[aria-disabled="true"] {
   .code-composer-model-label.mobile,
   .code-composer-model-picker-muted.mobile {
     min-width: 0;
-    display: inline-flex;
-    flex: 1 1 auto;
+    display: block;
+  }
+
+  .code-composer-model-label.mobile {
+    flex: 0 1 auto;
+  }
+
+  .code-composer-model-picker-muted.mobile {
+    flex: 0 0 auto;
   }
 }
 
@@ -2877,7 +2884,7 @@ body.code-mode .code-composer .code-rich-input[aria-disabled="true"] {
 
   .code-composer-model-picker {
     flex-shrink: 0;
-    max-width: min(128px, 34vw);
+    max-width: min(172px, 46vw);
     height: 34px;
     padding: 0 6px;
     gap: 4px;
@@ -2893,11 +2900,16 @@ body.code-mode .code-composer .code-rich-input[aria-disabled="true"] {
 
   .code-composer-model-label.mobile,
   .code-composer-model-picker-muted.mobile {
-    display: inline-flex;
+    display: block;
   }
 
   .code-composer-model-picker span:not(.code-chevron) {
     flex: 0 0 auto;
+  }
+
+  .code-composer-model-picker .code-composer-model-label.mobile {
+    min-width: 0;
+    flex: 0 1 auto;
   }
 
   .code-composer-model-picker-muted.mobile {
@@ -3177,7 +3189,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
   body.code-mode.code-compact-layout .code-composer .code-rich-input {
     min-height: 22px;
     max-height: min(156px, calc(var(--app-visual-height, 100dvh) * 0.32));
-    padding-right: 46px;
+    padding: 11px 46px 8px 12px;
     overflow-y: auto;
     overscroll-behavior-y: contain;
     touch-action: pan-y pinch-zoom;
@@ -3191,7 +3203,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
        viewport zoom. Narrow desktop windows can use the denser 14px size. */
     font-size: max(16px, var(--code-content-font-size));
     line-height: 1.5;
-    padding: 8px 46px 8px 12px;
+    padding: 9px 46px 8px 12px;
   }
 
   body.code-mode.code-compact-layout .code-composer-toolbar {
@@ -3278,8 +3290,8 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
 
   body.code-mode.code-compact-layout .code-composer-right-tools > .code-composer-menu-anchor.model-picker {
     min-width: 0;
-    max-width: min(128px, 34vw);
-    flex: 0 1 128px;
+    max-width: min(172px, 46vw);
+    flex: 0 1 auto;
     overflow: hidden;
   }
 
@@ -3298,10 +3310,13 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     overflow: hidden;
   }
 
-  body.code-mode.code-compact-layout .code-composer-model-picker .code-composer-model-label.mobile,
-  body.code-mode.code-compact-layout .code-composer-model-picker .code-composer-model-picker-muted.mobile {
+  body.code-mode.code-compact-layout .code-composer-model-picker .code-composer-model-label.mobile {
     min-width: 0;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-model-picker .code-composer-model-picker-muted.mobile {
+    flex: 0 0 auto;
   }
 
   body.code-mode.code-compact-layout .code-composer-send {

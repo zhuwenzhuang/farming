@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://zhuwenzhuang.github.io/farming/en/">Documentation</a> ·
+  <a href="https://zhuwenzhuang.github.io/farming/en/#interactive-demo">Interactive Demo</a> ·
   <a href="./README.zh_cn.md">简体中文</a>
 </p>
 
@@ -75,9 +76,7 @@ Inspect changes and open Review when you need evidence.
 
 ### Browser Resources
 
-Farming lets people and Agents use the same project browser so you can sign in, inspect live pages, and hand control back to the Agent. See [Farming Browser](docs/products/code/browser-agent-cli.md).
-
-[![Farming Browser shared session](./docs-site/public/en/assets/browser-viewer.png)](./docs-site/public/en/assets/browser-viewer.png)
+Farming lets people and Agents use the same project browser. See [Farming Browser](docs/products/code/browser-agent-cli.md).
 
 ## Supported Agents
 
@@ -99,8 +98,11 @@ must be able to run on the Farming host.
 
 Run Farming on the development machine and open its authenticated URL from a
 desktop or phone that can reach it. Agents keep running when the browser
-disconnects. See [Operations](./docs/operations/README.md) for remote-access and
+disconnects, and prompts sent from a phone sync live with the desktop workspace.
+Try the [interactive Desktop + iPhone demo](https://zhuwenzhuang.github.io/farming/en/#interactive-demo), or see [Operations](./docs/operations/README.md) for remote-access and
 security guidance.
+
+[![Farming Code desktop and phone live sync](./docs/products/code/assets/20-code-desktop-mobile-sync.webp)](https://zhuwenzhuang.github.io/farming/en/#interactive-demo)
 
 <p align="center">
   <a href="./docs/products/code/assets/05-mobile-agent-chat.png"><img src="./docs/products/code/assets/05-mobile-agent-chat.webp" alt="Farming Code on a phone browser" width="360"></a>

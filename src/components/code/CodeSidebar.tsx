@@ -310,7 +310,7 @@ interface CodeSidebarProps {
   copy: CodeCopy
 }
 
-export function CodeSidebar({
+export const CodeSidebar = memo(function CodeSidebar({
   openMenuTarget = null,
   worktreeCreation,
   relatedSession = null,
@@ -1130,7 +1130,7 @@ export function CodeSidebar({
     </RelatedSidebarRows.Provider>
     </SidebarOpenMenu.Provider>
   )
-}
+})
 
 function AgentRail({
   items,

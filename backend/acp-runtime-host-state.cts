@@ -1,5 +1,6 @@
 const crypto = require('crypto') as typeof import('crypto');
 const { EventEmitter } = require('events') as typeof import('events');
+const { isDeepStrictEqual } = require('util') as typeof import('util');
 
 interface ControllerIdentity {
   id: string;
@@ -231,6 +232,10 @@ class AcpRuntimeHostState extends EventEmitter {
   patchBinding(agentId: string, patch: Record<string, unknown>): BindingSnapshot | null {
     const binding = this.bindings.get(String(agentId || ''));
     if (!binding) return null;
+    const entries = Object.entries(patch);
+    if (entries.length === 0 || entries.every(([key, value]) => isDeepStrictEqual(binding[key], value))) {
+      return clone(binding);
+    }
     Object.assign(binding, clone(patch));
     this.publish('binding-patch', { agentId: binding.agentId, bindingEpoch: binding.bindingEpoch, ...patch });
     return clone(binding);

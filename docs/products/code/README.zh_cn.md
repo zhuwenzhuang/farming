@@ -4,6 +4,7 @@
 
 Farming Code 是默认的浏览器工作区。用户使用说明统一在公开文档站维护：
 
+- [桌面与手机端交互式演示](https://zhuwenzhuang.github.io/farming/cn/#interactive-demo)
 - [概览](https://zhuwenzhuang.github.io/farming/cn/code/overview)
 - [项目与 Agent](https://zhuwenzhuang.github.io/farming/cn/code/projects-and-agents)
 - [Chat](https://zhuwenzhuang.github.io/farming/cn/code/chat)

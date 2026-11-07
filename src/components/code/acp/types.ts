@@ -49,6 +49,7 @@ export interface AcpSessionConfigSelectOption {
   value: string
   name: string
   description?: string | null
+  _meta?: Record<string, unknown>
 }
 
 export interface AcpSessionConfigSelectGroup {

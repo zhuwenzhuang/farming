@@ -26,6 +26,7 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
     if (!host) return
     let external = false
     let revealFrame = 0
+    let lastEmitted: { doc: Editor['state']['doc']; value: string; document?: ComposerDocument } | null = null
     const editor = new Editor({
       element: host,
       content: (current.current.document || literalComposerDocument(current.current.value)).doc,
@@ -53,7 +54,9 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       onUpdate: ({ editor }) => {
         if (external) return
         const snapshot = editorDocument(editor.state.doc)
-        setError(''); current.current.onValueChange(composerDocumentText(snapshot), snapshot)
+        const text = composerDocumentText(snapshot)
+        lastEmitted = { doc: editor.state.doc, value: text, document: snapshot }
+        setError(''); current.current.onValueChange(text, snapshot)
       },
     })
     guardComposerComposition(editor.view)
@@ -91,22 +94,31 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
     // Local echoes retain document/selection. Reveal after native input and
     // React layout settle; WebKit can scroll again after the input transaction.
     // Only an owner-driven replacement resets editor content.
+    const scheduleRevealCaret = () => {
+      cancelAnimationFrame(revealFrame)
+      revealFrame = requestAnimationFrame(() => {
+        if (!editor.view.hasFocus() || editor.view.composing || !editor.state.selection.empty || !window.getSelection()?.isCollapsed) return
+        const caret = editor.view.coordsAtPos(editor.state.selection.head)
+        const box = host.getBoundingClientRect()
+        if (caret.top < box.top) host.scrollTop -= box.top - caret.top + 6
+        else if (caret.bottom > box.bottom) host.scrollTop += caret.bottom - box.bottom + 6
+      })
+    }
     const restore = () => {
+      if (lastEmitted && lastEmitted.doc === editor.state.doc && current.current.value === lastEmitted.value && current.current.document === lastEmitted.document) {
+        scheduleRevealCaret()
+        return
+      }
       const source = current.current.document || literalComposerDocument(current.current.value)
       const snapshot = composerDocumentText(source) === current.current.value ? source : replaceComposerText(source, current.current.value)
       if (editor.state.doc.eq(editor.schema.nodeFromJSON(snapshot.doc))) {
-        cancelAnimationFrame(revealFrame)
-        revealFrame = requestAnimationFrame(() => {
-          if (!editor.view.hasFocus() || editor.view.composing || !editor.state.selection.empty || !window.getSelection()?.isCollapsed) return
-          const caret = editor.view.coordsAtPos(editor.state.selection.head)
-          const box = host.getBoundingClientRect()
-          if (caret.top < box.top) host.scrollTop -= box.top - caret.top + 6
-          else if (caret.bottom > box.bottom) host.scrollTop += caret.bottom - box.bottom + 6
-        })
+        lastEmitted = { doc: editor.state.doc, value: current.current.value, document: current.current.document }
+        scheduleRevealCaret()
         return
       }
       external = true
       try { editor.commands.setContent(snapshot.doc, { emitUpdate: false }) } finally { external = false }
+      lastEmitted = { doc: editor.state.doc, value: current.current.value, document: current.current.document }
     }
     restoreRef.current = restore
     return () => { stopObservingCaret(); cancelAnimationFrame(revealFrame); if (inputRef.current === host) inputRef.current = null; restoreRef.current = null; editorRef.current = null; editor.destroy() }

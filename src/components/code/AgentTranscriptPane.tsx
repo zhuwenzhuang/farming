@@ -4117,6 +4117,10 @@ export function AgentTranscriptPane({
   }, [refreshSignal])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
+  const hasPatchResults = useMemo(
+    () => turns.some(turn => turn.processItems.some(isPatchResultItem)),
+    [turns],
+  )
   const latestSettledTurnIndex = useMemo(() => {
     for (let index = turns.length - 1; index >= 0; index -= 1) {
       const turn = turns[index]
@@ -4125,13 +4129,27 @@ export function AgentTranscriptPane({
     return -1
   }, [turns])
   const latestTurn = turns[turns.length - 1]
-  const latestProcessItem = latestTurn?.processItems[latestTurn.processItems.length - 1]
+  const latestGitAffectingProcessItem = useMemo(() => {
+    if (!latestTurn) return undefined
+    for (let index = latestTurn.processItems.length - 1; index >= 0; index -= 1) {
+      const item = latestTurn.processItems[index]
+      if (
+        item
+        && (item.kind === 'patch' || item.kind === 'command')
+        && (item.status === 'completed' || item.status === 'failed')
+      ) {
+        return item
+      }
+    }
+    return undefined
+  }, [latestTurn])
   const gitDiffRefreshKey = [
+    hasPatchResults ? '1' : '0',
     latestTurn?.id || '',
     latestTurn?.status || '',
     latestTurn?.completedAt || '',
-    latestProcessItem?.id || '',
-    latestProcessItem?.status || '',
+    latestGitAffectingProcessItem?.id || '',
+    latestGitAffectingProcessItem?.status || '',
   ].join('\0')
   const gitDiffOwner = `${agentId}\0${workspaceRoot || ''}`
   const gitDiffTarget = gitDiffState.owner === gitDiffOwner
@@ -4599,23 +4617,55 @@ export function AgentTranscriptPane({
     onOpenFile: onOpenWorkspaceFilePath ? handleOpenFile : undefined,
   }), [agentId, handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot, workspaceRootId, fileLinkAccess, active])
   useEffect(() => {
-    if (!active || !workspaceRoot) return undefined
+    if (!active || !workspaceRoot || !hasPatchResults) return undefined
     let cancelled = false
     const controller = new AbortController()
+    const commitGitDiffState = (
+      target: TranscriptGitDiffTarget,
+      uncommittedPaths: ReadonlySet<string> | null,
+    ) => {
+      setGitDiffState(previous => {
+        if (
+          previous.owner === gitDiffOwner
+          && previous.target.kind === target.kind
+          && (
+            previous.target.kind !== 'last-commit'
+            || target.kind !== 'last-commit'
+            || (previous.target.base === target.base && previous.target.head === target.head)
+          )
+          && (
+            previous.uncommittedPaths === uncommittedPaths
+            || (
+              previous.uncommittedPaths !== null
+              && uncommittedPaths !== null
+              && previous.uncommittedPaths.size === uncommittedPaths.size
+              && [...uncommittedPaths].every(entry => previous.uncommittedPaths!.has(entry))
+            )
+          )
+        ) {
+          return previous
+        }
+        return { owner: gitDiffOwner, target, uncommittedPaths }
+      })
+    }
     void fetchWorkspaceGitWorktrees(workspaceRootId || agentId, { signal: controller.signal })
       .then(async value => {
         if (cancelled) return
         if (value?.isGitRepo !== true) {
-          setGitDiffState({ owner: gitDiffOwner, target: unavailableTranscriptGitDiffTarget, uncommittedPaths: new Set() })
+          commitGitDiffState(unavailableTranscriptGitDiffTarget, new Set())
           return
         }
         let target = workingCopyTranscriptGitDiffTarget
         let uncommittedPaths: ReadonlySet<string> | null = null
         try {
-          const sources = await loadReviewComparisonSources({ root: workspaceRoot })
+          const sources = await loadReviewComparisonSources(
+            { root: workspaceRoot },
+            { signal: controller.signal },
+          )
           target = transcriptGitDiffTargetForRepository(sources)
           uncommittedPaths = transcriptUncommittedPathsForRepository(sources)
         } catch {
+          if (cancelled || controller.signal.aborted) return
           // A repository without HEAD, or a transient comparison-source failure,
           // still supports the existing working-copy review path.
           try {
@@ -4630,14 +4680,14 @@ export function AgentTranscriptPane({
             // The Commit action stays hidden until current Git state is known.
           }
         }
-        if (!cancelled) setGitDiffState({ owner: gitDiffOwner, target, uncommittedPaths })
+        if (!cancelled) commitGitDiffState(target, uncommittedPaths)
       })
       .catch(() => {})
     return () => {
       cancelled = true
       controller.abort()
     }
-  }, [active, agentId, gitDiffOwner, gitDiffRefreshKey, workspaceRoot, workspaceRootId])
+  }, [active, agentId, gitDiffOwner, gitDiffRefreshKey, hasPatchResults, workspaceRoot, workspaceRootId])
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
@@ -5050,8 +5100,8 @@ export function AgentTranscriptPane({
                       onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                       onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
                       onReviewAndCommit={source === 'acp' ? onReviewAndCommit : undefined}
-                      gitDiffTarget={gitDiffTarget}
-                      uncommittedPaths={uncommittedPaths}
+                      gitDiffTarget={turn.processItems.some(isPatchResultItem) ? gitDiffTarget : unavailableTranscriptGitDiffTarget}
+                      uncommittedPaths={turn.processItems.some(isPatchResultItem) ? uncommittedPaths : null}
                       onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
                       onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                       onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}

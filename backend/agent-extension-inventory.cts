@@ -80,7 +80,9 @@ class AgentExtensionInventory {
     const normalizedHomePath = path.resolve(rawHomePath);
     const key = inventoryKey(normalizedProvider, normalizedHomePath);
     return this.cache.get(key, {
-      watchPaths: extensionWatchPaths(normalizedProvider, normalizedHomePath),
+      backgroundRefresh: false,
+      fingerprintPaths: extensionWatchPaths(normalizedProvider, normalizedHomePath),
+      watchPaths: [],
       load: () => ({
         configuration: this.readConfiguration(normalizedProvider, normalizedHomePath),
         extensions: this.discoverExtensions({

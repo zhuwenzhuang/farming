@@ -26,6 +26,7 @@ export class InteractionPerformanceJournal {
   readonly recorder: InteractionPerformanceRecorder;
   private readonly queue: string[] = [];
   private readonly recent: InteractionPerformanceRecord[] = [];
+  private readonly persistedServerIds = new Set<string>();
   private readonly bootId = randomUUID();
   private readonly lag = monitorEventLoopDelay({ resolution: 20 });
   private readonly timer: ReturnType<typeof setInterval>;
@@ -50,7 +51,10 @@ export class InteractionPerformanceJournal {
     this.recorder = new InteractionPerformanceRecorder({
       source: 'server', prefix: `s-${this.bootId}`, now: () => performance.now(), wallNow: Date.now,
       emit: record => {
-        const persist = record.slow || !['observed', 'completed'].includes(record.outcome) || ++this.sample % 20 === 0;
+        const persist = record.operation === 'runtime.sample'
+          || record.slow
+          || !['observed', 'completed'].includes(record.outcome)
+          || ++this.sample % 20 === 0;
         this.retain(record, persist);
       },
     });
@@ -82,7 +86,10 @@ export class InteractionPerformanceJournal {
       // A slow browser observation can need a fast server span excluded by sampling.
       const server = this.recent.findLast(candidate => candidate.source === 'server'
         && (candidate.id === record.id || (record.requestId && candidate.requestId === record.requestId)));
-      if (server) this.enqueue(server);
+      if (server && !this.persistedServerIds.has(server.id)) {
+        this.persistedServerIds.add(server.id);
+        this.enqueue(server);
+      }
       this.retain(record);
       accepted += 1;
     }
@@ -90,9 +97,15 @@ export class InteractionPerformanceJournal {
   }
 
   private retain(record: InteractionPerformanceRecord, persist = true): void {
-    if (this.recent.length >= PERFORMANCE_LIMITS.recent) this.recent.shift();
+    if (this.recent.length >= PERFORMANCE_LIMITS.recent) {
+      const evicted = this.recent.shift();
+      if (evicted?.source === 'server') this.persistedServerIds.delete(evicted.id);
+    }
     this.recent.push(record);
-    if (persist) this.enqueue(record);
+    if (persist) {
+      if (record.source === 'server') this.persistedServerIds.add(record.id);
+      this.enqueue(record);
+    }
   }
 
   private enqueue(record: InteractionPerformanceRecord): void {
@@ -105,7 +118,7 @@ export class InteractionPerformanceJournal {
     const now = performance.now();
     if (now - this.lastSample < 5000) return;
     const cpu = process.cpuUsage();
-    const trace = this.recorder.begin('runtime.sample', { threshold: 0 });
+    const trace = this.recorder.begin('runtime.sample');
     trace.metric({ ...this.context, windowMs: now - this.lastSample,
       cpuMs: (cpu.user - this.cpu.user + cpu.system - this.cpu.system) / 1000,
       eventLoopMaxMs: this.lag.max / 1e6, eventLoopMeanMs: this.lag.mean / 1e6,
@@ -113,7 +126,7 @@ export class InteractionPerformanceJournal {
     trace.end('observed');
     for (const [agentId, output] of this.agentOutput) {
       const target = this.target(agentId);
-      const activity = this.recorder.begin('runtime.sample', { threshold: 0, target });
+      const activity = this.recorder.begin('runtime.sample', { target });
       activity.metric({ windowMs: now - this.lastSample, outputUnits: output.units, outputChunks: output.chunks });
       activity.end('observed');
     }

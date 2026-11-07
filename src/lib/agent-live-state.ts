@@ -47,10 +47,11 @@ export type AgentMetadataProjection = Partial<Pick<Agent,
 const metadataProjections = new Map<string, AgentMetadataProjection>()
 const metadataListeners = new Set<Listener>()
 const projectedSnapshots = new Map<string, { value: AgentLiveState; patch: AgentMetadataProjection; snapshot: AgentLiveState }>()
+const projectedRuntimeSnapshots = new Map<string, { value: AgentLiveState; patch: AgentMetadataProjection; snapshot: AgentLiveState }>()
 let metadataProjectionSnapshot: ReadonlyMap<string, AgentMetadataProjection> = new Map()
 type AgentReadListener = (read: AgentReadMessage['read']) => void
 type AgentRuntimeBindingListener = (agentId: string) => void
-type LiveEntry = { value: AgentLiveState; signature: string | null }
+type LiveEntry = { value: AgentLiveState; runtimeValue: AgentLiveState; signature: string | null }
 type SubscriptionKind = 'all' | 'runtime'
 type AgentProjectMembership = {
   included: boolean
@@ -434,7 +435,7 @@ function replaceAgentLiveState(agentId: string, value: AgentLiveState) {
   const previous = entries.get(agentId)
   const previousSignature = previous?.signature ?? (previous ? JSON.stringify(previous.value) : '')
   if (previousSignature === signature) return
-  entries.set(agentId, { value, signature })
+  entries.set(agentId, { value, runtimeValue: value, signature })
   updateProjectContribution(agentId, value)
   if (dynamicPinProjectionChanged(previous?.value, value)) notifyDynamicPinProjection()
   notify(agentId, true)
@@ -454,13 +455,16 @@ export function updateAgentLiveState(agentId: string, patch: AgentLivePatch) {
   }).map(([key]) => key as keyof AgentLiveState)
   if (changedFields.length === 0) return
   const value = { ...previous.value, ...patch }
+  const runtimeChanged = changedFields.some(field => RUNTIME_FIELDS.has(field))
+  const runtimeValue = runtimeChanged ? value : previous.runtimeValue
   entries.set(agentId, {
     value,
+    runtimeValue,
     signature: null,
   })
   updateProjectContribution(agentId, value)
   if (dynamicPinProjectionChanged(previous.value, value)) notifyDynamicPinProjection()
-  notify(agentId, changedFields.some(field => RUNTIME_FIELDS.has(field)))
+  notify(agentId, runtimeChanged)
   if (changedFields.includes('runtimeBinding')) {
     agentRuntimeBindingListeners.forEach(listener => listener(agentId))
   }
@@ -578,6 +582,7 @@ export function resetAgentLiveStates() {
   entries.clear()
   setAgentMetadataProjections(new Map())
   projectedSnapshots.clear()
+  projectedRuntimeSnapshots.clear()
   acpSessionRevisionCursors.clear()
   projectMembershipByAgentId.clear()
   projectContributionByAgentId.clear()
@@ -600,15 +605,17 @@ function subscribe(agentId: string, kind: SubscriptionKind, listener: Listener) 
   }
 }
 
-function snapshot(agentId: string) {
-  const value = entries.get(agentId)?.value
+function snapshot(agentId: string, kind: SubscriptionKind = 'all') {
+  const entry = entries.get(agentId)
+  const value = kind === 'runtime' ? entry?.runtimeValue : entry?.value
   if (!value) return null
   const patch = metadataProjections.get(agentId)
   if (!patch) return value
-  const cached = projectedSnapshots.get(agentId)
+  const cache = kind === 'runtime' ? projectedRuntimeSnapshots : projectedSnapshots
+  const cached = cache.get(agentId)
   if (cached?.value === value && cached.patch === patch) return cached.snapshot
   const projected = projectMetadata(value, patch)
-  projectedSnapshots.set(agentId, { value, patch, snapshot: projected })
+  cache.set(agentId, { value, patch, snapshot: projected })
   return projected
 }
 
@@ -638,6 +645,7 @@ export function setAgentMetadataProjections(patches: ReadonlyMap<string, AgentMe
     if (next) metadataProjections.set(id, next)
     else metadataProjections.delete(id)
     projectedSnapshots.delete(id)
+    projectedRuntimeSnapshots.delete(id)
     updateProjectContribution(id, entries.get(id)?.value)
     notify(id, true)
   })
@@ -709,8 +717,8 @@ function useAgentLiveSubscription(agent: Agent | null | undefined, kind: Subscri
     [agentId, kind],
   )
   const getSnapshot = useCallback(
-    () => agentId ? snapshot(agentId) : null,
-    [agentId],
+    () => agentId ? snapshot(agentId, kind) : null,
+    [agentId, kind],
   )
   const liveState = useSyncExternalStore(subscribeToAgent, getSnapshot, getSnapshot)
   return useMemo(

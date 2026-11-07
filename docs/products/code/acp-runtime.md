@@ -58,6 +58,12 @@ of removal: retain it, warn and block Prompt/Steer until restoration or explicit
 replacement. Other definitively unsupported options may drop only the incompatible
 override with a warning; transport failure is not compatibility evidence.
 
+Model choices may carry versioned per-model reasoning capabilities in
+`_meta.farming.modelConfig` (version 1, `reasoningOptions` select choices). When
+present, the shared model picker uses those choices for that model, including an
+empty list; another model's current reasoning options cannot authorize a pair.
+Providers without this metadata retain their advertised session-level controls.
+
 New-Agent permission defaults are resolved by the backend at launch. The Config's
 skip-permission default takes precedence over saved launch-profile defaults;
 an explicit per-launch permission choice takes precedence over that default.

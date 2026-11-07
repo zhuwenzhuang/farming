@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
 
-const APPEND_FLUSH_INTERVAL_MS = 16;
+const APPEND_FLUSH_INTERVAL_MS = 1;
 const MAX_PENDING_APPEND_BYTES = 128 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = 5000;

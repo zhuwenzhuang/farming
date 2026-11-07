@@ -517,6 +517,7 @@ async function executeWorkspaceFileRequest(
     };
   };
 
+  options.signal?.throwIfAborted();
   switch (request.operation) {
     case 'file-link-access': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) {

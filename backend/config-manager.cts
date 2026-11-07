@@ -375,6 +375,15 @@ class ConfigManager {
 
   agentHomeBindings(records: PersistedAgentPrivateMetadata[] = this.listAgentSessionRecords()): AgentHomeBinding[] {
     const bindings = new Map<string, AgentHomeBinding>();
+    const canonicalByRawPath = new Map<string, string>();
+    const canonicalPath = (rawPath: string): string => {
+      let cached = canonicalByRawPath.get(rawPath);
+      if (cached === undefined) {
+        cached = this.canonicalAgentHomePath(rawPath);
+        canonicalByRawPath.set(rawPath, cached);
+      }
+      return cached;
+    };
     for (const record of records) {
       const provider = String(record.provider || '').trim().toLowerCase();
       const providerHomeId = String(record.providerHomeId || 'default').trim() || 'default';
@@ -384,7 +393,8 @@ class ConfigManager {
       const existing = bindings.get(key);
       if (
         existing
-        && this.canonicalAgentHomePath(existing.providerHomePath) !== this.canonicalAgentHomePath(providerHomePath)
+        && existing.providerHomePath !== providerHomePath
+        && canonicalPath(existing.providerHomePath) !== canonicalPath(providerHomePath)
       ) {
         const error = new Error(
           `${provider} Agent Home "${providerHomeId}" has persisted sessions in more than one path`,
@@ -1250,7 +1260,7 @@ class ConfigManager {
       // Read after scanning: concurrent saves/removals must win over discovery.
       // Merge and commit without an await so no stale snapshot can overwrite them.
       const homes = cloneAgentHomes(this.settings.agentHomes);
-      const bindings = this.agentHomeBindings();
+      let bindings: ReturnType<ConfigManager['agentHomeBindings']> | null = null;
       let changed = false;
       for (const candidate of discovered) {
         const providerHomes = homes[candidate.provider];
@@ -1258,11 +1268,13 @@ class ConfigManager {
         const canonical = this.canonicalAgentHomePath(candidate.path);
         if (providerHomes.some(home => this.canonicalAgentHomePath(home.path) === canonical)) continue;
         if (this.settings.agentHomeDiscoveryExcludedPaths[candidate.provider]?.includes(canonical)) continue;
-        const bound = bindings.find(binding => binding.provider === candidate.provider
+        bindings ??= this.agentHomeBindings();
+        const activeBindings = bindings;
+        const bound = activeBindings.find(binding => binding.provider === candidate.provider
           && this.canonicalAgentHomePath(binding.providerHomePath) === canonical);
         const basename = path.basename(candidate.path).replace(/[^A-Za-z0-9._-]/g, '-').replace(/^\.+/, '').slice(0, 48) || 'home';
         const occupied = (id: string) => providerHomes.some(home => home.id.toLowerCase() === id.toLowerCase())
-          || bindings.some(binding => binding.provider === candidate.provider && binding.providerHomeId.toLowerCase() === id.toLowerCase());
+          || activeBindings.some(binding => binding.provider === candidate.provider && binding.providerHomeId.toLowerCase() === id.toLowerCase());
         const id = bound?.providerHomeId || (occupied(basename)
           ? `${basename}-${createHash('sha256').update(canonical).digest('hex').slice(0, 12)}`
           : basename);
@@ -1326,6 +1338,8 @@ class ConfigManager {
 
   getKnownAgentHome(provider: unknown, homeId: unknown = 'default'): AgentHome | null {
     const normalizedHomeId = String(homeId || 'default').trim();
+    const configured = this.getAgentHome(provider, normalizedHomeId);
+    if (configured) return configured;
     return this.getKnownAgentHomes(provider).find(home => home.id === normalizedHomeId) || null;
   }
 

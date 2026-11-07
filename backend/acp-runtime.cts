@@ -333,7 +333,7 @@ const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '2.5.0';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
-const CLAUDE_ACP_VERSION = '0.99.1';
+const CLAUDE_ACP_VERSION = '0.101.0';
 const PI_ACP_PACKAGE = 'pi-acp';
 const PI_ACP_VERSION = '0.0.34';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
@@ -3641,12 +3641,11 @@ class AcpRuntime extends EventEmitter {
       if (options.admissionDeadline !== undefined) this.admissionRemaining(options);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
-      this.requireCurrentTurn(binding, turn, ['running']);
-      if (turn.providerSettled) throw new Error('No active ACP turn to steer');
       this.requireSavedSessionModel(binding);
       const sessionState = this.requireSessionState(binding);
       const insertionIndex = sessionState.entries.length;
       if (options.admissionDeadline !== undefined) this.admissionRemaining(options);
+      this.submissionPhase(binding, options, 'dispatching');
       const response = await withTimeout(
         binding.connection.request(method, {
           sessionId: binding.sessionId,

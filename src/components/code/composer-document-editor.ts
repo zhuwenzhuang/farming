@@ -25,26 +25,39 @@ export function guardComposerComposition(view: EditorView) {
     }
   }
 }
+const editorDocumentCache = new WeakMap<ProseMirrorNode, ComposerDocument>()
+const composerTextPositionsCache = new WeakMap<ProseMirrorNode, number[]>()
 export function editorDocument(node: ProseMirrorNode): ComposerDocument {
+  const cached = editorDocumentCache.get(node)
+  if (cached) return cached
   const value = normalizeComposerDocument({ version: 1, doc: node.toJSON() })
   if (!value) throw new Error('Chat content exceeds the supported document limits.')
+  editorDocumentCache.set(node, value)
   return value
 }
 /** Map literal text offsets to ProseMirror positions for shared command/history controls. */
 export function composerTextPositions(doc: ProseMirrorNode) {
+  const cached = composerTextPositionsCache.get(doc)
+  if (cached) return cached
   const positions: number[] = []; let offset = 0; let block = false
   doc.descendants((node, pos) => {
     if (node.isTextblock) { if (block) offset++; block = true; positions[offset] = pos + 1 }
     if (node.isText) { for (let i = 0; i <= (node.text?.length || 0); i++) positions[offset + i] = pos + i; offset += node.text?.length || 0 }
     if (node.type.name === 'hardBreak') { positions[offset++] = pos; positions[offset] = pos + 1 }
   })
-  return positions.length ? positions : [1]
+  const result = positions.length ? positions : [1]
+  composerTextPositionsCache.set(doc, result)
+  return result
 }
 export function composerTextOffset(doc: ProseMirrorNode, position: number) {
   const map = composerTextPositions(doc)
-  let index = 0
-  while (index + 1 < map.length && (map[index + 1] ?? Infinity) <= position) index++
-  return index
+  let low = 0; let high = map.length - 1
+  while (low < high) {
+    const mid = (low + high + 1) >> 1
+    if ((map[mid] ?? Infinity) <= position) low = mid
+    else high = mid - 1
+  }
+  return low
 }
 export function textSlice(text: string, schema: Schema = composerEditorSchema) {
   return new Slice(Fragment.fromArray(text.split('\n').flatMap((line, index) => [

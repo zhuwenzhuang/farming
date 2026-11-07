@@ -13,9 +13,11 @@ hero:
       text: 快速开始
       link: /cn/get-started/quickstart
     - theme: alt
-      text: 了解两种界面
-      link: '#farming-有什么'
+      text: 在线交互体验
+      link: '#interactive-demo'
 ---
+
+<InteractiveShowcase />
 
 ## Farming 有什么
 

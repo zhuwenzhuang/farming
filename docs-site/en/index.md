@@ -13,9 +13,11 @@ hero:
       text: Quick start
       link: /en/get-started/quickstart
     - theme: alt
-      text: Explore the two interfaces
-      link: '#what-farming-includes'
+      text: Try interactive demo
+      link: '#interactive-demo'
 ---
+
+<InteractiveShowcase />
 
 ## What Farming includes
 

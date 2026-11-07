@@ -2,6 +2,8 @@
 
 The Farming backend runs on the development machine. Desktop and phone browsers connect through an authenticated URL; Agents, Terminals, and Project files do not move to the client device.
 
+<InteractiveShowcase />
+
 <ThemeImage light="/cn/assets/mobile-chat.png" dark="/cn/assets/mobile-chat-dark.png" paper="/cn/assets/mobile-chat-paper.png" alt="Agent Chat on a phone" />
 
 ## Use from a phone

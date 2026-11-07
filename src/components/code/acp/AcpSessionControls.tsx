@@ -17,6 +17,20 @@ function selectOptions(option: AcpSessionConfigSelect) {
   ))
 }
 
+function modelReasoningOptions(model: AcpSessionConfigSelectOption, reasoning: AcpSessionConfigSelect) {
+  const farming = model._meta?.farming
+  const config = farming && typeof farming === 'object' && 'modelConfig' in farming
+    ? farming.modelConfig : null
+  if (config && typeof config === 'object' && 'version' in config && config.version === 1
+    && 'reasoningOptions' in config && Array.isArray(config.reasoningOptions)
+    && config.reasoningOptions.every((option: unknown): option is AcpSessionConfigSelectOption => (
+      option !== null && typeof option === 'object'
+      && 'value' in option && typeof option.value === 'string'
+      && 'name' in option && typeof option.name === 'string'
+    ))) return config.reasoningOptions as AcpSessionConfigSelectOption[]
+  return selectOptions(reasoning)
+}
+
 function optionMatches(option: AcpSessionConfigOption, pattern: RegExp) {
   return pattern.test(`${option.id} ${option.name} ${option.category || ''}`)
 }
@@ -241,7 +255,7 @@ export function AcpModelControl({
     ? selectOptions(model).map(candidate => ({
       value: candidate.value,
       label: candidate.name,
-      reasoning: selectOptions(reasoning).map(option => ({
+      reasoning: modelReasoningOptions(candidate, reasoning).map(option => ({
         value: option.value,
         label: copy.reasoningOptionLabel(option.value, option.name),
       })),

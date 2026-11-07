@@ -38,13 +38,14 @@ export function selectBrowserScreen(files) {
   for (const filename of files) {
     let mapped = false;
     const select = names => { mapped = true; names.forEach(name => selected.add(name)); };
-    if (/^src\/components\/files\/|^src\/lib\/workspace-|^src\/styles\/file-|^tests\/e2e\/(file-|global-file-search|iphone-mobile-layout|mobile-files|mobile-human-story)/.test(filename)) {
+    if (/^src\/components\/files\/|^src\/lib\/workspace-|^src\/styles\/(file-|files\.css$|git-history\.css$|search\.css$)|^tests\/e2e\/(file-|global-file-search|iphone-mobile-layout|mobile-files|mobile-human-story)/.test(filename)) {
       select(['touch-files', 'mobile-files', 'mobile-auth']);
     }
-    if (/^extensions\/language-server\/|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
+    if (/^extensions\/language-server\/|^src\/styles\/language-server\.css$|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
     if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(?:composer-.*|mobile-composer|desktop-responsive-input|text-selection)\.spec\.ts(?:$|-snapshots\/)|^tests\/e2e\/composer-test-input\.ts$/.test(filename)) select(['composer']);
-    if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript)|^(backend|shared)\/acp|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|terminal-state-protocol|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
-    if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control|read-only-access)|^tests\/e2e\/(mobile-auth-readonly|read-only-chat-rejection)/.test(filename)) select(['mobile-auth']);
+    if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript|AgentWorkPane\.tsx$)|^(backend|shared)\/(acp|interaction-performance\.)|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|terminal-state-protocol|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
+    if (filename === 'src/lib/agent-live-state.ts') select(['interaction', 'sidebar']);
+    if (/^src\/.*(auth|sharing|access)|^backend\/.*(auth|sharing|access-control|read-only-access)|^frontend\/runtime-paths\.(js|ts)$|^src\/(lib\/base-path\.ts|main\.tsx|components\/code\/ShareQrButton\.tsx|styles\/share\.css)$|^tests\/e2e\/(mobile-auth-readonly|read-only-chat-rejection|share-qr|share-short-link)/.test(filename)) select(['mobile-auth']);
     if (/^src\/.*[Ss]idebar|^src\/styles\/sidebar|^tests\/e2e\/sidebar-/.test(filename)) select(['sidebar']);
     if (/^extensions\/a2a\/|^shared\/agent-communication\.|^src\/components\/code\/(CodeMainArea|PluginsPanel|copy|related-session-navigation)\.|^src\/styles\/plugin\.css$|^tests\/e2e\/(a2a-plugin|acp-peer-messages|shared-config-plugin)\.spec\.ts$/.test(filename)) select(['communication']);
     if (['src/components/code/MobileShareSheet.tsx', 'tests/e2e/mobile-navigation-modal.spec.ts',
@@ -57,6 +58,7 @@ export function selectBrowserScreen(files) {
     if (['shared/browser-protocol.ts', 'shared/browser-protocol.js', 'frontend/agent-state-bridge.js',
       'tests/e2e/crt-agent-state-protocol.spec.ts'].includes(filename)) select(['wire-state']);
     if (['extensions/computer/backend/computer-resource-manager.cts', 'tests/e2e/computer-resources.spec.ts'].includes(filename)) select(['computer-resource']);
+    if (/^extensions\/(browser\/frontend\/(BrowserSidebarPortals\.tsx|browser\.css)|computer\/frontend\/(ComputerSection\.tsx|computer\.css))$|^tests\/e2e\/(browser-resources|computer-extension-visibility|resource-agent-activity-side-panel|resource-surface-hierarchy)\.spec\.ts$/.test(filename)) select(['computer-resource', 'sidebar']);
     if (['src/components/code/BrowserTabStatus.tsx', 'src/components/code/browser-tab-status.ts',
       'tests/e2e/browser-tab-status.spec.ts', 'index.html'].includes(filename)) select(['ui-boundaries']);
     if (/^shared\/composer-document\.|^src\/components\/code\/(ComposerRichInput|ComposerDocumentContent|composer-document-editor|composer-input-element)\.|^tests\/e2e\/(composer-rich-document|acp-goal)\.spec\.ts$/.test(filename)) select(['structured-composer']);
@@ -66,9 +68,9 @@ export function selectBrowserScreen(files) {
     if (['src/components/code/AgentOpeningPane.tsx', 'src/components/code/useAgentOpeningController.ts',
       'tests/e2e/agent-opening-flow.spec.ts'].includes(filename)) select(['agent-opening']);
     if (['src/components/code/NativeRelatedRows.tsx', 'src/components/code/RelatedSessionPanel.tsx',
-      'src/components/code/related-session-status.ts'].includes(filename)) select(['interaction', 'agy-children']);
-    if (['src/components/files/FileEditorMarkdownPreview.tsx', 'tests/e2e/mermaid-streaming-stability.spec.ts',
-      'tests/e2e/rich-content-viewer.spec.ts'].includes(filename)) select(['rich-content']);
+      'src/components/code/related-session-status.ts', 'tests/e2e/native-related-sessions.spec.ts'].includes(filename)) select(['interaction', 'agy-children']);
+    if (['src/components/files/FileEditorMarkdownPreview.tsx', 'src/components/ContentViewerDialog.tsx',
+      'tests/e2e/mermaid-streaming-stability.spec.ts', 'tests/e2e/rich-content-viewer.spec.ts'].includes(filename)) select(['rich-content']);
     if (['src/lib/transcript-file-links.ts', 'src/lib/workspace-open-files.ts',
       'tests/e2e/path-link-navigation.spec.ts'].includes(filename)) select(['identity-files', 'path-navigation']);
     if (['src/components/code/CodeSidebar.tsx', 'src/components/code/workspace-derived.ts',
@@ -79,10 +81,14 @@ export function selectBrowserScreen(files) {
     // the early deterministic screen exercises its shared interaction owners.
     if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);
     if (/^tests\/e2e\/(backend-connection-status|mermaid-module-recovery|background-chat-continuity)\.spec\.ts$/.test(filename)) select(['interaction']);
+    if (['src/hooks/useInteractionLayer.ts', 'src/lib/interaction-history.ts', 'src/lib/interaction-layer.ts',
+      'src/lib/terminal-session-interaction.ts', 'src/components/review/ReviewPage.tsx', 'src/lib/review/api.ts'].includes(filename)) select(['interaction', 'ui-boundaries']);
+    if (/^src\/(components\/(CodeSelect\.css|code\/(AgentHomesSettingsPanel\.tsx|navigation-highlight\.ts))|styles\/(code-style-sources\.ts|empty\.css|history\.css|navigation-states\.css|pet\.css|review\.css|settings\.css|ui-design\.css|usage\.css))$|^tests\/e2e\/(agent-plugins|desktop-responsive-navigation|display-flows|highlight-protocol|mobile-interaction|multi-agent-state-gallery|navigation-highlight|settings-focus|ui-design-protocol)\.spec\.ts$/.test(filename)) select(['ui-contract-oracles', 'ui-boundaries']);
     if (filename === 'tests/e2e/quote-selection.spec.ts') select(['quoted-side', 'interaction']);
     if (['backend/provider-adapters.cts', 'tests/e2e/default-agent-permissions.spec.ts',
       'tests/e2e/fixtures/pi'].includes(filename)) select(['permissions']);
-    if (['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'src/crt-markdown-renderer.tsx',
+    if (['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'frontend/skins/crt/app.types.d.ts',
+      'frontend/skins/crt/index.html', 'src/crt-markdown-renderer.tsx',
       'tests/e2e/crt-markdown.spec.ts', 'tests/e2e/skin-switching.spec.ts'].includes(filename)) select(['crt-markdown']);
     if (['tests/e2e/additional-user-scenarios.spec.ts', 'tests/e2e/dark-mode-skin.spec.ts',
       'tests/e2e/mobile-human-story.spec.ts'].includes(filename)) select(['ui-contract-oracles']);

@@ -14,6 +14,7 @@ const readmeImages = [
   'docs/products/code/assets/12-code-terminal-session.png',
   'docs/products/code/assets/14-code-settings.png',
   'docs/products/code/assets/19-code-agent-homes.png',
+  'docs/products/code/assets/20-code-desktop-mobile-sync.png',
   'docs/products/crt/assets/01-crt-dashboard.png',
 ]
 

@@ -327,6 +327,7 @@ export async function loadReviewSession(reviewId: string): Promise<ReviewSession
 
 export async function loadReviewComparisonSources(
   target: { agentId: string } | { root: string },
+  options?: { signal?: AbortSignal },
 ): Promise<ReviewComparisonSources> {
   const targetValue = 'root' in target ? target.root : target.agentId
   if (!targetValue.trim()) throw new ReviewApiError('review comparison target is invalid')
@@ -334,7 +335,10 @@ export async function loadReviewComparisonSources(
   if ('root' in target) params.set('root', target.root)
   else params.set('agentId', target.agentId)
   const read = async () => {
-    const response = await reviewFetch(`${appPath('/api/reviews/comparison-sources')}?${params.toString()}`)
+    const response = await reviewFetch(
+      `${appPath('/api/reviews/comparison-sources')}?${params.toString()}`,
+      options?.signal ? { signal: options.signal } : undefined,
+    )
     const value: unknown = await response.json().catch(() => null)
     return { response, value }
   }

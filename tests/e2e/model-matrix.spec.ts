@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator, Page, Route } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+import type { AcpSessionSnapshot } from '../../src/components/code/acp/types'
 
 type MatrixState = {
   model: string
@@ -113,6 +114,75 @@ async function createAcpAgent(page: Page, workspace: string, provider = 'claude'
   expect(payload.agentId).toBeTruthy()
   return payload.agentId as string
 }
+
+test('Side Chat model changes use supported reasoning before and during a turn', async ({ page, workspaceRoot }, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'side-model-selection')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.fake-acp-model-matrix'), '')
+  const parent = await createAcpAgent(page, workspace, 'codex')
+  await page.route('**/api/agents/*/acp-session*', async route => {
+    const response = await route.fetch()
+    const body = await response.json() as { session?: AcpSessionSnapshot; configOptions?: AcpSessionSnapshot['configOptions'] }
+    const options = body.session?.configOptions || body.configOptions || []
+    for (const option of options) {
+      if (option.id !== 'model' || option.type !== 'select') continue
+      for (const candidate of option.options) {
+        if ('options' in candidate) continue
+        candidate._meta = { farming: { modelConfig: { version: 1,
+          reasoningOptions: candidate.value === 'gpt-5.5'
+            ? REASONING_OPTIONS.filter(choice => choice.value === 'high') : REASONING_OPTIONS,
+        } } }
+      }
+    }
+    await route.fulfill({ response, json: body })
+  })
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${parent}"]`).click()
+  const parentInput = page.getByTestId('code-acp-composer-input')
+  await expect(parentInput).toBeEditable()
+  await parentInput.fill('/side')
+  const opened = page.waitForResponse(response => response.url().endsWith(`/agents/${parent}/subagent`))
+  await page.getByTestId('code-acp-composer-send').click()
+  const child = await (await opened).json() as { agentId: string; error?: string }
+  expect(child.error).toBeFalsy()
+  const pane = page.getByTestId('code-subagent-panel')
+  const picker = pane.getByTestId('code-acp-model-picker')
+  await expect(picker).toBeEnabled()
+  await picker.click()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.appearance = value
+      document.body.dataset.appearance = value
+    }, appearance)
+    await expect(pane.getByRole('radio', { name: 'gpt-5.5, max', exact: true })).toHaveCount(0)
+    await expect(pane.getByRole('radio', { name: 'gpt-5.5, high', exact: true })).toBeVisible()
+    await expect(pane.getByRole('radio', { name: 'gpt-6-astra, max', exact: true })).toBeVisible()
+    await testInfo.attach(`side-model-capabilities-${appearance}`, { body: await page.screenshot(), contentType: 'image/png' })
+  }
+  await page.keyboard.press('Escape')
+  const select = async (model: string, effort: string) => {
+    await expect(picker).toBeEnabled()
+    await picker.click()
+    const changed = page.waitForResponse(response => response.request().method() === 'PATCH'
+      && response.url().endsWith(`/agents/${child.agentId}/acp-session`))
+    await pane.getByRole('radio', { name: `${model}, ${effort}`, exact: true }).click()
+    const response = await changed
+    expect(response.ok(), await response.text()).toBeTruthy()
+    await expect(picker).toHaveAttribute('data-agent-model-preset', `${model}:${effort}`)
+    await page.keyboard.press('Escape')
+  }
+  await select('gpt-6-astra', 'high')
+  await pane.getByTestId('code-acp-composer-input').fill('progressive answer stream')
+  await pane.getByTestId('code-acp-composer-send').click()
+  await expect(pane.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
+  await select('gpt-5.6-sol', 'medium')
+  await expect(pane.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'disabled')
+  const profile = await page.request.get(`/farming/api/agents/${child.agentId}/acp-session?includeEntries=0`)
+  expect(await profile.json()).toMatchObject({ session: { configOptions: expect.arrayContaining([
+    expect.objectContaining({ id: 'model', currentValue: 'gpt-5.6-sol' }),
+    expect.objectContaining({ id: 'reasoning', currentValue: 'medium' }),
+  ]) } })
+})
 
 test('changing a Chat model preserves other open Sessions and updates new Session defaults', async ({ page, workspaceRoot }, testInfo) => {
   const workspace = path.join(workspaceRoot, 'model-session-isolation')
