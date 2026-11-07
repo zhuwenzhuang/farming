@@ -39,9 +39,10 @@ test('keeps the source Agent return action across Markdown document links', asyn
   await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
   const selectedFileRow = files.locator('[data-testid="code-file-row"][data-file-path="next.md"]')
   await expect(selectedFileRow).not.toHaveClass(/active/)
+  const sidebarBackground = await page.getByTestId('code-sidebar').evaluate(el => getComputedStyle(el).backgroundColor)
   await expect.poll(() => selectedFileRow.evaluate(row => (
     getComputedStyle(row.closest('.code-file-tree-row-frame') as HTMLElement).backgroundColor
-  ))).toBe('rgba(0, 0, 0, 0)')
+  ))).toBe(sidebarBackground)
 })
 
 test('keeps one Explorer selection surface when a directory replaces an open file selection', async ({ page }) => {
@@ -68,12 +69,13 @@ test('keeps one Explorer selection surface when a directory replaces an open fil
   await directoryRow.click()
   await expect(directoryRow).toHaveClass(/selected/)
   await expect(fileRow).not.toHaveClass(/active/)
+  const sidebarBackground = await page.getByTestId('code-sidebar').evaluate(el => getComputedStyle(el).backgroundColor)
   await expect.poll(() => fileRow.evaluate(row => (
     getComputedStyle(row.closest('.code-file-tree-row-frame') as HTMLElement).backgroundColor
-  ))).toBe('rgba(0, 0, 0, 0)')
+  ))).toBe(sidebarBackground)
   await expect.poll(() => directoryRow.evaluate(row => (
     getComputedStyle(row.closest('.code-file-tree-row-frame') as HTMLElement).backgroundColor
-  ))).not.toBe('rgba(0, 0, 0, 0)')
+  ))).not.toBe(sidebarBackground)
 })
 
 test('keeps file editing available when a local preview render fails and recovers', async ({ page }) => {

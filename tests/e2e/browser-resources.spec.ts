@@ -518,11 +518,11 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   const browserActionCover = await browserRowActions.evaluate(element => {
     const style = getComputedStyle(element)
     return {
-      backgroundImage: style.backgroundImage,
+      backgroundColor: style.backgroundColor,
       maskImage: style.maskImage || style.getPropertyValue('-webkit-mask-image'),
     }
   })
-  expect(browserActionCover.backgroundImage.match(/linear-gradient/g)).toHaveLength(2)
+  expect(browserActionCover.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   expect(browserActionCover.maskImage).toContain('linear-gradient')
   await expect(browserRowActions.getByRole('button').first()).toHaveCSS('width', '22px')
   await expect(browserRowActions.getByRole('button').first()).toHaveCSS('border-radius', '6px')

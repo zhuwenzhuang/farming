@@ -214,7 +214,7 @@ const {
   publishNativePtyHostSocket,
 } = nativePtyHostPathModule;
 import * as inputPartsModule from './input-parts.cjs';
-const { terminalInputToPtyString } = inputPartsModule;
+const { splitPtyInputChunks, terminalInputToPtyString } = inputPartsModule;
 import * as agentEnvModule from './agent-env.cjs';
 const { normalizeInteractiveTerminalEnv } = agentEnvModule;
 import * as shellBusyIntegrationModule from './shell-busy-integration.cjs';
@@ -1354,7 +1354,20 @@ class NativePtyHost {
     if (expectedRuntimeEpoch && expectedRuntimeEpoch !== session.runtimeEpoch) {
       return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
     }
-    session.process.write(terminalInputToPtyString(input));
+    const chunks = splitPtyInputChunks(terminalInputToPtyString(input));
+    for (let index = 0; index < chunks.length; index += 1) {
+      const current = this.sessions.get(sessionId);
+      if (current !== session || !current.process || current.status === 'exited' || current.exitFinalizing === true) {
+        throw new Error('Session not available');
+      }
+      if (current.rotationFrozen === true) {
+        throw new Error('Terminal session is frozen for native PTY host rotation');
+      }
+      current.process.write(chunks[index]);
+      if (index + 1 < chunks.length) {
+        await new Promise<void>(resolve => setTimeout(resolve, 4));
+      }
+    }
     session.lastActivityAt = Date.now();
     this.emitSessionEvent('session-activity', {
       sessionId,

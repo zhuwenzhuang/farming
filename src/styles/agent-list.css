@@ -834,7 +834,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
 
   body.code-mode.code-compact-layout .code-agents-section {
       margin-right: 0;
-      padding-left: 12px;
+      padding-left: 14px;
       background: var(--code-navigation-surface);
     }
 }

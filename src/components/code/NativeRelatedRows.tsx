@@ -27,9 +27,9 @@ export function NativeRelatedRows({ parent, active, selected, onOpen, copy, onCh
   const revisionRef = useRef(revision)
   revisionRef.current = revision
   useEffect(() => {
-    onChildrenSessionChange(inventory && inventory.parentSessionKey === parent.providerSessionKey && inventory.children.some(availableChild)
-      ? inventory.parentSessionKey : null)
-  }, [inventory, parent.providerSessionKey, onChildrenSessionChange])
+    onChildrenSessionChange((inventory && inventory.parentSessionKey === parent.providerSessionKey && inventory.children.some(availableChild)) || Boolean(error && active && readable)
+      ? (parent.providerSessionKey ?? null) : null)
+  }, [active, error, inventory, parent.providerSessionKey, onChildrenSessionChange, readable])
   useEffect(() => {
     setError('')
     if (!active || !readable) return

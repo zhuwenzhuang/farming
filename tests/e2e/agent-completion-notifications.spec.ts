@@ -125,12 +125,29 @@ test('requests notification permission only from the explicit Settings toggle', 
   await expect(permissionToggle).toBeVisible()
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'paper' })
   await expect(permissionToggle).not.toHaveClass(/active/)
-  await expect(permissionToggle).toHaveCSS('border-top-style', 'solid')
-  await expect(permissionToggle).toHaveCSS('border-top-width', '1px')
-  await expect(permissionToggle).toHaveCSS('border-top-color', 'rgb(136, 135, 125)')
+  await expect.poll(() => permissionToggle.evaluate(element => {
+    const style = getComputedStyle(element, '::before')
+    return {
+      style: style.borderTopStyle,
+      width: style.borderTopWidth,
+      color: style.borderTopColor,
+    }
+  })).toEqual({
+    style: 'solid',
+    width: '1px',
+    color: 'rgb(136, 135, 125)',
+  })
   const selectedReminderStyle = await page.locator('.code-settings-pet-appearance-select.selected').evaluate(element => {
     const style = getComputedStyle(element)
     return { backgroundColor: style.backgroundColor, color: style.color }
+  })
+  const selectedChoiceBackground = await page.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.style.backgroundColor = 'var(--code-active-item-surface)'
+    document.body.append(probe)
+    const value = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return value
   })
   const unselectedReminderBackground = await page.locator('.code-settings-pet-appearance-select:not(.selected)').evaluate(
     element => getComputedStyle(element).backgroundColor,
@@ -149,7 +166,10 @@ test('requests notification permission only from the explicit Settings toggle', 
     Array.from({ length: preferenceGroupBackgrounds.length }, () => unselectedReminderBackground),
   )
   expect(selectedPreferenceStyles).toEqual(
-    Array.from({ length: selectedPreferenceStyles.length }, () => selectedReminderStyle),
+    Array.from({ length: selectedPreferenceStyles.length }, () => ({
+      backgroundColor: selectedChoiceBackground,
+      color: selectedReminderStyle.color,
+    })),
   )
   const toggle = row.getByRole('switch', { name: 'Allow message notifications' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')

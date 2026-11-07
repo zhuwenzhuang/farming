@@ -399,7 +399,7 @@
   body.code-mode.code-compact-layout .code-pinned-list {
     /* Provider rows extend twenty pixels left; reserve all of that space so
        the scroll viewport does not crop their leading rounded corners. */
-    margin-left: 20px;
+    margin-left: 14px;
   }
 }
 

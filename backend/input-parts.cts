@@ -56,11 +56,48 @@ function terminalInputToPtyString(input: unknown): string {
     .join('');
 }
 
+const DEFAULT_PTY_WRITE_CHUNK_BYTES = 512;
+
+function splitPtyInputChunks(payload: string, maxChunkBytes = DEFAULT_PTY_WRITE_CHUNK_BYTES): string[] {
+  if (!payload) return [];
+  if (Buffer.byteLength(payload, 'utf8') <= maxChunkBytes) {
+    return [payload];
+  }
+  const chunks: string[] = [];
+  let current = '';
+  let currentBytes = 0;
+  for (const char of payload) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    if (current && currentBytes + charBytes > maxChunkBytes) {
+      const lastNewline = current.lastIndexOf('\n');
+      if (lastNewline >= 0 && lastNewline < current.length - 1) {
+        const lineChunk = current.slice(0, lastNewline + 1);
+        chunks.push(lineChunk);
+        current = current.slice(lastNewline + 1) + char;
+        currentBytes = Buffer.byteLength(current, 'utf8');
+      } else {
+        chunks.push(current);
+        current = char;
+        currentBytes = charBytes;
+      }
+    } else {
+      current += char;
+      currentBytes += charBytes;
+    }
+  }
+  if (current) {
+    chunks.push(current);
+  }
+  return chunks;
+}
+
 export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
+  DEFAULT_PTY_WRITE_CHUNK_BYTES,
   inputPartsFromMessage,
   normalizeInputPart,
   normalizeTerminalInputParts,
+  splitPtyInputChunks,
   terminalInputToPtyString,
 };

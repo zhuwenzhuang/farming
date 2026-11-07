@@ -417,14 +417,16 @@ test('keeps file summary headers below the Project after Agent changes without R
       const rowStates = await project.evaluate(element => {
         const active = element.querySelector<HTMLElement>('.code-agent-row.active')
         const inactive = element.querySelector<HTMLElement>('.code-agent-row:not(.active)')
-        if (!active || !inactive) return null
+        const sidebar = element.closest<HTMLElement>('[data-testid="code-sidebar"]')
+        if (!active || !inactive || !sidebar) return null
         return {
           active: getComputedStyle(active).backgroundColor,
           inactive: getComputedStyle(inactive).backgroundColor,
+          sidebar: getComputedStyle(sidebar).backgroundColor,
         }
       })
       expect(rowStates).not.toBeNull()
-      expect(rowStates!.inactive).toBe('rgba(0, 0, 0, 0)')
+      expect(rowStates!.inactive).toBe(rowStates!.sidebar)
       expect(rowStates!.active).not.toBe(rowStates!.inactive)
     }
     const screenshotPath = testInfo.outputPath(`sidebar-sticky-release-${appearance}.png`)
@@ -585,7 +587,8 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   const pinned = page.getByTestId('code-pinned-section')
   await expect.poll(() => projectAgentIds(pinned)).toEqual([secondAgentId, firstAgentId])
   await expect(pinned).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  await expect(pinned.getByTestId('code-pinned-title')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  const sidebarBackground = await page.getByTestId('code-sidebar').evaluate(el => getComputedStyle(el).backgroundColor)
+  await expect(pinned.getByTestId('code-pinned-title')).toHaveCSS('background-color', sidebarBackground)
   await expect(pinned.locator('[draggable="true"]')).toHaveCount(2)
   await pinned
     .locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
@@ -666,7 +669,7 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   expect(renameResponse.ok()).toBeTruthy()
   await page.getByTestId('code-nav-search').click()
   await page.getByTestId('code-search-box').locator('input').fill(movedAgentTitle)
-  await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+  await expect(page.getByTestId('code-search-result').filter({ hasText: movedAgentTitle })).toBeVisible()
   await page.keyboard.press('Escape')
 
   await project.getByTestId('code-agent-show-more').click()

@@ -327,7 +327,7 @@ test.describe('Farming Code appearance skins', () => {
     await page.mouse.move(380, 820)
     const focusedSidebarToggle = page.getByTestId('code-sidebar-toggle')
     await expect(focusedSidebarToggle).toBeFocused()
-    await expect(focusedSidebarToggle).toHaveCSS('background-color', 'rgba(82, 75, 60, 0.055)')
+    await expect(focusedSidebarToggle).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     const paperAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     const paperProjectGroup = page.getByTestId('code-project-group').filter({ has: paperAgentRow })
     for (const idleNavigationControl of [

@@ -333,7 +333,7 @@ test('expanded Agent resources consume the navigation and active-item tokens in 
     // Sidebar, section header, and idle rows share one navigation surface.
     expect(await background(sidebar), `${appearance} sidebar must sit on the navigation surface`).toBe(navigationSurface)
     expect(await background(resourceHeader), `${appearance} resource header must not paint a second surface`).toBe(navigationSurface)
-    expect(await background(computerRow), `${appearance} idle resource row must stay transparent on the navigation surface`).toBe('rgba(0, 0, 0, 0)')
+    expect(await background(computerRow), `${appearance} idle resource row must share the navigation surface`).toBe(navigationSurface)
 
     // Idle text hierarchy: the muted Agent-row baseline
     // (agent-list.css `.code-agent-row` idle color contract), verified
@@ -342,18 +342,14 @@ test('expanded Agent resources consume the navigation and active-item tokens in 
     expect(await color(computerRow), `${appearance} idle resource row must match the idle Agent row hierarchy`).toBe(await color(idleAgentRow))
     expect(mutedRole).not.toBe(textRole)
 
-    // Row-local action variables resolve on the row itself. Assert the
-    // resolved colors, never the raw var() serialization: browsers substitute
-    // custom properties at computed-value time, so the returned string is an
-    // implementation detail. Resolved tokens + painted gradient layers +
-    // rendered pixels are the product contract.
-    expect(await tokenColorAt(computerRow, '--code-sidebar-resource-row-action-surface'), 'row action surface must resolve to the navigation token').toBe(navigationSurface)
-    expect(await tokenColorAt(computerRow, '--code-sidebar-resource-row-action-overlay'), 'idle overlay must resolve to transparent').toBe('rgba(0, 0, 0, 0)')
-    const idleComposited = await resourceActions.evaluate(element => getComputedStyle(element).backgroundImage)
-    const idleLayers = [...idleComposited.matchAll(/linear-gradient\((rgba?\([^)]+\))/g)].map(match => match[1])
-    expect(idleLayers.length, 'idle actions must keep the two-layer surface composition').toBe(2)
-    expect(idleLayers[0], 'idle overlay layer must resolve to transparent').toBe('rgba(0, 0, 0, 0)')
-    expect(idleLayers[1], 'idle surface layer must resolve to the navigation surface').toBe(navigationSurface)
+    // Row-local action surface resolves to the row's own `--code-row-surface`.
+    expect(await tokenColorAt(computerRow, '--code-row-surface'), 'idle row surface must resolve to the navigation token').toBe(navigationSurface)
+    expect(await background(resourceActions), 'idle actions surface must resolve to the navigation surface').toBe(navigationSurface)
+    const idleMask = await resourceActions.evaluate(element => {
+      const style = getComputedStyle(element)
+      return style.maskImage || style.getPropertyValue('-webkit-mask-image')
+    })
+    expect(idleMask).toContain('linear-gradient')
 
     // Hover uses the shared opaque active-item surface (same as Agent rows).
     await computerRow.hover()
@@ -363,20 +359,12 @@ test('expanded Agent resources consume the navigation and active-item tokens in 
     expect(await background(idleAgentRow), `${appearance} Agent hover must share the same active-item surface`).toBe(activeItemSurface)
     await page.mouse.move(5, 5)
 
-    // Composited actions layer. Parse complete rgb() tokens (never split on
-    // commas inside rgb()), then prove the final composited color: overlay
-    // alpha-composited onto the surface layer must equal the row's own hover
-    // background, and a rendered pixel inside the actions zone must match.
+    // Actions cover follows `--code-row-surface` on hover and matches the row's
+    // own hover background, proven both by computed style and rendered pixel.
     await computerRow.hover()
     await expect(resourceActions).toBeVisible()
-    expect(await tokenColorAt(computerRow, '--code-sidebar-resource-row-action-overlay'), 'hover overlay must resolve to the active-item surface').toBe(activeItemSurface)
-    const composited = await resourceActions.evaluate(element => getComputedStyle(element).backgroundImage)
-    const layerColors = [...composited.matchAll(/linear-gradient\((rgba?\([^)]+\))/g)].map(match => match[1])
-    expect(layerColors.length, `${appearance} actions must keep the two-layer surface composition`).toBe(2)
-    const [overlayPaint, surfacePaint] = layerColors as [string, string]
-    expect(overlayPaint, `${appearance} overlay layer must resolve to the active-item surface`).toBe(activeItemSurface)
-    expect(surfacePaint, `${appearance} surface layer must resolve to the navigation surface`).toBe(navigationSurface)
-    const compositedFinal = compositeOver(overlayPaint, surfacePaint)
+    expect(await tokenColorAt(computerRow, '--code-row-surface'), 'hover row surface must resolve to the active-item surface').toBe(activeItemSurface)
+    const compositedFinal = await background(resourceActions)
     expect(compositedFinal, `${appearance} final composited actions color must equal the row hover surface`).toBe(activeItemSurface)
     expect(compositedFinal).toBe(await background(computerRow))
 
@@ -445,7 +433,7 @@ test('expanded Agent resources consume the navigation and active-item tokens in 
     }
     expect(await background(sidebar), `${appearance} compact sidebar must sit on the panel surface`).toBe(navigationSurface)
     expect(await background(resourceHeader), `${appearance} compact header must follow the panel remap, not chrome`).toBe(navigationSurface)
-    expect(await background(computerRow)).toBe('rgba(0, 0, 0, 0)')
+    expect(await background(computerRow)).toBe(navigationSurface)
     expect(await color(computerRow), `${appearance} compact idle text must keep the muted baseline`).toBe(await tokenColorAt(computerRow, '--code-text-muted'))
     await computerRow.hover()
     expect(await background(computerRow), `${appearance} compact hover must stay on the active-item surface`).toBe(activeItemSurface)
@@ -501,11 +489,12 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await setAppearance(page, appearance)
 
+    const navigationSurface = await tokenColorAt(computerRow, '--code-navigation-surface')
     const before = {
       background: await background(computerRow),
       color: await color(computerRow),
     }
-    expect(before.background, `${appearance} row must be idle (transparent) before focus`).toBe('rgba(0, 0, 0, 0)')
+    expect(before.background, `${appearance} row must be idle on the navigation surface before focus`).toBe(navigationSurface)
 
     await sectionToggle.focus()
     await page.keyboard.press('Tab')
@@ -529,7 +518,7 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
     await page.mouse.move(5, 5)
 
     // Same-collection parity: an idle Agent row gets the identical focus fill.
-    expect(await background(idleAgentRow), `${appearance} idle Agent row starts transparent`).toBe('rgba(0, 0, 0, 0)')
+    expect(await background(idleAgentRow), `${appearance} idle Agent row starts on the navigation surface`).toBe(navigationSurface)
     await page.keyboard.press('Tab')
     await idleAgentRow.evaluate(element => element.focus())
     await expect(idleAgentRow).toBeFocused()
@@ -613,7 +602,7 @@ test('resource row focus feedback, Space activation, cursor parity, and touch ta
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await setAppearance(page, appearance)
     await page.mouse.move(5, 5)
-    expect(await background(computerRow), `${appearance} compact row must be idle before focus`).toBe('rgba(0, 0, 0, 0)')
+    expect(await background(computerRow), `${appearance} compact row must be idle before focus`).toBe(await tokenColorAt(computerRow, '--code-navigation-surface'))
     await sectionToggle.focus()
     await page.keyboard.press('Tab')
     await expect(computerRow).toBeFocused()

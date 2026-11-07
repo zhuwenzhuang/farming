@@ -1150,7 +1150,8 @@ app.get([
   routePath(BASE_PATH, '/error-preview'),
   routePath(BASE_PATH, '/review'),
 ].filter(Boolean), (req, res) => {
-  const indexPath = path.join(staticAppDir, 'index.html');
+  const builtIndexPath = path.join(staticAppDir, 'index.html');
+  const indexPath = fs.existsSync(builtIndexPath) ? builtIndexPath : path.join(__dirname, '../index.html');
   fs.readFile(indexPath, 'utf8', (error: unknown, html: string) => {
     if (error) {
       res.status(500).send('Farming frontend is not built');

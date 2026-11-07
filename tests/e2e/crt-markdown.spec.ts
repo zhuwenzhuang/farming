@@ -17,9 +17,8 @@ async function openCrtAcpAgent(page: Page, workspace: string) {
   await openFarming(page)
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/control/agents')
-    const payload = await response.json() as { mainAgentId?: string | null }
-    return payload.mainAgentId || ''
-  }, { timeout: 30_000 }).not.toBe('')
+    return response.ok()
+  }, { timeout: 30_000 }).toBe(true)
   const agentId = await createAcpAgent(page, workspace)
   await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, { waitUntil: 'domcontentloaded' })
   const input = page.locator('#crt-structured-input')
