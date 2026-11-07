@@ -16,7 +16,17 @@ export function createMermaidRenderer(load: () => Promise<MermaidApi>): MermaidR
       mermaid.initialize(config)
       await mermaid.parse(source)
       check()
-      return mermaid.render(id, source)
+      // Mermaid measures live SVG and HTML labels. Keep its temporary nodes
+      // measurable without letting them paint or resize the workspace.
+      const host = document.createElement('div')
+      host.style.cssText = 'position: fixed; inset: 0; visibility: hidden; pointer-events: none; overflow: hidden'
+      host.inert = true
+      document.body.append(host)
+      try {
+        return await mermaid.render(id, source, host)
+      } finally {
+        host.remove()
+      }
     })
     tail = next
     return next

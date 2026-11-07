@@ -569,6 +569,7 @@ just like the final answer; an activity item's completion label does not close i
 Markdown stream. Unclosed Mermaid fences retain a stable generating placeholder
 until closure, or an incomplete placeholder on interruption. Closed diagrams render
 without waiting for the Turn to finish and remain mounted as later prose arrives.
+Measuring a diagram must preserve the workspace height, including when reopening a Chat.
 Only the current render revision may publish; failure has a
 bounded render-only Retry. Viewers preserve reading/zoom intent and share focus,
 Escape and background-isolation rules. Render retries never replay Agent work.

@@ -14,6 +14,8 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     const { agentId } = await response.json() as { agentId: string }
     const moduleUrl = '**/assets/FileEditorMarkdownPreview-*.js'
     try {
+      const pin = await page.request.patch(`/farming/api/agents/${agentId}`, { data: { pinned: true } })
+      expect(pin.ok()).toBeTruthy()
       await page.route(moduleUrl, route => route.abort('failed'))
       await page.addInitScript(value => {
         window.addEventListener('DOMContentLoaded', () => { document.body.dataset.appearance = value })
@@ -42,6 +44,24 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
       await restored.locator('.code-markdown-mermaid').scrollIntoViewIfNeeded()
       await page.screenshot({ path: test.info().outputPath(`module-recovered-${appearance}.png`) })
+
+      await page.getByTestId('code-nav-history').click()
+      await expect(page.getByTestId('code-history-panel')).toBeVisible()
+      const heights = await page.evaluateHandle(() => {
+        const root = document.querySelector<HTMLElement>('#root')!
+        const initial = root.clientHeight
+        let smallest = initial
+        // A small diagram can finish between two ResizeObserver deliveries.
+        // Sample layout while Mermaid's intermediate DOM is still attached.
+        const observer = new MutationObserver(() => { smallest = Math.min(smallest, root.clientHeight) })
+        observer.observe(document.body, { childList: true, subtree: true })
+        return () => { observer.disconnect(); return { initial, smallest } }
+      })
+      await page.getByTestId('code-pinned-section').locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+      await expect(restored.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible()
+      const { initial, smallest } = await heights.evaluate(finish => finish())
+      await heights.dispose()
+      expect(smallest).toBe(initial)
     } finally {
       await page.unroute(moduleUrl)
       await page.request.delete(`/farming/api/control/agents/${agentId}`)

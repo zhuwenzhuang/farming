@@ -64,12 +64,22 @@ async function main() {
   // Configuration belongs to an entire render transaction, even when another
   // diagram is requested while the first parse is suspended.
   const order: string[] = []
+  const attachedHosts = new Set<unknown>()
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+    createElement: () => ({ style: {}, remove() { assert(attachedHosts.delete(this)) } }),
+    body: { append(host: unknown) { attachedHosts.add(host) } },
+  } })
   let release: () => void = () => {}
   const gate = new Promise<void>(resolve => { release = resolve })
   const renderDiagram = createMermaidRenderer(async () => ({
     initialize(config) { order.push(`init:${config?.theme}`) },
     async parse(source) { order.push(`parse:${source}`); if (source === 'first') await gate; return { diagramType: 'flowchart-v2', config: {} } },
-    async render(id) { order.push(`render:${id}`); return { svg: `<svg id="${id}"/>`, diagramType: 'flowchart-v2' } },
+    async render(id, _source, host) {
+      assert(attachedHosts.has(host))
+      if (id === 'broken') throw new Error('Diagram layout failed')
+      order.push(`render:${id}`)
+      return { svg: `<svg id="${id}"/>`, diagramType: 'flowchart-v2' }
+    },
   }))
   const first = renderDiagram('one', 'first', { theme: 'dark' }, () => true)
   let current = true
@@ -79,6 +89,10 @@ async function main() {
   release()
   await Promise.all([first, obsolete, second])
   assert.deepEqual(order, ['init:dark', 'parse:first', 'render:one', 'init:base', 'parse:second', 'render:two'])
+  assert.equal(attachedHosts.size, 0)
+  await assert.rejects(renderDiagram('broken', 'invalid layout', {}, () => true), /Diagram layout failed/)
+  assert.equal(attachedHosts.size, 0)
+  Reflect.deleteProperty(globalThis, 'document')
   console.log('streaming Markdown lifecycle and serialized rendering passed')
 }
 void main().catch(error => { console.error(error); process.exitCode = 1 })
