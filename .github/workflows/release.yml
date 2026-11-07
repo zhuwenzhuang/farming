@@ -15,7 +15,7 @@ permissions:
 jobs:
   preflight:
     name: Validate release candidate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       browser_origin_run_id: ${{ steps.browser-origin.outputs.run_id }}
     env:
@@ -305,7 +305,7 @@ jobs:
 
   build-linux:
     name: Build Linux ${{ matrix.kind }} artifacts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [preflight, build-agent-browser, build-macos-browser]
     strategy:
       fail-fast: false
@@ -774,7 +774,7 @@ jobs:
 
   prepare-npm:
     name: Prepare and smoke npm package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [preflight, build-agent-browser, build-macos-browser]
     permissions:
       contents: read

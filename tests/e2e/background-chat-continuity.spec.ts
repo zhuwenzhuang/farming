@@ -1066,12 +1066,22 @@ test('starts a short ACP turn at the top with a compact copy affordance', { tag:
   await expect(completedTurn).toHaveCount(1)
   const userTime = completedTurn.getByTestId('code-agent-transcript-user-time')
   const answerTime = completedTurn.getByTestId('code-agent-transcript-answer-time')
+  const fineHover = await page.evaluate(() => window.matchMedia('(hover: hover) and (pointer: fine)').matches)
   await expect(userTime).toHaveCSS('opacity', '0')
-  await completedTurn.locator('.code-agent-transcript-user').hover()
-  await expect(userTime).toHaveCSS('opacity', '1')
   await expect(answerTime).toHaveCSS('opacity', '0')
-  await completedTurn.locator('.code-agent-transcript-answer').hover()
-  await expect(answerTime).toHaveCSS('opacity', '1')
+  if (fineHover) {
+    await completedTurn.locator('.code-agent-transcript-user').hover()
+    await expect(userTime).toHaveCSS('opacity', '1')
+    await expect(answerTime).toHaveCSS('opacity', '0')
+    await completedTurn.locator('.code-agent-transcript-answer').hover()
+    await expect(answerTime).toHaveCSS('opacity', '1')
+  } else {
+    const forkButton = completedTurn.getByTestId('code-agent-transcript-fork')
+    await forkButton.focus()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(answerTime).toHaveCSS('opacity', '1')
+  }
   expect(await userTime.getAttribute('datetime')).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   expect(await answerTime.getAttribute('datetime')).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   const forkRequests: Array<{ mode?: string; targetRuntime?: string; expectedRevision?: number }> = []

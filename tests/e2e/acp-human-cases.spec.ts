@@ -1639,8 +1639,11 @@ test.describe('ACP human-like browser matrix', () => {
       const chevron = toggle.locator('.code-agent-transcript-process-item-chevron')
       await expect(toggle).toHaveAttribute('aria-expanded', 'false')
       await expect(toggle).toContainText('The ordered stream must stay reversible.')
-      await expect(chevron).toHaveCSS('opacity', '0')
-      await toggle.hover()
+      const fineHover = await page.evaluate(() => window.matchMedia('(hover: hover) and (pointer: fine)').matches)
+      if (fineHover) {
+        await expect(chevron).toHaveCSS('opacity', '0')
+        await toggle.hover()
+      }
       await expect(chevron).toHaveCSS('opacity', '0.9')
       await page.mouse.move(0, 0)
       await toggle.focus()

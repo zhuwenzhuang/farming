@@ -23,7 +23,7 @@ env:
 jobs:
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,7 +59,7 @@ jobs:
   # authoritative Check and Node 24 jobs run in parallel.
   frontend:
     name: Frontend artifact
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -186,7 +186,7 @@ jobs:
   behavior:
     name: Critical behavior
     needs: [frontend, e2e-agent-browser]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FARMING_AGENT_BROWSER_BIN: ${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser
     steps:
@@ -278,7 +278,7 @@ jobs:
   # suite, so it costs one extra parallel job instead of a full matrix.
   node24:
     name: Node 24 compatibility
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -304,7 +304,7 @@ jobs:
   browser:
     name: Chromium (${{ matrix.shard }}/9)
     needs: [frontend, e2e-agent-browser]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FARMING_AGENT_BROWSER_BIN: ${{ github.workspace }}/.ci-agent-browser/linux-x64/agent-browser
     strategy:

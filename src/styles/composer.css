@@ -3189,7 +3189,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
   body.code-mode.code-compact-layout .code-composer .code-rich-input {
     min-height: 22px;
     max-height: min(156px, calc(var(--app-visual-height, 100dvh) * 0.32));
-    padding: 11px 46px 8px 12px;
+    padding-right: 46px;
     overflow-y: auto;
     overscroll-behavior-y: contain;
     touch-action: pan-y pinch-zoom;
@@ -3203,7 +3203,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
        viewport zoom. Narrow desktop windows can use the denser 14px size. */
     font-size: max(16px, var(--code-content-font-size));
     line-height: 1.5;
-    padding: 9px 46px 8px 12px;
+    padding: 8px 46px 8px 12px;
   }
 
   body.code-mode.code-compact-layout .code-composer-toolbar {

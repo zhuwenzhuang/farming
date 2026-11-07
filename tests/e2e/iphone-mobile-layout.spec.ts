@@ -84,16 +84,16 @@ async function assertMobileDrawerClosed(page: Page) {
     }
   })
   await expect.poll(async () => {
-    const current = await geometry()
-    return current.closed && current.runningAnimations === 0
+    const before = await geometry()
+    if (!before.closed || before.runningAnimations !== 0) return false
+    await page.evaluate(() => new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }))
+    const after = await geometry()
+    return JSON.stringify(after) === JSON.stringify(before)
   }, {
     message: 'Mobile sidebar should finish translating outside the viewport',
   }).toBe(true)
-  const before = await geometry()
-  await page.evaluate(() => new Promise<void>(resolve => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  }))
-  expect(await geometry()).toEqual(before)
 }
 
 async function activateMobileAgent(page: Page, agentId: string) {
