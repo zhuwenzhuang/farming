@@ -113,6 +113,15 @@ Plugins Surface 展示 Built-in Capability、Agent Home Configuration 与 Extens
 如果库存来源在有界一致性检查期间持续变化，读取必须明确失败并提供刷新操作，不能把旧内容
 当作当前状态。界面使用本地化的重试提示，内部 Inventory Key 仅保留在诊断中。
 
+Config 统一维护这两个插件的依赖关系。启用使用隔离来源的 Browser 时会同时启用
+Computer，加载旧配置时也遵循此规则。关闭 Computer 之前或在同一请求中，需要关闭
+Browser 或切换其来源。与此依赖冲突的请求会收到明确错误。
+
+插件不可用或正在重新配置时，普通偏好仍可独立保存。处理 Browser 和 Computer 设置时，
+后端比较当前配置和请求生效后的配置，先检查本次变更的前提条件，再停止受影响的资源，
+一次性提交变更，随后刷新对应的能力状态。并发修改这两个插件的请求会收到冲突响应，
+调用方可以重新读取当前设置，再决定是否重试。
+
 共享配置是 Farming Tab 中一项 Config-instance-private Built-in Capability。它把 Owner 提供的
 附加系统提示词与可选的 Environment Overlay 注入之后启动的 Agent Process。运行中 Process
 保持不变：New、Fork、Restart、Resume 与 Cold Recovery 各自捕获一份经过验证的 Launch

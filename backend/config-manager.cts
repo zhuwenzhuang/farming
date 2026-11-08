@@ -21,7 +21,7 @@ import { getUserLaunchAgents, isSupportedHistoryAgent } from './cli-agents.cjs';
 import type { AgentHomeDefaults } from './agent-home-defaults.cjs';
 import { getProviderAdapter, listProviderDescriptors } from './provider-adapters.cjs';
 import * as storageLayout from './storage-layout.cjs';
-import { COMPUTER_IMAGE } from '../extensions/computer/backend/computer-constants.cjs';
+import { defaultBrowserComputerSettings, normalizeBrowserComputerSettings, type BrowserComputerSettings } from './browser-computer-settings.cjs';
 import type {
   AgentDisplayState,
   AgentRecord,
@@ -86,16 +86,10 @@ interface AgentLaunchProfiles {
   claude: ClaudeLaunchProfile;
 }
 
-export interface PublicSettings extends JsonRecord {
+export interface PublicSettings extends JsonRecord, BrowserComputerSettings {
   agentHomes: AgentHomes;
   agentLaunchProfiles: AgentLaunchProfiles;
   appearance: string;
-  browserExecutablePath: string;
-  browserExtensionEnabled: boolean;
-  browserSource: string;
-  computerCompatibilityMode: boolean;
-  computerExtensionEnabled: boolean;
-  computerImage: string;
   languageServerEnabled: boolean;
   codexApprovalMode: string;
   codexModel: string;
@@ -617,12 +611,8 @@ class ConfigManager {
       restReminderIntervalSeconds: null,
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
-      browserExtensionEnabled: true,
-      browserSource: 'system',
+      ...defaultBrowserComputerSettings,
       browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
-      computerExtensionEnabled: false,
-      computerCompatibilityMode: false,
-      computerImage: COMPUTER_IMAGE,
       languageServerEnabled: true,
       codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
       composerFollowUpBehavior: 'queue',
@@ -678,15 +668,7 @@ class ConfigManager {
     settings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
       settings.restReminderIntervalSeconds,
     );
-    settings.browserExtensionEnabled = settings.browserExtensionEnabled !== false;
-    settings.browserSource = this.normalizeBrowserSource(settings.browserSource);
-    settings.browserExecutablePath = this.normalizeBrowserSetting(settings.browserExecutablePath);
-    settings.computerExtensionEnabled = settings.computerExtensionEnabled === true;
-    if (settings.browserExtensionEnabled && settings.browserSource === 'isolated') {
-      settings.computerExtensionEnabled = true;
-    }
-    settings.computerCompatibilityMode = settings.computerCompatibilityMode === true;
-    settings.computerImage = this.normalizeBrowserSetting(settings.computerImage) || COMPUTER_IMAGE;
+    Object.assign(settings, normalizeBrowserComputerSettings(settings));
     settings.languageServerEnabled = settings.languageServerEnabled !== false;
     settings.codeContentFontSize = this.normalizeContentFontSize(
       settings.codeContentFontSize,
@@ -995,16 +977,6 @@ class ConfigManager {
     // Config owns the default shared by its clients.
     // Token-specific locale overrides do not change the interface preference.
     return CHINESE_TIME_ZONES.has(Intl.DateTimeFormat().resolvedOptions().timeZone) ? 'zh' : 'en';
-  }
-
-  normalizeBrowserSource(source: unknown): string {
-    return typeof source === 'string' && ['extension', 'isolated'].includes(source)
-      ? source
-      : 'system';
-  }
-
-  normalizeBrowserSetting(value: unknown): string {
-    return String(value || '').trim().slice(0, 2000);
   }
 
   normalizeClaudePermissionMode(mode: unknown): string {

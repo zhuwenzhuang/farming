@@ -135,6 +135,18 @@ If inventory sources keep changing during a bounded consistency check, the read
 fails explicitly and offers Refresh; it must not present stale contents as current.
 The UI localizes the retry guidance, while internal inventory keys remain in diagnostics.
 
+Config owns the dependency between the two plugins. Enabling Browser with the
+isolated source also enables Computer, including when loading an older Config.
+To disable Computer, disable Browser or switch its source first or in the same
+request. A conflicting request receives an explicit error.
+
+Ordinary preference writes can complete while a plugin is unavailable or being
+reconfigured. For Browser and Computer writes, the backend compares the effective
+current and requested configurations. It checks prerequisites for the changes
+before stopping affected resources, commits the patch once, then refreshes the
+affected capabilities. Overlapping Browser or Computer writes receive a conflict
+so the caller can read current settings before deciding whether to try again.
+
 Shared configuration is one Config-instance-private built-in capability in the
 Farming tab. It appends owner-provided system instructions and, optionally, an
 environment overlay to subsequently started Agent processes. Running processes

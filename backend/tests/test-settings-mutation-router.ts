@@ -1,4 +1,5 @@
 import type { SettingsMutationPorts } from '../settings-mutation-router.cjs';
+import { defaultBrowserComputerSettings, normalizeBrowserComputerSettings } from '../browser-computer-settings.cjs';
 
 const assert = require('assert');
 const express = require('express');
@@ -25,9 +26,8 @@ function error(message: string, code: string, status: number) {
 
 function harness(overrides: Partial<SettingsMutationPorts> = {}, initial: Settings = {}) {
   let settings: Settings = {
+    ...defaultBrowserComputerSettings,
     browserExtensionEnabled: false,
-    browserSource: 'managed',
-    computerExtensionEnabled: false,
     ...initial,
   };
   const calls: string[] = [];
@@ -79,7 +79,8 @@ function harness(overrides: Partial<SettingsMutationPorts> = {}, initial: Settin
     updateSettings(patch) {
       calls.push('commit');
       patches.push({ ...patch });
-      settings = { ...settings, ...patch };
+      const next = { ...settings, ...patch };
+      settings = { ...next, ...normalizeBrowserComputerSettings(next) };
     },
     ...overrides,
   };
@@ -121,10 +122,10 @@ async function run(): Promise<void> {
       pinnedProjectWorkspaces: ['/must-not-write'],
     });
     assert.strictEqual(result.success, true);
+    assert.strictEqual(result.settings.computerExtensionEnabled, true);
     assert.deepStrictEqual(state.patches, [{
       browserExtensionEnabled: true,
       browserSource: 'isolated',
-      computerExtensionEnabled: true,
     }]);
     assert.deepStrictEqual(state.calls, [
       'get-settings',
@@ -248,13 +249,16 @@ async function run(): Promise<void> {
     });
     const coordinator = new SettingsMutationCoordinator(state.ports);
     const blocked = coordinator.mutate({ browserExtensionEnabled: true });
+    await assert.rejects(
+      coordinator.mutate({ browserExtensionEnabled: false }),
+      { code: 'PLUGIN_SETTINGS_BUSY', status: 409 },
+    );
     const independent = coordinator.mutate({ appearance: 'dark' });
     assert.deepStrictEqual(await independent, {
       success: true,
       settings: {
+        ...defaultBrowserComputerSettings,
         browserExtensionEnabled: false,
-        browserSource: 'managed',
-        computerExtensionEnabled: false,
         appearance: 'dark',
       },
     });
@@ -268,7 +272,12 @@ async function run(): Promise<void> {
   }
 
   {
-    const state = harness();
+    const state = harness({
+      async probeComputer() {
+        state.calls.push('probe-computer');
+        return { dockerAvailable: true, imageReady: false };
+      },
+    }, { browserExtensionEnabled: true, browserSource: 'isolated', computerExtensionEnabled: true });
     await withServer(state.ports, async baseUrl => {
       const response = await fetch(`${baseUrl}/api/settings`, {
         method: 'POST',
@@ -279,14 +288,53 @@ async function run(): Promise<void> {
       assert.deepStrictEqual(await response.json(), {
         success: true,
         settings: {
-          browserExtensionEnabled: false,
-          browserSource: 'managed',
-          computerExtensionEnabled: false,
+          ...defaultBrowserComputerSettings,
+          browserExtensionEnabled: true,
+          browserSource: 'isolated',
+          computerExtensionEnabled: true,
           appearance: 'dark',
         },
       });
-      assert.strictEqual(state.calls.at(-1), 'publish-metadata');
+      assert.deepStrictEqual(state.patches, [{ appearance: 'dark' }]);
+      assert.deepStrictEqual(state.calls, ['get-settings', 'commit', 'get-settings', 'publish-metadata']);
     });
+  }
+
+  {
+    const state = harness({}, { browserExtensionEnabled: true, browserSource: 'isolated', computerExtensionEnabled: true });
+    const coordinator = new SettingsMutationCoordinator(state.ports);
+    await assert.rejects(coordinator.mutate({ computerExtensionEnabled: false }), {
+      code: 'COMPUTER_REQUIRED_BY_BROWSER', status: 409,
+    });
+    assert.deepStrictEqual(state.calls, ['get-settings']);
+
+    state.calls.length = 0;
+    await coordinator.mutate({ computerExtensionEnabled: true, browserSource: 'isolated', language: 'zh' });
+    assert.deepStrictEqual(state.calls, ['get-settings', 'commit', 'get-settings']);
+
+    state.calls.length = 0;
+    await coordinator.mutate({ browserExtensionEnabled: false, computerExtensionEnabled: false });
+    assert.deepStrictEqual(state.calls, [
+      'get-settings', 'stop-browsers', 'stop-computers', 'commit',
+      'refresh-browser', 'refresh-computer', 'get-settings',
+    ]);
+  }
+
+  {
+    const state = harness({
+      async probeComputer() {
+        state.calls.push('probe-computer');
+        return { dockerAvailable: true, imageReady: false };
+      },
+    }, { browserExtensionEnabled: true, browserSource: 'system' });
+    const coordinator = new SettingsMutationCoordinator(state.ports);
+    await assert.rejects(coordinator.mutate({ browserSource: 'isolated', appearance: 'paper' }), {
+      code: 'COMPUTER_IMAGE_NOT_READY', status: 400,
+    });
+    assert.deepStrictEqual(state.calls, ['get-settings', 'probe-browser:isolated', 'probe-computer']);
+    assert.deepStrictEqual(state.patches, []);
+    await coordinator.mutate({ browserExtensionEnabled: false });
+    assert.strictEqual(state.settings().browserExtensionEnabled, false);
   }
 
   {
