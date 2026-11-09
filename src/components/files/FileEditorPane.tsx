@@ -507,6 +507,7 @@ export function FileEditorPane({
     openFile,
     disabled: !canShowBlame,
     onRevealLine: revealBlameLine,
+    mismatchMessage: copy.blameFileChanged,
   })
 
   const {

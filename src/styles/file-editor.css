@@ -1031,6 +1031,43 @@ body.code-mode .code-file-editor-fallback-textarea {
   object-fit: contain;
 }
 
+.code-file-editor-problems {
+  flex: 0 1 auto;
+  max-height: 30%;
+  overflow: auto;
+  background: var(--code-bg-muted);
+  color: var(--code-text);
+  font-size: 12px;
+}
+
+.code-file-editor-problems ul {
+  margin: 0;
+  padding: 4px 12px 8px 28px;
+  overflow-wrap: anywhere;
+}
+
+.code-file-editor-problems li + li {
+  margin-top: 4px;
+}
+
+.code-file-editor-problems summary {
+  cursor: pointer;
+}
+
+.code-file-problems-chevron {
+  width: 12px;
+  height: 12px;
+}
+
+.code-file-editor-problems[open] .code-file-problems-chevron {
+  transform: rotate(90deg);
+}
+
+.code-file-editor-problems summary:focus-visible {
+  outline: 1px solid var(--code-focus-ring);
+  outline-offset: -1px;
+}
+
 .code-file-editor-statusbar {
   min-height: 22px;
   flex: 0 0 auto;

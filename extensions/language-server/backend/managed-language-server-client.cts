@@ -142,7 +142,12 @@ function hoverContents(value: unknown): string[] {
     if (typeof item === 'string') return [item];
     const record = recordValue(item);
     if (typeof record.value === 'string') {
-      if (typeof record.language === 'string') return [`\`\`\`${record.language}\n${record.value}\n\`\`\``];
+      if (record.kind === 'plaintext' || typeof record.language === 'string') {
+        const backticks: string[] = record.value.match(/`+/g) || [];
+        const fence = '`'.repeat(backticks.reduce((length, run) => Math.max(length, run.length + 1), 3));
+        const language = typeof record.language === 'string' && /^[\w+-]+$/.test(record.language) ? record.language : '';
+        return [`${fence}${language}\n${record.value}\n${fence}`];
+      }
       return [record.value];
     }
     return [];
@@ -353,7 +358,7 @@ class ManagedLanguageServerClient {
         capabilities: {
           textDocument: {
             synchronization: { didSave: true },
-            hover: {},
+            hover: { contentFormat: ['markdown', 'plaintext'] },
             definition: { linkSupport: true },
             references: {},
             implementation: { linkSupport: true },

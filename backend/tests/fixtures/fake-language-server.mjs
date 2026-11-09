@@ -1,6 +1,7 @@
 let buffer = Buffer.alloc(0)
 let rootUri = ''
 let refreshSupported = false
+let hoverFormat
 
 function send(message) {
   const body = Buffer.from(JSON.stringify(message))
@@ -28,6 +29,7 @@ function handle(message) {
   if (!method) return
   if (method === 'initialize') {
     rootUri = params.rootUri
+    hoverFormat = params.capabilities?.textDocument?.hover?.contentFormat?.[0]
     refreshSupported = params.capabilities?.workspace?.semanticTokens?.refreshSupport === true
       && params.capabilities?.workspace?.inlayHint?.refreshSupport === true
     send({
@@ -107,7 +109,9 @@ function handle(message) {
   if (id === undefined) return
   const uri = params.textDocument?.uri || `${rootUri}/main.fake`
   if (method === 'textDocument/hover') {
-    reply(id, { contents: { kind: 'markdown', value: '**fake hover**' } })
+    reply(id, { contents: hoverFormat === 'markdown' && params.position?.line !== 2
+      ? { kind: 'markdown', value: '**fake hover**' }
+      : { kind: 'plaintext', value: '→ void\nParameters:\n  bool null\n```' } })
     return
   }
   if (['textDocument/definition', 'textDocument/references', 'textDocument/implementation'].includes(method)) {

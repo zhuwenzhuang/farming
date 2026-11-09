@@ -22,7 +22,7 @@ function repository(root: string) {
     '  }', '}', '',
   ].join('\n'))
   for (const args of [['init'], ['config', 'core.hooksPath', '/dev/null'], ['config', 'user.email', 'review@example.test'], ['config', 'user.name', 'First Author'], ['add', '.'], ['commit', '-m', 'Seed blame fixture']]) {
-    execFileSync('git', args, { cwd: directory, stdio: 'ignore' })
+    execFileSync('git', args, { cwd: directory, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: '2019-04-02T12:00:00Z' } })
   }
   fs.writeFileSync(path.join(directory, 'a.txt'), 'first line\nchanged second line\nthird line\n')
   execFileSync('git', ['-c', 'user.name=Second Author', 'commit', '-am', 'Change second line'], { cwd: directory, stdio: 'ignore' })
@@ -236,13 +236,42 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
   })
 
   test(`blame annotations, detail dismissal, and right-click hiding in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
-    await openFile(page, repository(workspaceRoot))
+    const directory = repository(workspaceRoot)
+    const file = path.join(directory, 'a.txt')
+    for (const year of [2020, 2022, 2024]) {
+      fs.appendFileSync(file, `added in ${year}\n`)
+      execFileSync('git', ['commit', '-am', `Add line in ${year}`], {
+        cwd: directory, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: `${year}-04-02T12:00:00Z` },
+      })
+    }
+    fs.appendFileSync(file, 'local edit\n')
+    await openFile(page, directory)
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
     await annotate(page)
     const annotations = page.locator('.code-file-inline-blame')
-    await expect(annotations).toHaveCount(3)
+    await expect(annotations).toHaveCount(7)
     await expect(annotations.nth(0)).toContainText('First Author')
     await expect(annotations.nth(1)).toContainText('Second Author')
+    await expect(annotations.nth(0)).toHaveAttribute('data-blame-age', '1')
+    await expect(annotations.nth(1)).toHaveAttribute('data-blame-age', '5')
+    await page.mouse.move(0, 0)
+    const shades = await annotations.evaluateAll(rows => {
+      const ctx = document.createElement('canvas').getContext('2d')!
+      return rows.map(row => {
+        ctx.fillStyle = getComputedStyle(row).backgroundColor
+        ctx.fillRect(0, 0, 1, 1)
+        const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+        return r * 0.2126 + g * 0.7152 + b * 0.0722
+      })
+    })
+    expect(shades[1]).toBeLessThan(shades[0])
+    expect(shades[2]).toBe(shades[0])
+    expect(shades[3]).toBeLessThan(shades[0])
+    expect(shades[4]).toBeLessThan(shades[3])
+    expect(shades[5]).toBeLessThan(shades[4])
+    expect(shades[1]).toBeLessThan(shades[5])
+    await expect(annotations.nth(6)).toHaveAttribute('data-blame-age', 'uncommitted')
+    await page.getByTestId('code-file-editor').screenshot({ path: testInfo.outputPath(`blame-age-${appearance}.png`) })
     await annotations.nth(1).click()
     const detail = page.getByTestId('code-file-blame-detail')
     await expect(detail).toContainText('Change second line')
@@ -268,7 +297,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await menu.getByRole('menuitem', { name: 'Hide Blame' }).click()
     await expect(annotations).toHaveCount(0)
     await annotate(page)
-    await expect(annotations).toHaveCount(3)
+    await expect(annotations).toHaveCount(7)
     await (await gutterMenu(page)).getByRole('menuitem', { name: 'Hide Blame' }).click()
     await expect(annotations).toHaveCount(0)
   })
@@ -453,6 +482,40 @@ test('blame failure stays visible, retries, pauses for drafts, and refreshes aft
   await expect(state).toContainText('not tracked by git')
   await (await gutterMenu(page)).getByRole('menuitem', { name: 'Hide Blame' }).click()
   await expect(state).toHaveCount(0)
+})
+
+test('returning to a tab restores blame before revalidation and updates after a commit rewrite', async ({ page, workspaceRoot }) => {
+  const directory = repository(workspaceRoot)
+  const held = gate()
+  let confirmed = false
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'blame' || !request.ifSnapshot || request.path !== 'a.txt' || confirmed) return
+    return { onResult: async message => {
+      confirmed = (message.result as { unchanged?: string })?.unchanged === request.ifSnapshot
+      await held.promise
+      return message
+    } }
+  })
+  const tab = (name: string) => page.getByRole('tab').filter({ hasText: name })
+  const second = page.locator('.code-file-inline-blame[data-line-number="2"]')
+  try {
+    await openFile(page, directory)
+    await tab('a.txt').dblclick()
+    await annotate(page)
+    await expect(second).toContainText('Second Author')
+    await selectTreeFile(page, 'b.txt')
+    await expect(second).toContainText('First Author')
+    await tab('a.txt').click()
+    await expect.poll(() => confirmed).toBe(true)
+    await expect(second).toContainText('Second Author')
+    await expect(page.getByTestId('code-file-blame-state')).toHaveCount(0)
+    held.release()
+    await tab('b.txt').click()
+    await expect(second).toContainText('First Author')
+    execFileSync('git', ['commit', '--amend', '--no-edit', '--author', 'Revised Author <revised@example.test>'], { cwd: directory, stdio: 'ignore' })
+    await tab('a.txt').click()
+    await expect(second).toContainText('Revised Author')
+  } finally { held.release() }
 })
 
 test('late blame results cannot undo hide or replace the current file annotations', async ({ page, workspaceRoot }) => {

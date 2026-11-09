@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useState, type MutableRefObject } from 'react'
 import * as monaco from 'monaco-editor'
 import {
   DEFAULT_BLAME_LABEL_WIDTH,
+  workspaceBlameAgeLevels,
   workspaceEditorBlameOverlayRows,
   type WorkspaceEditorBlameOverlayRow,
 } from '@/lib/workspace-editor-model'
@@ -10,6 +11,7 @@ import type { WorkspaceFileBlame } from '@/lib/workspace-files'
 type FileEditorBlameLine = WorkspaceFileBlame['lines'][number]
 
 export interface FileEditorBlameOverlayState {
+  ageLevels: ReadonlyMap<number, number>
   viewport: { left: number; top: number; width: number; height: number; stickyHeight: number }
   left: number
   width: number
@@ -36,7 +38,8 @@ export function useFileEditorBlameOverlayController({
   editorRef,
   disabled,
 }: UseFileEditorBlameOverlayControllerOptions) {
-  const [blameOverlay, setBlameOverlay] = useState<FileEditorBlameOverlayState>({
+  const ageLevels = useMemo(() => workspaceBlameAgeLevels(blame?.lines ?? []), [blame])
+  const [blameOverlay, setBlameOverlay] = useState<Omit<FileEditorBlameOverlayState, 'ageLevels'>>({
     viewport: { left: 0, top: 0, width: 0, height: 0, stickyHeight: 0 },
     left: 0,
     width: DEFAULT_BLAME_LABEL_WIDTH,
@@ -136,6 +139,6 @@ export function useFileEditorBlameOverlayController({
   }, [blameOpen, disabled, editorHostRef, editorRef, refreshBlameOverlay])
 
   return {
-    blameOverlay,
+    blameOverlay: { ...blameOverlay, ageLevels },
   }
 }

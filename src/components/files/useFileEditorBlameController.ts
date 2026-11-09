@@ -23,8 +23,9 @@ interface BlameDetailState {
 interface UseFileEditorBlameControllerOptions {
   openFile: OpenWorkspaceFile
   disabled: boolean
+  mismatchMessage: string
   onRevealLine: (lineNumber: number, options?: { focusEditor?: boolean }) => void
-  snapshot?: { revision?: string; content: string; mismatchMessage: string }
+  snapshot?: { revision?: string; content: string }
 }
 
 function isPermanentBlameFailure(error: unknown) {
@@ -34,17 +35,21 @@ function isPermanentBlameFailure(error: unknown) {
 export function useFileEditorBlameController({
   openFile,
   disabled,
+  mismatchMessage,
   onRevealLine,
   snapshot,
 }: UseFileEditorBlameControllerOptions) {
-  const currentOpenFileKey = `${openFileKey(openFile)}\u0000${snapshot?.revision ?? ''}`
+  const currentOpenFileKey = `${openFile.agentId}\u0000${openFileKey(openFile)}\u0000${snapshot?.revision ?? ''}`
   const snapshotKey = `${currentOpenFileKey}\u0000${openFile.file.sha1 ?? ''}`
   const blameRequestFenceRef = useRef(new RequestOwnershipFence(snapshotKey))
   const blameCapabilityRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
   const blameAbortRef = useRef<AbortController | null>(null)
   const [blameOpen, setBlameOpen] = useState(false)
   const [blameLoading, setBlameLoading] = useState(false)
-  const [blame, setBlame] = useState<WorkspaceFileBlame | null>(null)
+  const cache = useRef(new Map<string, WorkspaceFileBlame>())
+  const [loaded, setLoaded] = useState<{ key: string; result: WorkspaceFileBlame } | null>(null)
+  const blame = blameOpen && !disabled && !openFile.dirty
+    ? (loaded?.key === snapshotKey ? loaded.result : cache.current.get(snapshotKey)) ?? null : null
   const [blameError, setBlameError] = useState<string | null>(null)
   const [blameCapability, setBlameCapability] = useState<BlameCapability>('unknown')
   const [blameDetail, setBlameDetail] = useState<BlameDetailState | null>(null)
@@ -77,32 +82,47 @@ export function useFileEditorBlameController({
     blameAbortRef.current?.abort()
     const controller = new AbortController()
     blameAbortRef.current = controller
-    setBlame(null)
+    const previous = cache.current.get(snapshotKey)
     setBlameDetail(null)
-    setBlameLoading(true)
+    setBlameLoading(!previous)
     setBlameError(null)
     try {
-      const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path, snapshot?.revision, controller.signal)
+      const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path, snapshot?.revision, controller.signal, previous)
       if (!lease.isCurrent()) return null
-      if (snapshot && nextBlame.isGitRepo) {
-        const lines = snapshot.content === '' ? [] : snapshot.content.replace(/\n$/, '').split('\n')
+      if (nextBlame !== previous && nextBlame.isGitRepo) {
+        const content = snapshot?.content ?? openFile.file.content
+        const lines = content === '' ? [] : content.replace(/\n$/, '').split('\n')
         if (lines.length !== nextBlame.lines.length || nextBlame.lines.some((line, index) => (
           line.lineNumber !== index + 1 || line.content.replace(/\r$/, '') !== lines[index]?.replace(/\r$/, '')
-        ))) throw new Error(snapshot.mismatchMessage)
+        ))) throw new Error(mismatchMessage)
       }
-      setBlame(nextBlame)
+      if (nextBlame.snapshotId && nextBlame.snapshotBytes && nextBlame.isGitRepo && !snapshot) {
+        const entries = cache.current
+        entries.delete(snapshotKey)
+        entries.set(snapshotKey, nextBlame)
+        let bytes = [...entries.values()].reduce((sum, entry) => sum + (entry.snapshotBytes ?? 0), 0)
+        for (const [key, entry] of entries) {
+          if (entries.size <= 8 && bytes <= 32 * 1024 * 1024) break
+          bytes -= entry.snapshotBytes ?? 0
+          entries.delete(key)
+        }
+      }
+      if (nextBlame !== previous) setBlameDetail(null)
+      setLoaded({ key: snapshotKey, result: nextBlame })
       setBlameCapability(nextBlame.isGitRepo && nextBlame.lines.length > 0 ? 'available' : 'unavailable')
       return nextBlame
     } catch (error) {
       if (!lease.isCurrent()) return null
-      setBlame(null)
+      cache.current.delete(snapshotKey)
+      setLoaded(null)
+      setBlameDetail(null)
       setBlameError(error instanceof Error ? error.message : 'Failed to load blame')
       setBlameCapability(isPermanentBlameFailure(error) ? 'unavailable' : 'unknown')
       return null
     } finally {
       if (lease.isCurrent()) setBlameLoading(false)
     }
-  }, [openFile.agentId, openFile.file.path, snapshot])
+  }, [openFile.agentId, openFile.file.path, openFile.file.content, snapshotKey, snapshot, mismatchMessage])
 
   const checkBlameCapability = useCallback(async (): Promise<BlameCapability | null> => {
     if (disabled) {
@@ -128,6 +148,8 @@ export function useFileEditorBlameController({
     if (disabled) return
     if (blameOpen) {
       blameRequestFenceRef.current.invalidate()
+      cache.current.clear()
+      setLoaded(null)
       setBlameOpen(false)
       setBlameLoading(false)
       setBlameDetail(null)
@@ -151,7 +173,6 @@ export function useFileEditorBlameController({
   }, [onRevealLine])
 
   useEffect(() => {
-    setBlame(null)
     setBlameLoading(false)
     setBlameError(null)
     setBlameCapability(disabled ? 'unavailable' : 'unknown')
@@ -160,7 +181,8 @@ export function useFileEditorBlameController({
   useEffect(() => {
     if (!disabled) return
     setBlameOpen(false)
-    setBlame(null)
+    cache.current.clear()
+    setLoaded(null)
     setBlameError(null)
     setBlameCapability('unavailable')
   }, [disabled, openFile.agentId, openFile.file.path])
@@ -170,7 +192,7 @@ export function useFileEditorBlameController({
   useEffect(() => {
     if (!blameOpen) return
     if (openFile.dirty) {
-      setBlame(null)
+      setLoaded(null)
       setBlameDetail(null)
       setBlameLoading(false)
       return

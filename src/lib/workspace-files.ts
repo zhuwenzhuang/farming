@@ -77,6 +77,8 @@ export interface WorkspaceIssueLinkRule {
 }
 
 export interface WorkspaceFileBlame {
+  snapshotId?: string
+  snapshotBytes?: number
   isGitRepo: boolean
   path: string
   commitUrlTemplate?: string
@@ -599,16 +601,21 @@ export async function deleteWorkspaceEntry(
   }, { mutation: true, signal: options.signal })
 }
 
-export async function fetchWorkspaceBlame(rootId: string, filePath: string, revision?: string, signal?: AbortSignal) {
+export async function fetchWorkspaceBlame(rootId: string, filePath: string, revision?: string, signal?: AbortSignal, previous?: WorkspaceFileBlame): Promise<WorkspaceFileBlame> {
   const boundedSignal = AbortSignal.any([AbortSignal.timeout(60_000), ...(signal ? [signal] : [])])
   return retryWorkspaceSnapshotRead(async () => {
     const lines: WorkspaceFileBlameLine[] = []
     let cursor: string | undefined
     let total: number | undefined
     do {
-      const page = await runWorkspaceRequest<WorkspaceBlamePage>({
+      const page = await runWorkspaceRequest<WorkspaceBlamePage | { unchanged: string }>({
         operation: 'blame', rootId, path: filePath, ...(revision ? { revision } : {}), ...(cursor ? { cursor } : {}),
+        ...(!cursor && previous?.snapshotId ? { ifSnapshot: previous.snapshotId } : {}),
       }, { signal: boundedSignal })
+      if ('unchanged' in page) {
+        if (!cursor && previous?.snapshotId && page.unchanged === previous.snapshotId) return previous
+        throw new Error('Invalid blame snapshot confirmation')
+      }
       const pageLines = unpackWorkspaceBlameLines(page)
       if (!Number.isSafeInteger(page.total) || page.total < 0 || (total !== undefined && total !== page.total)
         || (page.nextCursor && (!pageLines.length || page.nextCursor === cursor))) throw new Error('Invalid blame page')
@@ -618,7 +625,8 @@ export async function fetchWorkspaceBlame(rootId: string, filePath: string, revi
       cursor = page.nextCursor ?? undefined
       if (!cursor) {
         if (lines.length !== total) throw new Error('Incomplete blame snapshot')
-        return { ...page, lines }
+        const { path, isGitRepo, snapshotId, snapshotBytes, commitUrlTemplate, authorUrlTemplate, issueLinkRules } = page
+        return { path, isGitRepo, snapshotId, snapshotBytes, commitUrlTemplate, authorUrlTemplate, issueLinkRules, lines }
       }
     } while (!boundedSignal.aborted)
     throw boundedSignal.reason

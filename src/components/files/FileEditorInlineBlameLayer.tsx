@@ -10,6 +10,7 @@ import type { CodeCopy } from '../code/copy'
 type WorkspaceFileBlameLine = WorkspaceFileBlame['lines'][number]
 
 interface FileEditorInlineBlameLayerProps {
+  ageLevels: ReadonlyMap<number, number>
   viewport: FileEditorBlameOverlayState['viewport']
   left: number
   width: number
@@ -20,6 +21,7 @@ interface FileEditorInlineBlameLayerProps {
 }
 
 export function FileEditorInlineBlameLayer({
+  ageLevels,
   viewport,
   left,
   width,
@@ -41,6 +43,7 @@ export function FileEditorInlineBlameLayer({
           key={`${line.lineNumber}-${line.commit}-${line.author}`}
           type="button"
           data-line-number={line.lineNumber}
+          data-blame-age={line.uncommitted ? 'uncommitted' : line.authorTime !== null ? ageLevels.get(line.authorTime) : undefined}
           className={`code-file-inline-blame ${line.uncommitted ? 'uncommitted' : ''}`}
           style={{ left, top, width }}
           title={`${line.shortCommit} ${line.author || copy.unknown} ${line.summary}`}

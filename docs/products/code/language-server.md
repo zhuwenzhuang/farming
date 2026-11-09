@@ -67,6 +67,11 @@ Hover. Pointer cancellation also aborts the frontend transport request.
 Explicit navigation actions retain their visible, longer-running request
 semantics.
 
+Hover prefers the server's Markdown layout for signatures and parameter lists.
+Plain-text responses retain literal punctuation, indentation and line breaks.
+The editor's error and warning counts expand to show each current diagnostic
+with its line, column, message and source when available.
+
 Document highlights distinguish textual, read, and write occurrences using
 the server's symbol meaning rather than a plain text search. Semantic tokens
 use the legend returned during static or dynamic LSP capability registration;

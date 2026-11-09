@@ -730,6 +730,7 @@ export interface CodeCopy {
   loadingBlame: string
   blameUnsavedChanges: string
   blameDiffChanged: string
+  blameFileChanged: string
   notGitRepository: string
   noCommittedLines: string
   cursorPosition: (line: number, column: number) => string
@@ -1545,6 +1546,7 @@ const EN_COPY: CodeCopy = {
   loadingBlame: 'Loading blame...',
   blameUnsavedChanges: 'Save or undo changes to refresh blame.',
   blameDiffChanged: 'The file changed. Reopen File Diff to refresh blame.',
+  blameFileChanged: 'The file changed on disk. Reload the file to refresh blame.',
   notGitRepository: 'Not a git repository.',
   noCommittedLines: 'No committed lines.',
   cursorPosition: (line, column) => `Ln ${line}, Col ${column}`,
@@ -2395,6 +2397,7 @@ const ZH_COPY: CodeCopy = {
   loadingBlame: '正在加载 Blame...',
   blameUnsavedChanges: '保存或撤销修改后刷新 Blame。',
   blameDiffChanged: '文件已变化，请重新打开文件 Diff 后查看 Blame。',
+  blameFileChanged: '磁盘上的文件已变化，请重新加载文件以刷新 Blame。',
   notGitRepository: '不是 Git 仓库。',
   noCommittedLines: '没有已提交行。',
   cursorPosition: (line, column) => `第 ${line} 行，第 ${column} 列`,

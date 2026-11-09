@@ -154,6 +154,7 @@ function workspaceRequest(value) {
                 && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries');
         case 'blame':
             return rootPath() && boundedStringField(value, 'cursor', 128, true)
+                && boundedStringField(value, 'ifSnapshot', 36, true)
                 && (value.revision === undefined || (typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)));
         case 'blame-capability':
             return rootPath() && (value.revision === undefined || (typeof value.revision === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.revision)));

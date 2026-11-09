@@ -1357,8 +1357,20 @@ body.code-mode .code-file-change-group-toggle {
   text-overflow: ellipsis;
 }
 
+[data-blame-age="1"] { --blame-depth: 0%; }
+[data-blame-age="2"] { --blame-depth: 25%; }
+[data-blame-age="3"] { --blame-depth: 50%; }
+[data-blame-age="4"] { --blame-depth: 75%; }
+[data-blame-age="5"] { --blame-depth: 100%; }
+
+.code-file-inline-blame[data-blame-age],
+.code-file-touch-toolbar .code-file-touch-blame[data-blame-age] {
+  background: color-mix(in srgb, var(--code-blame-newest) var(--blame-depth, 0%), var(--code-blame-oldest));
+  color: var(--code-text);
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .code-file-inline-blame:hover {
+  .code-file-inline-blame[data-blame-age]:hover {
     background: var(--code-bg-hover);
     color: var(--code-text);
     outline: 0;
@@ -1368,10 +1380,12 @@ body.code-mode .code-file-change-group-toggle {
 .code-file-inline-blame:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
-  outline: 0;
+  outline: 1px solid var(--code-focus-ring);
+  outline-offset: -1px;
 }
 
-.code-file-inline-blame.uncommitted {
+.code-file-inline-blame.uncommitted,
+.code-file-touch-toolbar .code-file-touch-blame[data-blame-age="uncommitted"] {
   background: var(--code-warning-soft);
   color: var(--code-warning);
 }

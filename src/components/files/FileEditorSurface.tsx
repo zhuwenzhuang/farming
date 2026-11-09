@@ -1,7 +1,7 @@
 import type { MouseEvent, RefObject } from 'react'
 import type * as monaco from 'monaco-editor'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
-import { RefreshGlyph } from '@/components/IconGlyphs'
+import { ChevronRightGlyph, RefreshGlyph } from '@/components/IconGlyphs'
 import {
   workspaceEditorModelKey,
   workspaceEditorSurfaceState,
@@ -195,6 +195,7 @@ export function FileEditorSurface({
           activeTabDomId={activeTabDomId}
           copy={copy}
           lineNumber={cursorPosition.lineNumber}
+          ageLevels={blameOverlay.ageLevels}
           blameLine={blameOpen ? blame?.lines.find(line => line.lineNumber === cursorPosition.lineNumber) : undefined}
           onLineContextMenu={onBlameContextMenu}
           onShowBlameDetail={onShowBlameDetail}
@@ -259,6 +260,7 @@ export function FileEditorSurface({
       )}
       {surface.showEditorOverlays && !touchSource && blameOpen && blame?.isGitRepo && (
         <FileEditorInlineBlameLayer
+          ageLevels={blameOverlay.ageLevels}
           viewport={blameOverlay.viewport}
           left={blameOverlay.left}
           width={blameOverlay.width}
@@ -316,26 +318,33 @@ export function FileEditorSurface({
         />
       )}
       {showEditorStatusbar && (
-        <div className="code-file-editor-statusbar" data-testid="code-file-editor-statusbar">
-          <div className="code-file-editor-statusbar-primary">
-            <span
-              className="code-file-editor-language"
-              data-testid="code-file-editor-language"
-              title={modelStatus.languageId}
-            >
-              {modelStatus.languageLabel}
+        <details key={previewIdentity} className="code-file-editor-problems" data-testid="code-file-editor-statusbar">
+          <summary className="code-file-editor-statusbar">
+            <span className="code-file-editor-statusbar-primary">
+              <span className="code-file-editor-language" data-testid="code-file-editor-language" title={modelStatus.languageId}>
+                {modelStatus.languageLabel}
+              </span>
+              <span className="code-file-editor-diagnostics" data-testid="code-file-editor-diagnostics">
+                <ChevronRightGlyph className="code-file-problems-chevron" />
+                {modelStatus.errors > 0 ? (
+                  <span className="code-file-editor-problem error">{copy.editorErrorCount(modelStatus.errors)}</span>
+                ) : null}
+                {modelStatus.warnings > 0 ? (
+                  <span className="code-file-editor-problem warning">{copy.editorWarningCount(modelStatus.warnings)}</span>
+                ) : null}
+              </span>
             </span>
-            <span className="code-file-editor-diagnostics" data-testid="code-file-editor-diagnostics">
-              {modelStatus.errors > 0 ? (
-                <span className="code-file-editor-problem error">{copy.editorErrorCount(modelStatus.errors)}</span>
-              ) : null}
-              {modelStatus.warnings > 0 ? (
-                <span className="code-file-editor-problem warning">{copy.editorWarningCount(modelStatus.warnings)}</span>
-              ) : null}
-            </span>
-          </div>
-          <span className="code-file-editor-cursor-position">{copy.cursorPosition(cursorPosition.lineNumber, cursorPosition.column)}</span>
-        </div>
+            <span className="code-file-editor-cursor-position">{copy.cursorPosition(cursorPosition.lineNumber, cursorPosition.column)}</span>
+          </summary>
+          <ul>
+            {modelStatus.problems.map((problem, index) => (
+              <li key={index}>
+                <strong>{copy.cursorPosition(problem.startLineNumber, problem.startColumn)}</strong>
+                {' '}{problem.message}{problem.source ? ` (${problem.source})` : ''}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </>
   )

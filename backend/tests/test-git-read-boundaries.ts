@@ -243,8 +243,12 @@ async function run() {
     await fs.writeFile(path.join(root, 'big.txt'), bigContent); await commit(root);
     const first = await files.blamePage(root, 'big.txt');
     assert.ok(first.nextCursor); assert.equal(first.total, 6000);
+    assert.deepEqual(await files.blamePage(root, 'big.txt', undefined, undefined, first.snapshotId), { unchanged: first.snapshotId });
     assert.ok(Buffer.byteLength(JSON.stringify(first)) < 1024 * 1024 - 4096);
     await fs.writeFile(path.join(root, 'big.txt'), 'changed while paging\n');
+    const changed = await files.blamePage(root, 'big.txt', undefined, undefined, first.snapshotId);
+    assert.notEqual(changed.snapshotId, first.snapshotId);
+    assert.equal(unpackWorkspaceBlameLines(changed)[0].content, 'changed while paging');
     const lines = unpackWorkspaceBlameLines(first);
     let wireBytes = Buffer.byteLength(JSON.stringify(first));
     let cursor = first.nextCursor;

@@ -116,6 +116,9 @@ original line coordinates and content. The browser restores per-line annotations
 scoped to the authorized root, file, and revision; the client assembles a complete
 snapshot and cancels obsolete reads. Explicit snapshot expiry permits one full
 read restart. It does not permit replaying mutations or raising the frame limit.
+On revisiting a file, the browser may present its snapshot ID. A matching live
+snapshot returns a compact confirmation after checking its source version.
+An expired, evicted or changed snapshot returns fresh pages.
 
 HTTP transfer responses are still authorized against the same `rootId`, path,
 access mode, and content version. A Viewer does not become a second Workspace

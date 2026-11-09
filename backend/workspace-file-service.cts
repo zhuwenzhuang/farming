@@ -29,7 +29,8 @@ const DEFAULT_GIT_CHANGES_MAX_BUFFER = 8 * 1024 * 1024;
 const DEFAULT_GIT_STATUS_CACHE_TTL_MS = 30000;
 const DEFAULT_GIT_STATUS_TIMEOUT_MS = 15000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 3000;
-const DEFAULT_BLAME_TIMEOUT_MS = 5000;
+// Leave time within the 60 s browser budget for snapshot packing and transport.
+const DEFAULT_BLAME_TIMEOUT_MS = 45_000;
 const DEFAULT_BLAME_MAX_BUFFER = 16 * 1024 * 1024;
 const DEFAULT_ISSUE_NAVIGATION_MAX_SIZE = 256 * 1024;
 const DEFAULT_DIFF_TIMEOUT_MS = 5000;
@@ -1682,7 +1683,7 @@ class WorkspaceFileService {
     root: string; path: string; target: string; authority: string; total: number;
     timer: ReturnType<typeof setTimeout>;
   }>();
-  blameSnapshots = new Map<string, { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
+  blameSnapshots = new Map<string, { root: string; path: string; revision?: string; version?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
   activeChangeReads = new Map<string, {
     sequence: number; readers: number;
     pending: Map<ChangeReadScope, { sequence: number; promise: Promise<unknown> }>;
@@ -4372,14 +4373,15 @@ class WorkspaceFileService {
 
   // Capture once, then transfer immutable pages. Every continuation revalidates
   // its authorized file identity; live HEAD/content changes cannot mix pages.
-  async blamePage(workspaceRoot: unknown, userPath: unknown, revision?: string, cursor?: string) {
-    const { root, relativePath } = await this.resolvePath(workspaceRoot, userPath, { allowMissing: true });
+  async blamePage(workspaceRoot: unknown, userPath: unknown, revisionValue?: string, cursor?: string, ifSnapshot?: string, signal?: AbortSignal) {
+    const revision = revisionValue === undefined ? undefined : normalizeGitObjectId(revisionValue, 'revision');
+    const { root, relativePath, actualRelativePath, target } = await this.resolvePath(workspaceRoot, userPath, { allowMissing: Boolean(cursor || revision) });
     for (const [id, snapshot] of this.blameSnapshots) {
       if (snapshot.expiresAt <= Date.now()) this.blameSnapshots.delete(id);
     }
     let id: string;
     let offset = 0;
-    let snapshot: { root: string; path: string; revision?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> };
+    let snapshot: NonNullable<ReturnType<typeof this.blameSnapshots.get>>;
     if (cursor) {
       const match = /^([a-f0-9-]{36}):(\d+)$/.exec(cursor);
       if (!match || !Number.isSafeInteger(Number(match[2]))) throw new WorkspaceFileError('Invalid blame cursor', 400);
@@ -4390,7 +4392,14 @@ class WorkspaceFileService {
       }
       snapshot = cached;
     } else {
-      const result = await this.blame(root, relativePath, revision);
+      const owner = await repositoryForFile(this, root, actualRelativePath || relativePath);
+      const version = await this.blameSourceVersion(owner, target, revision);
+      const previous = ifSnapshot && this.blameSnapshots.get(ifSnapshot);
+      if (previous && previous.root === root && previous.path === relativePath && previous.revision === revision
+        && version && previous.version === version) return { unchanged: ifSnapshot };
+      const result = await this.captureBlame(owner, relativePath, target, revision, signal);
+      const stableVersion = version && version === await this.blameSourceVersion(owner, target, revision) ? version : undefined;
+      signal?.throwIfAborted();
       const bytes = Buffer.byteLength(JSON.stringify(result));
       if (bytes > 32 * 1024 * 1024) throw new WorkspaceFileError('Blame snapshot exceeds the 32 MiB limit', 413);
       let retainedBytes = [...this.blameSnapshots.values()].reduce((sum, entry) => sum + entry.bytes, 0);
@@ -4400,7 +4409,7 @@ class WorkspaceFileService {
         this.blameSnapshots.delete(oldest);
       }
       id = crypto.randomUUID();
-      snapshot = { root, path: relativePath, revision, result, bytes, expiresAt: Date.now() + 60_000 };
+      snapshot = { root, path: relativePath, revision, version: stableVersion, result, bytes, expiresAt: Date.now() + 60_000 };
       this.blameSnapshots.set(id, snapshot);
     }
     const { lines, ...metadata } = snapshot.result;
@@ -4411,13 +4420,32 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('A blame line or its metadata exceeds the inline transfer limit', 413);
     }
     const next = offset + count;
-    return { ...metadata, commits, ranges, total: lines.length, nextCursor: next < lines.length ? `${id}:${next}` : null };
+    return { ...metadata, snapshotId: id, snapshotBytes: snapshot.bytes, commits, ranges, total: lines.length, nextCursor: next < lines.length ? `${id}:${next}` : null };
   }
 
-  async blame(workspaceRoot: unknown, userPath: unknown, revisionValue?: string) {
+  private async blameSourceVersion(owner: { root: string; path: string }, target: string, revision?: string) {
+    if (revision) return JSON.stringify([owner.root, owner.path, revision]);
+    try {
+      const { stdout } = await this.execFile(this.gitPath, ['rev-parse', 'HEAD', '--git-path', 'index'], {
+        cwd: owner.root, timeout: 2000, maxBuffer: 8192,
+      });
+      const [head, indexPath] = String(stdout).trimEnd().split('\n');
+      const [file, index] = await Promise.all([fsp.stat(target), fsp.stat(path.resolve(owner.root, indexPath))]);
+      return JSON.stringify([owner.root, owner.path, head, workspaceEntryVersion(file), workspaceEntryVersion(index)]);
+    } catch {
+      // A missing index, file or HEAD cannot confirm a saved snapshot.
+      return undefined;
+    }
+  }
+
+  async blame(workspaceRoot: unknown, userPath: unknown, revisionValue?: string, signal?: AbortSignal) {
     const revision = revisionValue === undefined ? undefined : normalizeGitObjectId(revisionValue, 'revision');
     const { root: projectRoot, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath, { allowMissing: Boolean(revision) });
     const owner = await repositoryForFile(this, projectRoot, actualRelativePath || relativePath);
+    return this.captureBlame(owner, relativePath, target, revision, signal);
+  }
+
+  private async captureBlame(owner: { root: string; path: string }, relativePath: string, target: string, revision?: string, signal?: AbortSignal) {
     const root = owner.root;
     if (revision) {
       const { stdout } = await this.execFile(this.gitPath, ['cat-file', '-s', `${revision}:${owner.path}`], {
@@ -4444,7 +4472,7 @@ class WorkspaceFileService {
         ...(revision ? [revision] : []),
         '--',
         owner.path,
-      ], { cwd: root, timeout: this.blameTimeoutMs, maxBuffer: DEFAULT_BLAME_MAX_BUFFER });
+      ], { cwd: root, timeout: this.blameTimeoutMs, maxBuffer: DEFAULT_BLAME_MAX_BUFFER, signal });
       const [remote, issueLinkRules] = await Promise.all([
         this.execFile(this.gitPath, [
           'config', '--get', 'remote.origin.url',

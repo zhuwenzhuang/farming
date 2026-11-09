@@ -57,6 +57,10 @@ Hover 是偶发的 Pointer Interaction，因此只展示已经完成的 Semantic
 创建空 Hover 或 Loading Hover 之前结束。Pointer Cancellation 同时中止 Frontend Transport
 Request。Definition 等显式导航操作继续保留可见、允许更长时间运行的 Request Semantics。
 
+Hover 优先使用语言服务器提供的 Markdown 排版展示签名和参数列表。纯文本响应保留标点、
+缩进与换行。
+点击编辑器的错误和警告计数可展开当前诊断，查看行列位置、消息及可用的来源。
+
 Document Highlight 使用 Server 返回的符号语义区分文本、读取与写入位置，不退化成纯文本搜索。
 Semantic Tokens 使用 LSP 静态或动态 Capability Registration 返回的 Legend；Frontend 在应用
 Token Stream 前将该 Legend 映射到稳定的 Monaco Legend。Server 私有且未知的 Token Type 使用

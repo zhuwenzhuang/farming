@@ -318,6 +318,8 @@ async function run() {
 
     const hover = await manager.request({ ...base, method: 'hover' });
     assert.deepStrictEqual(hover.result, [{ contents: ['**fake hover**'] }]);
+    const plainHover = await manager.request({ ...base, method: 'hover', position: { line: 2, character: 0 } });
+    assert.deepStrictEqual(plainHover.result, [{ contents: ['````\n→ void\nParameters:\n  bool null\n```\n````'] }]);
 
     const documentHighlights = await manager.request({ ...base, method: 'documentHighlights' });
     assert.deepStrictEqual(documentHighlights.result, [{

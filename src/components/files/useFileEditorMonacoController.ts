@@ -57,6 +57,7 @@ export interface FileEditorModelStatus {
   languageLabel: string
   errors: number
   warnings: number
+  problems: monaco.editor.IMarker[]
 }
 
 function modelStatusForEditor(editor: monaco.editor.IStandaloneCodeEditor): FileEditorModelStatus {
@@ -68,6 +69,7 @@ function modelStatusForEditor(editor: monaco.editor.IStandaloneCodeEditor): File
     languageLabel: workspaceEditorLanguageLabel(languageId),
     errors: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Error).length,
     warnings: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Warning).length,
+    problems: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Error || marker.severity === monaco.MarkerSeverity.Warning),
   }
 }
 
@@ -120,6 +122,7 @@ export function useFileEditorMonacoController({
       languageLabel: workspaceEditorLanguageLabel(languageId),
       errors: 0,
       warnings: 0,
+      problems: [],
     }
   })
 
@@ -222,15 +225,7 @@ export function useFileEditorMonacoController({
     applyWorkspaceEditorMonacoTheme(editor)
 
     const updateModelStatus = () => {
-      const next = modelStatusForEditor(editor)
-      setModelStatus(current => (
-        current.languageId === next.languageId
-        && current.languageLabel === next.languageLabel
-        && current.errors === next.errors
-        && current.warnings === next.warnings
-          ? current
-          : next
-      ))
+      setModelStatus(modelStatusForEditor(editor))
     }
     const modelStatusSubscription = editor.onDidChangeModel(updateModelStatus)
     const languageStatusSubscription = monaco.editor.onDidChangeModelLanguage(event => {

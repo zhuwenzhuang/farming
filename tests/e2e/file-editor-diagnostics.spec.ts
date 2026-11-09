@@ -364,7 +364,7 @@ test('renders document highlights, semantic tokens, and inlay hints only for the
   await expect(page.locator('.monaco-editor .view-lines')).toContainText('value:')
 })
 
-test('shows nested, cached, and retryable call/type hierarchy trees for a saved file', async ({ page }) => {
+test('shows nested, cached, and retryable call/type hierarchy trees for a saved file', async ({ page }, testInfo) => {
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'managed-language-server-editor')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
@@ -433,7 +433,7 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
     }
     if (body.method === 'hover') {
       return { result: [{
-            contents: ['**Farming hover**', '`root(): void`'],
+            contents: ['### Farming hover\n\n---\n→ `void`  \nParameters:  \n- `bool flag`'],
             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
           }] }
     }
@@ -540,9 +540,44 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   await expect(page.getByTestId('code-file-editor-language')).toHaveText('TypeScript')
   await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveText('1 warning')
   await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
+  const status = page.getByTestId('code-file-editor-statusbar')
+  const summary = status.locator('summary')
+  await summary.click()
+  await expect(status.locator('li')).toContainText('Ln 1, Col 1')
+  await expect(status.locator('li')).toContainText('saved diagnostic is current')
+  const statusAppearance = await page.locator('body').getAttribute('data-appearance')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await status.screenshot({ path: testInfo.outputPath(`diagnostics-${appearance}.png`) })
+  }
+  await page.locator('body').evaluate((body, value) => {
+    if (value) body.dataset.appearance = value
+    else delete body.dataset.appearance
+  }, statusAppearance)
+  await summary.press('Enter')
+  await expect(status.locator('li')).toBeHidden()
 
   await page.locator('.monaco-editor .view-line').first().hover({ position: { x: 100, y: 8 } })
-  await expect(page.locator('.monaco-hover').filter({ hasText: 'Farming hover' })).toBeVisible()
+  const hover = page.locator('.monaco-hover').filter({ hasText: 'Farming hover' })
+  await expect(hover).toBeVisible()
+  const initialAppearance = await page.locator('body').getAttribute('data-appearance')
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await expect(hover.getByText('bool flag', { exact: true })).toBeVisible()
+    expect(await hover.locator('p').filter({ hasText: 'Parameters:' }).evaluate(p => {
+      const label = [...p.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent?.includes('Parameters:'))
+      const value = p.querySelector('code')
+      if (!label || !value) return false
+      const range = document.createRange()
+      range.selectNodeContents(label)
+      return range.getBoundingClientRect().top >= value.getBoundingClientRect().bottom
+    })).toBe(true)
+    await hover.screenshot({ path: testInfo.outputPath(`signature-hover-${appearance}.png`), animations: 'disabled' })
+  }
+  await page.locator('body').evaluate((body, value) => {
+    if (value) body.dataset.appearance = value
+    else delete body.dataset.appearance
+  }, initialAppearance)
 
   const menu = page.getByTestId('code-editor-context-menu')
   const runEditorAction = async (name: string) => {

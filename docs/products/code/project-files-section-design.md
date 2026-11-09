@@ -193,6 +193,11 @@ relevant inventories, including in-flight captures. Expiry, eviction or restart
 requires refresh, never mixed pages. Concurrent readers may share capture but
 cannot cancel one another's work. A stale read has bounded recovery, then explicit
 Retry. Dirty drafts suspend saved-file blame; superseded reads cannot publish.
+Returning to a clean file restores its last matching annotations while the backend
+checks the snapshot. A changed file, index or HEAD requires a new capture.
+Within each displayed source version, up to five background shades order distinct
+author timestamps from oldest (lightest) to newest (darkest). Uncommitted lines
+keep their own treatment.
 
 Worktree creation starts with a fresh name/source preview and rechecks availability
 at admission. A durable request ID binds source, naming policy and starting commit.

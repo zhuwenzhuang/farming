@@ -56,7 +56,8 @@ export function projectTouchFileSelection(textarea: HTMLTextAreaElement, selecti
 }
 
 export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef, label, activeTabDomId, copy,
-  lineNumber, blameLine, onLineContextMenu, onShowBlameDetail }: {
+  lineNumber, blameLine, ageLevels, onLineContextMenu, onShowBlameDetail }: {
+  ageLevels: ReadonlyMap<number, number>
   value: string
   readOnly: boolean
   editorRef: RefObject<monaco.editor.IStandaloneCodeEditor | null>
@@ -167,6 +168,7 @@ export function FileEditorTouchSource({ value, readOnly, editorRef, textareaRef,
         }}>{copy.line} {lineNumber}</button>
       {blameLine && <button type="button" className="code-content-toolbar-text code-file-touch-blame"
         data-testid="code-file-touch-blame" data-line-number={blameLine.lineNumber}
+        data-blame-age={blameLine.uncommitted ? 'uncommitted' : blameLine.authorTime !== null ? ageLevels.get(blameLine.authorTime) : undefined}
         aria-label={`${copy.gitBlameDetails}: ${copy.line} ${blameLine.lineNumber}`}
         title={`${blameLine.shortCommit} ${blameLine.author || copy.unknown} ${blameLine.summary}`}
         onContextMenu={event => onLineContextMenu(event, blameLine.lineNumber)}

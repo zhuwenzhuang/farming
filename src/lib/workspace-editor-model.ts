@@ -536,13 +536,19 @@ export function workspaceEditorLanguageLabel(
   return alias || WORKSPACE_EDITOR_LANGUAGE_LABELS[languageId] || languageId
 }
 
+const blameDateFormat = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+
 export function formatWorkspaceBlameTime(authorTime: number | null) {
-  if (!authorTime) return ''
-  return new Date(authorTime * 1000).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  return authorTime === null ? '' : blameDateFormat.format(authorTime * 1000)
+}
+
+export function workspaceBlameAgeLevels(lines: readonly { authorTime: number | null; uncommitted: boolean }[]) {
+  const times = new Set<number>()
+  for (const line of lines) {
+    if (!line.uncommitted && line.authorTime !== null) times.add(line.authorTime)
+  }
+  const sorted = [...times].sort((a, b) => a - b)
+  return new Map(sorted.map((time, index) => [time, sorted.length === 1 ? 3 : 1 + Math.round(4 * index / (sorted.length - 1))]))
 }
 
 export function workspaceBlameInlineLabel(line: WorkspaceBlameDisplayLine) {

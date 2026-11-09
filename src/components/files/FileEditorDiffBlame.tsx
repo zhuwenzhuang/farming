@@ -26,8 +26,8 @@ export function FileEditorDiffBlame({ openFile, editor, content, revision, disab
 }) {
   const editorRef = useRef(editor)
   const editorHostRef = useRef(editor.getDomNode())
-  const snapshot = useMemo(() => ({ revision, content, mismatchMessage: copy.blameDiffChanged }), [revision, content, copy.blameDiffChanged])
-  const blame = useFileEditorBlameController({ openFile, disabled, snapshot, onRevealLine: noAction })
+  const snapshot = useMemo(() => ({ revision, content }), [revision, content])
+  const blame = useFileEditorBlameController({ openFile, disabled, snapshot, mismatchMessage: copy.blameDiffChanged, onRevealLine: noAction })
   const menu = useFileEditorContextMenuController({
     scope: `${openFile.agentId}:${openFile.file.path}:${revision ?? 'working'}`,
     active: true,

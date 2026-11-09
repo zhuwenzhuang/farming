@@ -23,6 +23,8 @@ export interface WorkspaceBlameRange {
 }
 
 export interface WorkspaceBlamePage {
+  snapshotId?: string
+  snapshotBytes?: number
   isGitRepo: boolean
   path: string
   commitUrlTemplate?: string
