@@ -14,6 +14,7 @@ import { AcpQuestionContext, AcpTranscriptQuestion } from './acp/AcpTranscriptQu
 import type { AcpPendingElicitation } from '@/types/agent'
 import type { AgentGoal } from '../../../shared/agent-goal'
 import { relatedSessionStatusLabel, relatedSessionHasStatus } from './related-session-status'
+import { TranscriptAgentLink, TranscriptAgentLinks, remarkAgentLinks, useAgentLinkIndex } from './TranscriptAgentLinks'
 import {
   createContext,
   Fragment,
@@ -1144,7 +1145,7 @@ export function AgentTranscriptSubagentPreview({
   const openRelatedSession = useContext(RelatedSessionNavigation)
   const { agentId: parentAgentId } = useContext(TranscriptFileOpenContext)
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
-  const available = relatedSessionHasStatus(transcript.state || '', transcript.stopReason, transcript.error)
+  const available = docked || relatedSessionHasStatus(transcript.state || '', transcript.stopReason, transcript.error)
   const status = relatedSessionStatusLabel(transcript.state || '', copy, transcript.stopReason, transcript.error)
   const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.filter(item => (
     !isAcpProgressUpdate(item) && !isAcpAnswerSegment(item) && item.type !== 'peer-receipt'
@@ -1704,6 +1705,7 @@ function AgentTranscriptCollaborationTimeline({
   const [visibleCount, setVisibleCount] = useState(8)
   const [visibleEvidenceCounts, setVisibleEvidenceCounts] = useState<Record<string, number>>({})
   const activities = useMemo(() => acpCollaborationActivityFeed(processItems), [processItems])
+  const agentLinks = useAgentLinkIndex()
   if (!activities.length) return null
   const hiddenCount = Math.max(0, activities.length - visibleCount)
   return <div className="code-agent-transcript-collaboration" data-testid="code-agent-transcript-collaboration">
@@ -1743,12 +1745,14 @@ function AgentTranscriptCollaborationTimeline({
         {activity.outgoingMessage ? messageOpen ? <AgentTranscriptOutgoingMessage activity={activity} copy={copy}
           recipient={<AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed copy={copy} />}
           open={open} onToggleDetails={toggleDetails} onLoadMessage={onLoadMessage} /> : null :
+        <div className="code-agent-transcript-collaboration-event-line">
+        {agentLinks?.aliases.get(activity.threadId) ? <TranscriptAgentLink sessionId={activity.threadId}>{recipientName}</TranscriptAgentLink> : null}
         <button type="button" className="code-agent-transcript-collaboration-event" data-testid="code-agent-transcript-collaboration-event"
           data-process-item-id={activity.processItemId} aria-expanded={open}
           onClick={toggleDetails}>
           <CollaborationAgentIcon sessionId={activity.threadId} />
           <span className="code-agent-transcript-collaboration-event-detail">
-            <span className="code-agent-transcript-collaboration-agent" title={activity.senderThreadId ? `${activity.senderThreadId} → ${activity.threadId}` : activity.threadId}><AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed={Boolean(activity.senderThreadId && activity.message)} copy={copy} /></span>{' · '}
+            {!agentLinks?.aliases.get(activity.threadId) ? <><span className="code-agent-transcript-collaboration-agent" title={activity.senderThreadId ? `${activity.senderThreadId} → ${activity.threadId}` : activity.threadId}><AgentTranscriptCommunicationRecipient peer={peer || null} fallback={recipientName} directed={Boolean(activity.senderThreadId && activity.message)} copy={copy} /></span>{' · '}</> : null}
             <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>{collaborationActionLabel(activity.action, copy)}</span>
             <span className="code-agent-transcript-collaboration-event-description"><ReactMarkdown
               remarkPlugins={INLINE_REMARK_PLUGINS}
@@ -1757,7 +1761,7 @@ function AgentTranscriptCollaborationTimeline({
           </span>
           {activity.count > 1 ? <span className="code-agent-transcript-collaboration-event-count">{copy.agentTranscriptProcessCount(activity.count)}</span> : <span />}
           <ChevronRightGlyph className="code-agent-transcript-chevron" />
-        </button>}
+        </button></div>}
         {open && (!activity.outgoingMessage || messageOpen) ? <div className="code-agent-transcript-collaboration-evidence" data-testid="code-agent-transcript-collaboration-evidence">
           {peer && peerNavigation?.open ? <button type="button" className="code-agent-transcript-collaboration-earlier"
             data-testid="code-collaboration-open-peer" onClick={() => peerNavigation.open?.(peer.id)}>
@@ -2154,7 +2158,8 @@ function PerformanceObservedTranscriptMarkdown({
   children: string
 }) {
   const phase = richContentPhase(status, stopReason)
-  const remarkPlugins = useMemo<PluggableList>(() => [...TRANSCRIPT_REMARK_PLUGINS, [remarkStreamingContent, { phase }]], [phase])
+  const agentLinks = useAgentLinkIndex()
+  const remarkPlugins = useMemo<PluggableList>(() => [...TRANSCRIPT_REMARK_PLUGINS, [remarkStreamingContent, { phase }], [remarkAgentLinks, agentLinks]], [phase, agentLinks])
   const rehypePlugins = useMemo<PluggableList>(() => [[rehypeGuardInvalidKatex, { pending: phase !== 'settled' }], rehypeKatex, rehypeHighlight], [phase])
   recordPerformanceTestRender(status === 'inProgress'
     ? 'liveTranscriptMarkdown'
@@ -2918,7 +2923,9 @@ function AgentTranscriptTurnView({
       const url = transcriptLocalImageUrl(source, workspaceRoot, agentId) || source
       return <AgentTranscriptMarkdownImage url={url} label={alt || 'Image'} />
     },
-    a: ({ href, children, onClick, ...props }) => {
+    a: ({ href, children, onClick, node, ...props }) => {
+      const id = node?.properties['data-agent-reference']
+      if (typeof id === 'string') return <TranscriptAgentLink sessionId={id}>{children}</TranscriptAgentLink>
       const target = href ? transcriptFileTargetFromHref(href, workspaceRoot) : null
       const imageUrl = href ? transcriptLocalImageUrl(href, workspaceRoot, agentId) : ''
       const external = href ? isExternalTranscriptHref(href) : false
@@ -5007,6 +5014,8 @@ export function AgentTranscriptPane({
   return (
     <TranscriptImagePreviewContext.Provider value={openImagePreview}>
       <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
+      <TranscriptAgentLinks references={transcript?.nativeAgentReferences} epoch={transcript?.parentRuntimeEpoch} agentId={agentId} copy={copy}
+        live={!error && ['idle', 'working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(runtimeState)}>
       <AcpQuestionContext.Provider value={{ agentId, requests: pendingElicitations || [] }}>
       <div
         className={`code-agent-transcript ${wideLayout ? 'wide-layout' : ''} ${stickyTurnPromptEnabled ? 'sticky-turn-enabled' : ''} ${showStickyTurnPrompt ? 'has-sticky-turn' : ''}`}
@@ -5207,6 +5216,7 @@ export function AgentTranscriptPane({
         </div>
       </ContentViewerDialog> : null}
       </AcpQuestionContext.Provider>
+      </TranscriptAgentLinks>
       </TranscriptFileOpenContext.Provider>
     </TranscriptImagePreviewContext.Provider>
   )

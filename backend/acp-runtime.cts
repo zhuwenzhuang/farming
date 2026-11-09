@@ -4944,6 +4944,19 @@ class AcpRuntime extends EventEmitter {
     return this.getSession(agentId, options);
   }
 
+  private nativeChatReferences(binding: AcpBinding) {
+    const references = [];
+    for (const [sessionId, child] of binding.subagentStates) {
+      const association = child.nativeSubagent;
+      if (!association || (!association.capabilities?.history && !child.entries.length)) continue;
+      const metadata = association._meta?.farming;
+      const name = metadata && typeof metadata === 'object' && 'name' in metadata && typeof metadata.name === 'string'
+        ? metadata.name : '';
+      references.push({ sessionId, title: association.title || sessionId, name, state: association.state?.state || 'unknown' });
+    }
+    return { nativeAgentReferences: references, parentRuntimeEpoch: binding.capabilityRuntimeEpoch };
+  }
+
   getTranscriptSession(agentId: string, options: TranscriptSliceOptions = {}) {
     const binding = this.requireBinding(agentId);
     const slice = binding.sessionState.transcriptSlice(options);
@@ -4966,6 +4979,7 @@ class AcpRuntime extends EventEmitter {
         ? null
         : JSON.parse(JSON.stringify(binding.sessionState.plan)),
       ...slice,
+      ...this.nativeChatReferences(binding),
     };
   }
 
@@ -5205,6 +5219,7 @@ class AcpRuntime extends EventEmitter {
         .map(child => ({ sessionId: child.threadId, title: child.name, state: child.status }));
     const children = new Map<string, { sessionId: string; title: string; state: string; stopReason?: string; readable: boolean }>();
     for (const [sessionId, state] of binding.subagentStates) {
+      if (state.nativeSubagent && state.nativeSubagent.parentSessionId !== binding.sessionId) continue;
       const transcript = this.getSubagentTranscriptSession(agentId, sessionId, { maxTurns: 1 });
       children.set(sessionId, { sessionId, title: state.title || 'Subagent', state: transcript?.state || '', stopReason: transcript?.stopReason || '', readable: true });
     }
@@ -5276,6 +5291,7 @@ class AcpRuntime extends EventEmitter {
       stopReason: association ? association.state?.stopReason || ''
         : controlFailed || failed ? 'error' : cancelled ? 'cancelled' : stateName === 'idle' ? 'end_turn' : '',
       ...state.transcriptSlice(options),
+      ...this.nativeChatReferences(binding),
     };
   }
 
@@ -5318,7 +5334,7 @@ class AcpRuntime extends EventEmitter {
     const cancelled = ['cancelled', 'canceled', 'interrupted'].includes(status);
     return { version: 2, protocol: 'acp', provider: binding.provider, sessionId,
       cwd: binding.cwd, title: String(response.title || 'Subagent'),
-      state: status === 'active' ? 'working' : failed ? 'error' : status,
+      state: ['active', 'running'].includes(status) ? 'working' : failed ? 'error' : status,
       canCancel: false, inlineReadMedia: true,
       error: failed ? acpErrorMessage(response.error || 'Subagent failed') : '',
       stopReason: typeof response.stopReason === 'string' && response.stopReason
@@ -5326,6 +5342,7 @@ class AcpRuntime extends EventEmitter {
       // The adapter owns this bounded page and its continuation. Peer messages
       // can create extra display turns; trimming again would skip them forever.
       ...snapshot.transcriptSlice({ ...options, cursor: undefined, maxTurns: response.updates.length || 1 }),
+      ...this.nativeChatReferences(binding),
       includesLatest: !options.cursor,
       nextCursor: typeof response.nextCursor === 'string' ? response.nextCursor : null,
       truncated: response.truncated === true, hasMoreBefore: response.truncated === true,

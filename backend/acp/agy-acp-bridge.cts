@@ -51,7 +51,8 @@ import {
   normalizeAgyToolArgs
 } from '../agy-conversation-store.cjs';
 import { fileURLToPath } from 'url';
-import { listAgyRelatedSessions, readAgyRelatedHistory } from '../agy-related-sessions.cjs';
+import { listAgyDescendants, readAgyRelatedHistory } from '../agy-related-sessions.cjs';
+import { openAgyTurnHooks, type AgyChildActivity } from '../agy-turn-hooks.cjs';
 
 type AgyModeId = 'bypassPermissions' | 'agent_decides' | 'plan';
 type AgyEffortLevel = 'high' | 'medium' | 'low' | 'xhigh' | 'max';
@@ -81,7 +82,8 @@ interface AgyBridgeSessionState {
   cancelled: boolean;
   stopChild: (() => Promise<void>) | null;
   additionalDirectories: string[];
-  announcedChildren: Map<string, string>;
+  announcedChildren: Map<string, { signature: string; state: AgyChildActivity }>;
+  hooks?: Awaited<ReturnType<typeof openAgyTurnHooks>>;
   relatedSync: Promise<void>;
 }
 
@@ -728,12 +730,15 @@ class AgyAcpAgent {
       try {
         const parent = typeof params.parentSessionId === 'string' ? this.sessions.get(params.parentSessionId) : undefined;
         if (!parent) throw new Error('Unknown Antigravity parent session');
-        await this.syncRelatedSessions(parent);
+        const children = await this.syncRelatedSessions(parent);
         if (method === '_session/related/list') {
-          return { sessionId: parent.sessionId, children: await listAgyRelatedSessions(this.options.agyHomePath, parent.sessionId) };
+          return { sessionId: parent.sessionId, children: children.filter(child => child.parentSessionId === parent.sessionId) };
         }
         if (typeof params.sessionId !== 'string') throw new Error('Invalid Antigravity related session identity');
-        return await readAgyRelatedHistory(this.options.agyHomePath, parent.sessionId, params.sessionId, params.cursor, params.maxTurns);
+        const child = children.find(item => item.sessionId === params.sessionId);
+        if (!child) throw new Error('Antigravity related session is not a child of this parent');
+        const history = await readAgyRelatedHistory(this.options.agyHomePath, child.parentSessionId, child.sessionId, params.cursor, params.maxTurns);
+        return { ...history, status: parent.hooks?.states.get(child.sessionId) ?? 'unknown' };
       } catch (error) {
         throw RequestError.internalError(undefined, error instanceof Error ? error.message : 'Antigravity related session read failed');
       }
@@ -790,29 +795,34 @@ class AgyAcpAgent {
     );
   }
 
-  private async syncRelatedSessions(session: AgyBridgeSessionState): Promise<void> {
+  private async syncRelatedSessions(session: AgyBridgeSessionState) {
     const sync = session.relatedSync.then(async () => {
-      const children = await listAgyRelatedSessions(this.options.agyHomePath, session.sessionId);
+      const registry = await listAgyDescendants(this.options.agyHomePath, session.sessionId);
+      const children = registry.map(child => ({ ...child, state: session.hooks?.states.get(child.sessionId) ?? child.state }));
       for (const child of children) {
-        if (this.sessions.get(session.sessionId) !== session) return;
-        if (session.announcedChildren.get(child.sessionId) === child.title) continue;
+        if (this.sessions.get(session.sessionId) !== session) throw new Error('Antigravity session closed');
+        const signature = JSON.stringify([child.parentSessionId, child.title, child.name]);
+        const previous = session.announcedChildren.get(child.sessionId);
+        if (previous?.signature === signature && previous.state === child.state) continue;
         // Announce ownership before exposing a link. This is a read-only native
         // child, never another process for Farming to load, resume or cancel.
-        await this.client.notify('session/update', { sessionId: session.sessionId, update: {
+        await this.client.notify('session/update', { sessionId: child.parentSessionId, update: {
           sessionUpdate: 'subagent_update', sessionId: child.sessionId, title: child.title,
-          capabilities: { history: {} }, state: null,
+          capabilities: { history: {} }, state: child.state === 'unknown' ? null : { state: child.state },
+          _meta: { farming: { name: child.name } },
         } });
-        await this.client.notify('session/update', { sessionId: session.sessionId, update: {
+        if (previous?.signature !== signature) await this.client.notify('session/update', { sessionId: child.parentSessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: `agy-child:${child.sessionId}`, title: child.title,
           kind: 'other', status: 'completed',
           _meta: { subagent_session_info: { session_id: child.sessionId, historyRead: true },
             farming: { nativeSubagent: true, state: 'unknown' } },
         } });
-        session.announcedChildren.set(child.sessionId, child.title);
+        session.announcedChildren.set(child.sessionId, { signature, state: child.state });
       }
+      return children;
     });
-    session.relatedSync = sync.catch(() => {});
-    await sync;
+    session.relatedSync = sync.then(() => {}, () => {});
+    return sync;
   }
 
   private async replayTranscriptHistory(session: AgyBridgeSessionState, replay = true): Promise<void> {
@@ -997,6 +1007,7 @@ class AgyAcpAgent {
     }
 
     for (const directory of session.additionalDirectories) cliArgs.push('--add-dir', directory);
+    if (session.hooks) cliArgs.push('--add-dir', session.hooks.directory);
     // A turn may legitimately run for hours, including silent tool execution.
     // Completion, explicit cancellation and provider failure own its lifetime.
     cliArgs.push('--print-timeout', '0');
@@ -1129,6 +1140,10 @@ class AgyAcpAgent {
               : event;
           if (typeof stepUpdate.conversation_id === 'string' && stepUpdate.conversation_id !== session.sessionId) throw new Error('Antigravity returned a different conversation identity');
           const stepType = typeof stepUpdate.step_type === 'string' ? stepUpdate.step_type : '';
+          if (stepType === 'subagent') {
+            await this.syncRelatedSessions(session);
+            continue;
+          }
           if (stepType === 'agent_response') {
             const key = typeof stepUpdate.step_index === 'number'
               ? `step-${stepUpdate.step_index}` : `unindexed-${unindexedSegment}`;
@@ -1380,13 +1395,21 @@ class AgyAcpAgent {
 
     try {
       while (true) {
-        const outcome = await this.runSinglePromptCycle(
-          session,
-          currentPromptBlocks,
-          seenToolCalls,
-          inProgressToolCalls,
-          cycleNumber
-        );
+        if (!isCliDirectSlashCommand(flattenPromptBlocks(currentPromptBlocks))) {
+          session.hooks = await openAgyTurnHooks(session.sessionId, () => this.syncRelatedSessions(session));
+        }
+        let outcome;
+        try {
+          if (session.cancelled) return { stopReason: 'cancelled' };
+          outcome = await this.runSinglePromptCycle(session, currentPromptBlocks, seenToolCalls, inProgressToolCalls, cycleNumber);
+        } finally {
+          const hooks = session.hooks;
+          session.hooks = undefined;
+          if (hooks) {
+            await hooks.close();
+            if (hooks.states.size && this.sessions.get(session.sessionId) === session) await this.syncRelatedSessions(session);
+          }
+        }
         if (outcome === 'cancelled' || session.cancelled) {
           return { stopReason: 'cancelled' };
         }

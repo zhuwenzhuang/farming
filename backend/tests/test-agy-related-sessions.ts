@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listAgyRelatedSessions, readAgyRelatedHistory } from '../agy-related-sessions.cjs';
+import { listAgyDescendants, listAgyRelatedSessions, readAgyRelatedHistory } from '../agy-related-sessions.cjs';
 
 async function main() {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'farming-agy-related-'));
@@ -18,6 +18,19 @@ async function main() {
     const children = await listAgyRelatedSessions(home, 'parent');
     assert.equal(children.length, 4);
     assert(children.every(child => child.state === 'unknown'));
+    const nested = path.join(home, 'brain', 'child-0', '.system_generated', 'subagents');
+    await fs.mkdir(nested, { recursive: true });
+    const register = (id: string) => fs.writeFile(path.join(nested, id + '.json'), JSON.stringify({
+      conversationId: id, subagentDescriptor: { typeName: 'Worker', role: 'Query worker' }, state: 'SUBAGENT_STATE_ALIVE',
+    }));
+    await register('worker');
+    const tree = await listAgyDescendants(home, 'parent');
+    assert.deepEqual(tree.find(item => item.sessionId === 'worker'), {
+      sessionId: 'worker', parentSessionId: 'child-0', title: 'Query worker', name: 'Worker', state: 'unknown',
+    });
+    await register('parent');
+    await assert.rejects(listAgyDescendants(home, 'parent'), /child tree/);
+    await fs.unlink(path.join(nested, 'parent.json'));
     const logs = path.join(home, 'brain', 'child-0', '.system_generated', 'logs');
     await fs.mkdir(logs, { recursive: true });
     const transcript = path.join(logs, 'transcript_full.jsonl');

@@ -7,7 +7,7 @@ import { projectAcpTranscript, type AgentTranscript } from './acp/acp-entry-proj
 import type { RelatedSessionTarget } from './related-session-navigation'
 import { codeCopyForLanguage } from './copy'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
-import { relatedSessionHasStatus } from './related-session-status'
+import { TranscriptAgentLinks } from './TranscriptAgentLinks'
 
 export function RelatedSessionPanel({ target, active, refreshSignal, onClose, language, onQuoteInParent }: {
   target: RelatedSessionTarget
@@ -28,7 +28,7 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
   const epochRef = useRef(target.runtimeEpoch || '')
   const closeRef = useRef<HTMLButtonElement>(null)
   const chinese = language === 'zh-CN' || language === 'zh'
-  const unavailable = target.readable === false || Boolean(transcript && !relatedSessionHasStatus(transcript.state || '', transcript.stopReason, transcript.error))
+  const unavailable = target.readable === false
   useEffect(() => { if (unavailable) onClose() }, [unavailable, onClose])
   useEffect(() => { closeRef.current?.focus({ preventScroll: true }) }, [])
   const refreshRef = useRef<(() => void) | null>(null)
@@ -115,11 +115,13 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
           {transcript?.nextCursor && !cursors.includes(transcript.nextCursor) ? <button className="code-agent-transcript-subagent-control text" type="button" disabled={loading} onClick={() => setCursors(value => [...value, transcript.nextCursor!])}>{chinese ? '加载更早消息' : 'Load earlier messages'}</button> : null}
         </nav> : null}
         {transcript?.hasMoreBefore && (!transcript.nextCursor || cursors.includes(transcript.nextCursor)) ? <div role="status">{chinese ? '更早的历史未由 Provider 提供。' : 'Earlier history is not available from the provider.'}</div> : null}
-        {transcript ? <AgentTranscriptSubagentPreview transcript={transcript} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')} onQuoteInParent={onQuoteInParent} docked onStop={async () => {
+        {transcript ? <TranscriptAgentLinks references={transcript.nativeAgentReferences} agentId={target.parentAgentId}
+          epoch={epochRef.current} live={!error} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')}>
+          <AgentTranscriptSubagentPreview transcript={transcript} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')} onQuoteInParent={onQuoteInParent} docked onStop={async () => {
           const response = await fetch(appPath(`/api/agents/${encodeURIComponent(target.parentAgentId)}/acp-subagents/${encodeURIComponent(target.sessionId)}/cancel?runtimeEpoch=${encodeURIComponent(epochRef.current)}`), { method: 'POST', signal: AbortSignal.timeout(15000) })
           if (!response.ok) { const payload = await response.json(); throw new Error(payload.error || 'Subagent stop failed') }
           setReadVersion(value => value + 1)
-        }} /> : null}
+        }} /></TranscriptAgentLinks> : null}
       </div>
     </aside>
   )

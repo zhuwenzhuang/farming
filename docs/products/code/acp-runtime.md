@@ -242,17 +242,16 @@ name. Live updates, history loading and fresh inventory reads reconcile these
 associations through the shared child protocol. Related history is read-only and
 bounded; cursors are bound to parent, child and history file identity. Registry
 `ALIVE` means existence, not current activity, so activity remains unknown until
-the provider supplies authoritative foreground state. Neither child input nor
+the provider supplies authoritative foreground state. During an owned CLI turn,
+Antigravity's `PreInvocation` and fully idle `Stop` hooks report activity by
+conversation ID. Losing the observer clears that turn's live state. Neither child input nor
 cancellation is advertised without provider support.
 
-User-facing native child rows and transcript previews require a recognized,
-authoritative status; navigation rows also require readable history. Unknown or
-unsupported status does not produce a pending dot, a child count, or an empty
-disclosure control. A fresh transcript read that confirms unavailable status
-closes an already open child pane without changing the parent or child runtime.
-Later authoritative status can make the child visible again. This presentation
-filter preserves backend associations and history for ownership and cleanup;
-it never infers completion from answer text or hides explicit failures.
+In Chat, a registered child with readable history can be opened from its name
+or session ID in assistant text. Names must resolve uniquely within the parent
+runtime. The link shows the child's confirmed work state when available.
+Unknown activity keeps the history link usable and clears its activity indicator.
+Sidebar activity rows require a recognized status and readable history.
 
 Related history is bounded by turns, items and bytes, with identity-bound cursors.
 Presentation segments must not trim an already bounded provider page again.

@@ -2416,6 +2416,7 @@ class FakeAgent {
         await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'subagent_update', sessionId: child, title: `Analyzer ${index}`,
           state: live ? { state: 'running' } : null, capabilities: {},
+          _meta: { farming: { name: index === 0 ? 'DeepCoder' : 'Worker' } },
         } });
         await client.notify('session/update', { sessionId: params.sessionId, update: {
           sessionUpdate: 'tool_call', toolCallId: `agy-child:${child}`, title: `Analyzer ${index}`, kind: 'other', status: 'completed',
@@ -2429,13 +2430,23 @@ class FakeAgent {
         } });
       }
       await client.notify('session/update', { sessionId: params.sessionId, update: {
-        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: live ? 'Five native children discovered.' : 'Four native children discovered.' },
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: (live ? 'Five native children discovered.' : 'Four native children discovered.')
+          + ' Delegated to `DeepCoder`. Worker shares this role.\n\n```txt\nDeepCoder\n```' },
       } });
       if (live) {
+        const marker = '.finish-agy-child';
+        const watcher = fs.watch(process.cwd(), (_event, filename) => {
+          if (filename !== marker) return;
+          watcher.close();
+          void client.notify('session/update', { sessionId: params.sessionId, update: {
+            sessionUpdate: 'subagent_update', sessionId: `${params.sessionId}-agy-0`, state: { state: 'idle' },
+          } });
+        });
         await new Promise<void>(resolve => {
           const deadline = setTimeout(resolve, 60_000);
           cancelledSessions.set(params.sessionId, () => { clearTimeout(deadline); resolve(); });
         });
+        watcher.close();
         cancelledSessions.delete(params.sessionId);
         return { stopReason: 'cancelled' };
       }

@@ -457,7 +457,7 @@ async function testAcpBridgeEndToEnd(tmpRoot: string) {
     `#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 
 const args = process.argv.slice(2);
@@ -497,10 +497,22 @@ if (text.includes('FOUR_NATIVE_CHILDREN')) {
   }
   // Stay silent after registering the children until the test observes them.
   // Discovery cannot depend on model output or a guessed wire step subtype.
+  const hookRoot = args[args.lastIndexOf('--add-dir') + 1];
+  const hooks = JSON.parse(fs.readFileSync(path.join(hookRoot, '.agents', 'hooks.json')))['farming-child-activity'];
+  const emitHook = (event, id) => execSync(hooks[event][0].command, {
+    input: JSON.stringify({ conversationId: id, fullyIdle: true }),
+  });
+  emitHook('PreInvocation', conversationId + '-child-0');
+  emitHook('Stop', conversationId);
   const release = path.join(agyHome, 'release-children');
   const deadline = Date.now() + 10000;
   while (!fs.existsSync(release)) {
     if (Date.now() > deadline) throw new Error('Children were not observed while agy was silent');
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  emitHook('Stop', conversationId + '-child-0');
+  while (!fs.existsSync(path.join(agyHome, 'release-idle-child'))) {
+    if (Date.now() > deadline) throw new Error('Child idle was not observed');
     await new Promise(resolve => setTimeout(resolve, 20));
   }
 }
@@ -874,7 +886,19 @@ console.log(JSON.stringify({
     }
     assert.strictEqual(runtime.getSession('agent-agy-test-1').entries.filter((entry: { id: string }) => entry.id.startsWith('agy-child:')).length, 4,
       'children must be announced even while the provider stream is silent');
+    const childId = prepared.sessionId + '-child-0';
+    const readChild = () => runtime.getSubagentTranscriptSessionForRead('agent-agy-test-1', childId);
+    async function awaitChildState(expected: string) {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if ((await readChild()).state === expected) return;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.fail('Missing native child state ' + expected);
+    }
+    await awaitChildState('working');
     fs.writeFileSync(path.join(agyHome, 'release-children'), 'continue');
+    await awaitChildState('idle');
+    fs.writeFileSync(path.join(agyHome, 'release-idle-child'), 'continue');
     await childTurn;
     const childInventory = await runtime.listSubagents('agent-agy-test-1');
     assert.strictEqual(childInventory.children.length, 4, 'same spawn index must retain four distinct children');

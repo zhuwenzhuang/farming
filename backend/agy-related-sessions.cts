@@ -11,6 +11,7 @@ const MAX_RECORDS = 1000;
 export interface AgyRelatedSession {
   sessionId: string;
   title: string;
+  name?: string;
   state: 'unknown';
 }
 
@@ -75,9 +76,26 @@ export async function listAgyRelatedSessions(home: string, parent: string): Prom
     }
     // ALIVE is durable existence, not a foreground Turn state. In particular,
     // parent completion and a completed invoke_subagent call cannot settle it.
-    children.push({ sessionId: id, title: descriptor.role || 'Subagent', state: 'unknown' });
+    const name = typeof descriptor.typeName === 'string' && descriptor.typeName.length <= 128 ? descriptor.typeName : '';
+    children.push({ sessionId: id, title: descriptor.role || name || 'Subagent', ...(name ? { name } : {}), state: 'unknown' });
   }
   return children.sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+}
+
+/** Walk only verified parent registries, in announcement order. */
+export async function listAgyDescendants(home: string, root: string) {
+  const parents = [root];
+  const seen = new Set(parents);
+  const result: Array<AgyRelatedSession & { parentSessionId: string }> = [];
+  for (const parentSessionId of parents) {
+    for (const child of await listAgyRelatedSessions(home, parentSessionId)) {
+      if (seen.has(child.sessionId) || result.length >= MAX_CHILDREN) throw new Error('Invalid or oversized Antigravity child tree');
+      seen.add(child.sessionId);
+      parents.push(child.sessionId);
+      result.push({ ...child, parentSessionId });
+    }
+  }
+  return result;
 }
 
 function projectRecord(entry: Record<string, unknown>, offset: number): AcpUpdate[] {

@@ -139,7 +139,16 @@ export interface AgentTranscriptTurn {
   processItems: AgentTranscriptProcessItem[]
 }
 
+export interface NativeAgentReference {
+  sessionId: string
+  title: string
+  name: string
+  state: string
+}
+
 export interface AgentTranscript {
+  nativeAgentReferences?: NativeAgentReference[]
+  parentRuntimeEpoch?: string
   entrySnapshot?: { session: Record<string, unknown>; entries: Record<string, unknown>[]; order: string[] }
   historyPage?: boolean
   includesLatest?: boolean
@@ -1037,6 +1046,10 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
         }
       : null,
     available: visibleTurns.length > 0,
+    parentRuntimeEpoch: stringValue(session.parentRuntimeEpoch),
+    nativeAgentReferences: list(session.nativeAgentReferences).map(record).map(child => ({
+      sessionId: stringValue(child.sessionId), title: stringValue(child.title), name: stringValue(child.name), state: stringValue(child.state),
+    })).filter(child => child.sessionId && child.title),
     reason: visibleTurns.length > 0 ? undefined : 'empty-acp-session',
     sessionId: stringValue(session.sessionId), title: stringValue(session.title), updatedAt: stringValue(session.updatedAt),
     canCancel: session.canCancel !== false, source: 'acp', state: stringValue(session.state), error: stringValue(session.error), errorKind: stringValue(session.errorKind),

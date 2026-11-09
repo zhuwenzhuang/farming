@@ -7,7 +7,7 @@ function relatedSessionStatusKey(state: string, stopReason = '', error = '') {
   if (stopReason === 'cancelled' || ['interrupted', 'cancelled', 'interrupting', 'paused'].includes(state)) return 'agentTranscriptCollaborationInterrupted'
   if (['working', 'running', 'active'].includes(state)) return 'agentTranscriptCollaborationInProgress'
   if (state === 'waiting-for-permission') return 'relatedWaitingPermission'
-  if (state === 'waiting-for-input') return 'relatedWaitingInput'
+  if (state === 'waiting-for-input' || state === 'requires_action') return 'relatedWaitingInput'
   if (['pendingInit', 'pending', 'connecting'].includes(state)) return 'agentTranscriptCollaborationPending'
   if (['closed', 'shutdown'].includes(state)) return 'agentTranscriptCollaborationClosed'
   if (['idle', 'completed'].includes(state)) return 'agentTranscriptCollaborationCompleted'

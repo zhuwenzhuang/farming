@@ -941,6 +941,21 @@ button.code-agent-transcript-message-source {
   flex: 0 0 auto;
 }
 
+.code-agent-transcript-collaboration-event-line:has(> [data-agent-reference]) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.code-agent-transcript-collaboration-event-line > [data-agent-reference] {
+  max-width: 65%;
+  flex: 0 0 auto;
+}
+
+.code-agent-transcript-collaboration-event-line > [data-agent-reference] + button {
+  flex: 1;
+}
+
 .code-agent-transcript-collaboration-event {
   position: relative;
   width: 100%;
