@@ -68,11 +68,12 @@ export async function listClaudeModelOptions(options: {
     child.on('error', error => { failure = error; stop(); });
     child.stdin.on('error', error => { if (!finished) { failure = error; stop(); } });
     child.stderr.on('data', () => {});
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
       if (finished) return;
-      bytes += chunk.length;
+      bytes += Buffer.byteLength(chunk, 'utf8');
       if (bytes > 1024 * 1024) { failure = new Error('Claude model discovery exceeded its output limit'); stop(); return; }
-      buffer += chunk.toString('utf8');
+      buffer += chunk;
       let newline: number;
       while (!finished && (newline = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);

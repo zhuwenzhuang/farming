@@ -173,6 +173,19 @@ function run() {
   );
 
   const defaults = defaultComposerProviderProfiles();
+  const claudeCatalog = [{ value: 'catalog-first', label: 'First model', reasoningLevels: [{ value: 'low', label: 'Low' }] }];
+  const inheritedClaude = buildComposerControlState({ agentKind: 'claude', profile: defaults.claude,
+    codexModelOptions: [], claudeSettings: { available: true, modelOptions: claudeCatalog } });
+  assert.strictEqual(inheritedClaude.agentModel, 'config', 'catalog order cannot identify the inherited model');
+  assert.strictEqual(inheritedClaude.currentModelOption, undefined);
+  const inheritedReasoning = buildComposerControlState({ agentKind: 'claude',
+    profile: { ...defaults.claude, model: 'catalog-first' }, codexModelOptions: [],
+    claudeSettings: { available: true, modelOptions: claudeCatalog } });
+  assert.strictEqual(inheritedReasoning.currentReasoningOption, undefined, 'inherited effort must not claim the first effort');
+  const plainCodex = selectComposerProviderModel('codex', profiles.codex, 'plain',
+    [{ value: 'plain', label: 'Plain', reasoningLevels: [] }]);
+  assert.strictEqual(plainCodex.reasoningEffort, 'config', 'switching models cannot retain an unsupported effort');
+  assert.deepStrictEqual(selectComposerProviderModel('codex', profiles.codex, 'not-advertised', []), profiles.codex);
   const selectedClaude = selectComposerProviderModel('claude', defaults.claude, ' sonnet ', [{ value: 'sonnet', label: 'Sonnet', reasoningLevels: [] }]);
   assert.strictEqual(selectedClaude.model, 'sonnet');
   assert.strictEqual(

@@ -251,7 +251,7 @@ export function claudeModelOptionsWithCurrent(model: string, settings: ClaudeSet
 
 export function resolveClaudeModel(model: string, settings: ClaudeSettingsSummary) {
   if (model !== 'config') return normalizeClaudeModel(model)
-  return settings.effectiveModel || settings.modelOptions?.[0]?.value || 'config'
+  return settings.effectiveModel || 'config'
 }
 
 export function resolveClaudeEffort(effort: string, settings: ClaudeSettingsSummary) {
@@ -335,6 +335,7 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
     }),
     selectModel: (profile, model, options) => {
       const option = options.find(item => item.value === model)
+      if (!option) return profile
       const reasoningLevels = option?.reasoningLevels ?? []
       const serviceTiers = option?.serviceTiers ?? []
       return {
@@ -342,7 +343,7 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
         model,
         reasoningEffort: reasoningLevels.some(level => level.value === profile.reasoningEffort)
           ? profile.reasoningEffort
-          : (option?.defaultEffort || reasoningLevels[0]?.value || profile.reasoningEffort),
+          : (option.defaultEffort || reasoningLevels[0]?.value || 'config'),
         serviceTier: serviceTiers.some(tier => tier.value === profile.serviceTier)
           ? profile.serviceTier
           : 'default',
@@ -358,7 +359,7 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
         model,
         reasoningEffort: option.reasoningLevels?.some(level => level.value === effort)
           ? effort
-          : (option.defaultEffort || option.reasoningLevels?.[0]?.value || effort),
+          : (option.defaultEffort || option.reasoningLevels?.[0]?.value || 'config'),
         serviceTier: option.serviceTiers?.some(tier => tier.value === profile.serviceTier)
           ? profile.serviceTier
           : 'default',
@@ -566,7 +567,6 @@ export function buildComposerControlState({
   const currentReasoningOptions = adapter.reasoningOptions(resolvedProfile, currentModelOption, claudeSettings)
   const currentServiceTierOptions = adapter.serviceTierOptions(currentModelOption)
   const currentReasoningOption = currentReasoningOptions.find(option => option.value === agentReasoningEffort)
-    ?? currentReasoningOptions[0]
   const currentServiceTierOption = currentServiceTierOptions.find(option => option.value === agentServiceTier)
     ?? currentServiceTierOptions[0]
   const permissionModeOptions = adapter.permissionOptions

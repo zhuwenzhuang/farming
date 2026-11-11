@@ -572,7 +572,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'POST /api/attachments/image',
   'POST /api/attachments/audio',
   'GET /api/codex/models',
-  'GET /api/claude/settings',
+  'GET /api/claude/models',
   'GET /api/usage',
   'GET /api/usage/day',
   'POST /api/provider-context-windows',
