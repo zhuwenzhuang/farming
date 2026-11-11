@@ -11,9 +11,8 @@ const {
   acpCollaborationActivityFeed,
 } = require('../../src/components/code/acp/acp-collaboration.ts');
 
-// Native child associations must reach the same collaboration surface as
-// provider-specific activity, including while invoke tools remain in progress.
-for (const provider of ['agy', 'claude', 'test-provider']) {
+// Child identity belongs in the sidebar; associations alone are not activity.
+for (const provider of ['codex', 'agy', 'claude', 'test-provider']) {
   const entries = Array.from({ length: 5 }, (_, index) => acpTranscriptToolEntry({
     id: `native-child-${index}`, type: 'tool', kind: 'other', status: 'completed',
     title: index === 0 ? 'Expr, String/JSON & UDTF Optimizer' : `Analyzer ${index}`,
@@ -25,11 +24,9 @@ for (const provider of ['agy', 'claude', 'test-provider']) {
   ] });
   const items = native.turns[0].processItems;
   const events = acpCollaborationEvents(items);
-  assert.strictEqual(events.length, 5, 'standard child associations must render as collaboration');
-  assert.strictEqual(events[0].name, entries[0].title, 'native titles are labels, not slash-separated paths');
-  assert(events.every(event => event.action === 'recorded'), 'association is not evidence of child execution');
-  assert(acpCollaborationAgents(items).every(agent => agent.status === 'unknown'),
-    'completed association tools must not settle native children');
+  assert.deepStrictEqual(events, [], 'child associations must not duplicate sidebar inventory as activity');
+  assert.deepStrictEqual(acpCollaborationActivityFeed(items), []);
+  assert.deepStrictEqual(acpCollaborationAgents(items), [], 'associations alone must not synthesize collaboration agents');
   assert.strictEqual(items[0].collaboration, undefined, 'tool names alone cannot establish child identity');
   assert.deepStrictEqual(items.slice(1).map(item => item.subagentSessionId), entries.map((_, index) => `child-${index}`));
 }

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
-test('agy native children are visible as collaboration during a mobile live turn', async ({ page, workspaceRoot }, testInfo) => {
+test('native child associations do not duplicate activity during a mobile live turn', async ({ page, workspaceRoot }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'agy', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
@@ -19,9 +19,9 @@ test('agy native children are visible as collaboration during a mobile live turn
     await page.getByTestId('code-acp-composer-input').fill('agy registry children live')
     await page.getByTestId('code-acp-composer-send').click()
     const activities = page.getByTestId('code-agent-transcript-collaboration-event')
-    await expect(activities).toHaveCount(5)
     const link = page.getByRole('button', { name: 'DeepCoder', exact: true })
     await expect(link).toHaveCount(1)
+    await expect(activities).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Worker', exact: true })).toHaveCount(0)
     await expect(page.locator('pre [data-agent-reference]')).toHaveCount(0)
     for (const appearance of ['light', 'dark', 'paper']) {
@@ -30,9 +30,8 @@ test('agy native children are visible as collaboration during a mobile live turn
         document.documentElement.dataset.appearance = value
       }, appearance)
       await page.evaluate(() => document.fonts.ready)
-      await expect(activities.filter({ hasText: 'Analyzer 4' })).toBeVisible()
-      const collaboration = page.getByTestId('code-agent-transcript-collaboration')
-      expect(await collaboration.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await expect(link).toBeVisible()
+      await expect(page.getByTestId('code-agent-transcript-collaboration')).toHaveCount(0)
       const capture = await page.screenshot({ path: testInfo.outputPath(`agy-live-mobile-${appearance}.png`), animations: 'disabled' })
       expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([390, 844])
     }

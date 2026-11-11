@@ -236,9 +236,10 @@ Only authoritative child evidence settles a child: parent completion/cancellatio
 and unknown activity cannot synthesize child outcomes. Fresh bounded inventory
 is used when negotiated; unavailable inventory is an error, not an empty list.
 History reads verify ancestry and do not start, load, resume or cancel Sessions.
-Standard child-session associations appear in the shared Chat collaboration
-surface as well as the sidebar, without requiring provider-specific activity
-metadata. A recorded association or completed tool does not prove child activity.
+Standard child-session associations supply sidebar identity, without generating
+Chat activity rows. Chat collaboration shows actual activity and communication
+events; an empty feed has no heading. An association or completed tool does not
+prove child activity.
 
 In Chat, a registered child with readable history can be opened from its name
 or session ID in assistant text. Names must resolve uniquely within the parent

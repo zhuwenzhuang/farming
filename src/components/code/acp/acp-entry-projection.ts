@@ -651,12 +651,6 @@ function entryCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | un
       activity: stringValue(subagent.activity),
     }
   }
-  const sessionId = stringValue(record(record(entry._meta).subagent_session_info).session_id)
-  if (sessionId) {
-    // A native association establishes identity, not execution or completion.
-    // Use the shared collaboration surface even without Codex activity metadata.
-    return { kind: 'activity', threadId: sessionId, agentName: stringValue(entry.title), activity: 'recorded' }
-  }
   return undefined
 }
 
