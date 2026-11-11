@@ -1357,11 +1357,11 @@ body.code-mode .code-file-change-group-toggle {
   text-overflow: ellipsis;
 }
 
-[data-blame-age="1"] { --blame-depth: 0%; }
-[data-blame-age="2"] { --blame-depth: 25%; }
-[data-blame-age="3"] { --blame-depth: 50%; }
-[data-blame-age="4"] { --blame-depth: 75%; }
-[data-blame-age="5"] { --blame-depth: 100%; }
+:is(.code-file-inline-blame, .code-file-touch-blame)[data-blame-age="1"] { --blame-depth: 0%; }
+:is(.code-file-inline-blame, .code-file-touch-blame)[data-blame-age="2"] { --blame-depth: 25%; }
+:is(.code-file-inline-blame, .code-file-touch-blame)[data-blame-age="3"] { --blame-depth: 50%; }
+:is(.code-file-inline-blame, .code-file-touch-blame)[data-blame-age="4"] { --blame-depth: 75%; }
+:is(.code-file-inline-blame, .code-file-touch-blame)[data-blame-age="5"] { --blame-depth: 100%; }
 
 .code-file-inline-blame[data-blame-age],
 .code-file-touch-toolbar .code-file-touch-blame[data-blame-age] {

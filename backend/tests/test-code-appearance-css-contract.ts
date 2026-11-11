@@ -117,8 +117,8 @@ assert.notEqual(
 assert.equal(registry.paper.css['--code-workbench-divider'], '#e8e6dc', 'Paper structural dividers stay visible independently of decorative borders')
 
 const lightRoles = Object.keys(registry.light.css).sort()
-// Chart colors, the workbench divider and shared unread attention extend the palette.
-assert(lightRoles.length <= 145, 'the semantic palette must not grow back into a selector-level override matrix')
+// Chart colors, the workbench divider, unread attention and two blame age endpoints extend the palette.
+assert(lightRoles.length <= 147, 'the semantic palette must not grow back into a selector-level override matrix')
 assert.equal(registry.paper.css['--code-unread-dot'], registry.light.css['--code-unread-dot'], 'Paper unread attention retains the same blue as Light')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
@@ -623,6 +623,8 @@ function luminance(color: string) {
 }
 for (const appearance of appearances) {
   const palette = registry[appearance].css
+  assert(luminance(palette['--code-blame-oldest']) > luminance(palette['--code-blame-newest']),
+    `${appearance}: blame age must progress from the lightest oldest lines to the darkest newest lines`)
   assert.notEqual(palette['--code-viz-border'], 'transparent', `${appearance}: chart axes remain visible even in borderless workbench themes`)
   const background = luminance(palette['--code-bg-canvas'])
   const colors = Array.from({ length: 6 }, (_, i) => palette[`--code-viz-series-${i + 1}`])
