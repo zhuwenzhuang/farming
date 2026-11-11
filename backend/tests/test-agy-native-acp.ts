@@ -45,9 +45,11 @@ readline.createInterface({input:process.stdin}).on('line', line=>{
   state[p.configId==='thought_level'?'effort':p.configId]=p.value;fs.writeFileSync(path.join(home,p.sessionId+'.json'),JSON.stringify(state));result={configOptions:config(state)};
   send({method:'session/update',params:{sessionId:p.sessionId,update:{sessionUpdate:'config_option_update',configOptions:config(state)}}});
  } else if(req.method==='session/prompt') {
-  if(p.prompt[0].text==='native-auto') {
-   sessions.get(p.sessionId).mode='auto';
-   send({method:'session/update',params:{sessionId:p.sessionId,update:{sessionUpdate:'current_mode_update',currentModeId:'auto'}}});
+  if(['native-auto','native-default','config-auto'].includes(p.prompt[0].text)) {
+   const state=sessions.get(p.sessionId); state.mode=p.prompt[0].text==='native-default'?'default':'auto';
+   send({method:'session/update',params:{sessionId:p.sessionId,update:p.prompt[0].text==='config-auto'
+    ?{sessionUpdate:'config_option_update',configOptions:config(state)}
+    :{sessionUpdate:'current_mode_update',currentModeId:state.mode}}});
    send({id:req.id,result:{stopReason:'end_turn'}});return;
   }
   if(p.prompt[0].text==='drop-mode') {
@@ -165,11 +167,47 @@ readline.createInterface({input:process.stdin}).on('line', line=>{
     assert.equal(value('agy-0', 'mode'), 'bypassPermissions');
     await runtime.prompt('agy-0', [{ type: 'text', text: 'native-auto' }]);
     assert.equal(value('agy-0', 'mode'), 'auto', 'a native mode change revokes client full access');
+    const nativeOverrides = runtime.bindings.get('agy-0')!.restartOptions.configOverrides;
+    assert.equal(nativeOverrides?.find(change => change.configId === 'mode')?.value, 'auto',
+      'native permission changes must replace the saved Full access policy');
     await runtime.unregisterAgentAndWait('agy-0');
     await runtime.prepareAgent({ agentId: 'agy-0', provider: 'agy', executable, providerHomePath: homes[0], cwd: root,
       configDir: path.join(root, 'config'), approvalMode: 'full', farmingSystemPrompt: 'native bootstrap',
-      sessionId: sessions[0].sessionId, historyMode: 'load', configOverrides: [{ configId: 'mode', value: 'auto' }] });
+      sessionId: sessions[0].sessionId, historyMode: 'load', configOverrides: nativeOverrides });
     assert.equal(value('agy-0', 'mode'), 'auto', 'existing saved auto must never be migrated to full access');
+    await runtime.unregisterAgentAndWait('agy-0');
+    await runtime.prepareAgent({ agentId: 'agy-0', provider: 'agy', executable, providerHomePath: homes[0], cwd: root,
+      configDir: path.join(root, 'config'), approvalMode: 'approve', farmingSystemPrompt: 'native bootstrap',
+      sessionId: sessions[0].sessionId, historyMode: 'load', configOverrides: [{ configId: 'effort', value: 'provider-effort' }] });
+    assert.deepEqual(runtime.bindings.get('agy-0')!.restartOptions.configOverrides,
+      [{ configId: 'thought_level', value: 'provider-effort' }], 'legacy effort survives the native ACP migration');
+    assert.deepEqual(runtime.getSession('agy-0').configOverrideWarnings, []);
+    for (const change of ['native-default', 'config-auto']) {
+      await runtime.setSessionConfigOption('agy-0', 'mode', 'bypassPermissions');
+      if (change === 'native-default') runtime.bindings.get('agy-0')!.modes = null;
+      if (change === 'config-auto') {
+        runtime.bindings.get('agy-0')!.restartOptions.configOverrides = [];
+      }
+      await runtime.prompt('agy-0', [{ type: 'text', text: change }]);
+      const expected = change === 'native-default' ? 'default' : 'auto';
+      assert.equal(value('agy-0', 'mode'), expected, 'an explicit native mode update supersedes client policy');
+      assert.equal(runtime.bindings.get('agy-0')!.restartOptions.configOverrides?.find(item => item.configId === 'mode')?.value, expected);
+      const turn = runtime.prompt('agy-0', [{ type: 'text', text: 'permission' }]);
+      const binding = runtime.bindings.get('agy-0')!;
+      await waitFor(() => binding.pendingPermissions.size === 1);
+      runtime.respondPermission('agy-0', [...binding.pendingPermissions.values()][0].requestId as string, 'deny');
+      await turn;
+      assert.equal(permissionResult().outcome.optionId, 'deny');
+    }
+    await runtime.unregisterAgentAndWait('agy-0');
+    await runtime.prepareAgent({ agentId: 'agy-0', provider: 'agy', executable, providerHomePath: homes[0], cwd: root,
+      configDir: path.join(root, 'config'), approvalMode: 'approve', farmingSystemPrompt: 'native bootstrap',
+      sessionId: sessions[0].sessionId, historyMode: 'load', configOverrides: [
+        { configId: 'thought_level', value: 'provider-effort' }, { configId: 'effort', value: 'obsolete-effort' },
+      ] });
+    assert.deepEqual(runtime.bindings.get('agy-0')!.restartOptions.configOverrides,
+      [{ configId: 'thought_level', value: 'provider-effort' }], 'the canonical setting wins regardless of alias order');
+    assert.deepEqual(runtime.getSession('agy-0').configOverrideWarnings, []);
     fs.writeFileSync(path.join(homes[1], 'omit-default'), '');
     await assert.rejects(prepare('unsupported', homes[1]), /did not advertise permission mode bypassPermissions/);
     console.log('Native Antigravity ACP lifecycle and dynamic catalog tests passed');

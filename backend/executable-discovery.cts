@@ -176,6 +176,7 @@ const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefini
     },
   },
   agy: {
+    acpMinimumVersion: '1.5.5',
     configuredEnvironmentKey: 'FARMING_AGY_BIN',
     preferredEnvironmentKeys: ['FARMING_AGY_BIN'],
     identityProbe: {

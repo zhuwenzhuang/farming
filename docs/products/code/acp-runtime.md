@@ -76,6 +76,10 @@ with the exact Agent Home and consumes its advertised models, thinking levels,
 permissions and Session lifecycle directly. Farming does not parse `agy models`
 or translate print-mode output into ACP. System context is appended through the
 native ACP metadata contract. Unsupported runtime capabilities remain unavailable.
+Startup and recovery reject older or unverified Antigravity executables before
+opening a Session. At the adapter boundary, legacy saved reasoning settings map
+to the native configuration identity and are checked against its current choices;
+an explicit native setting takes precedence over its legacy representation.
 
 New-Agent permission defaults are resolved by the backend at launch. The Config's
 skip-permission default takes precedence over saved launch-profile defaults;
@@ -102,6 +106,9 @@ skip-permissions flag. Native Auto and Manual remain distinct and keep delegated
 requests interactive. Mode changes, native updates and checkpoint recovery use
 the same configuration owner. A rejected or unconfirmed change cannot enable
 Full access or be replayed. Existing saved Auto selections remain Auto.
+Confirmed native permission changes also replace the saved Session override so
+recovery cannot restore a superseded Full access choice. History replay alone
+does not create a new override.
 
 Accepted model, reasoning and Fast changes update only the requested new-Agent
 Home defaults in the same Config, after verifying exact Home identity. Restoration

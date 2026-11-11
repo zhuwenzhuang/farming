@@ -124,6 +124,7 @@ interface ProviderAcpPromptSuggestion {
 type ProviderAcpExtensionEvent = ProviderAcpPromptSuggestion;
 
 interface ProviderAcpConfigPolicy {
+  legacyConfigIds?: Readonly<Record<string, string>>;
   approvalModes?: Readonly<Record<string, string>>;
   // The native mode delegates approval to ACP's client. Full access is then
   // a Session-local host policy, never a process-wide skip-permissions flag.
@@ -1150,6 +1151,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       config: {
         approvalModes: { full: 'bypassPermissions', approve: 'default' },
         clientFullAccess: { nativeMode: 'default' },
+        legacyConfigIds: { effort: 'thought_level' },
       },
       sessionMetadata: ({ farmingSystemPrompt }) => farmingSystemPrompt
         ? { antigravity: { systemPrompt: { append: farmingSystemPrompt } } } : {},

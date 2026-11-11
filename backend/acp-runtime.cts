@@ -3162,18 +3162,33 @@ class AcpRuntime extends EventEmitter {
         })) {
           const update = notification.update as TranscriptEntry | undefined;
           if (update) this.updateSubagentControlFromParent(binding, update);
-          if (isPrimarySession && update?.sessionUpdate === 'current_mode_update' && binding.modes) {
-            binding.modes = { ...binding.modes, currentModeId: String(update.currentModeId || '') };
-            if (providerAcpConfigPolicy(binding.provider)?.clientFullAccess) {
+          const previousPermissionMode = binding.configOptions.find(option => option.category === 'mode')?.currentValue;
+          if (isPrimarySession && update?.sessionUpdate === 'current_mode_update') {
+            if (binding.modes) binding.modes = { ...binding.modes, currentModeId: String(update.currentModeId || '') };
+            if (providerAcpConfigPolicy(binding.provider)?.approvalModes) {
               binding.configOptions = this.normalizeClientPermissionOptions(binding, binding.configOptions.map(option => (
                 option.category === 'mode' ? { ...option, currentValue: String(update.currentModeId || '') } : option
-              )));
+              )), String(update.currentModeId || ''));
               this.syncSessionPermissionMode(binding);
             }
           }
           if (isPrimarySession && update?.sessionUpdate === 'config_option_update') {
             binding.configOptions = this.normalizeClientPermissionOptions(binding, JSON.parse(JSON.stringify(update.configOptions || [])));
             this.syncSessionPermissionMode(binding);
+          }
+          if (isPrimarySession && !binding.historyReplayActive
+            && (update?.sessionUpdate === 'current_mode_update' || update?.sessionUpdate === 'config_option_update')) {
+            const mode = binding.configOptions.find(option => option.category === 'mode' && option.type === 'select');
+            const saved = binding.restartOptions.configOverrides?.find(change => change.configId === mode?.id);
+            if (providerAcpConfigPolicy(binding.provider)?.approvalModes && mode
+              && typeof mode.currentValue === 'string'
+              && (saved ? mode.currentValue !== saved.value
+                : previousPermissionMode !== undefined && mode.currentValue !== previousPermissionMode)
+              && sessionConfigSelectValues(mode).includes(mode.currentValue)) {
+              // Native permission changes supersede the saved policy too. A
+              // successful client mutation records its final policy afterward.
+              this.rememberSessionConfigOverrides(binding, [{ configId: mode.id, value: mode.currentValue }]);
+            }
           }
           if (!isPrimarySession && binding.sessionState) {
             const parentTool = binding.sessionState.entries.find((entry: TranscriptEntry) => (
@@ -4643,7 +4658,15 @@ class AcpRuntime extends EventEmitter {
   }
 
   async restoreSessionConfigOverrides(binding: AcpBinding, overrides: SessionConfigChange[]) {
-    const normalized = normalizeSessionConfigChanges(overrides);
+    const original = normalizeSessionConfigChanges(overrides);
+    const aliases = providerAcpConfigPolicy(binding.provider)?.legacyConfigIds;
+    const canonicalIds = new Set(original.map(change => change.configId));
+    const normalized = original.flatMap(change => {
+      const canonicalId = aliases && Object.hasOwn(aliases, change.configId) ? aliases[change.configId] : undefined;
+      if (!canonicalId) return [change];
+      // A current explicit selection wins over its legacy representation.
+      return canonicalIds.has(canonicalId) ? [] : [{ ...change, configId: canonicalId }];
+    });
     const modelOverrides: SessionConfigChange[] = [];
     const remainingOverrides: SessionConfigChange[] = [];
     for (const change of normalized) {
@@ -4685,7 +4708,7 @@ class AcpRuntime extends EventEmitter {
 
     binding.configOverrideWarnings = warnings;
     binding.restartOptions = { ...binding.restartOptions, configOverrides: retained };
-    if (!sameSessionConfigChanges(normalized, retained)) {
+    if (!sameSessionConfigChanges(original, retained)) {
       this.emit('config-overrides', {
         agentId: binding.agentId,
         sessionId: binding.sessionId,

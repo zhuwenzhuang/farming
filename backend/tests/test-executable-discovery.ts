@@ -229,6 +229,16 @@ function run() {
     assert.strictEqual(compatiblePiAcp.path, path.resolve(pi));
     assert.strictEqual(compatiblePiAcp.version, '0.84.1');
     assert.strictEqual(compatiblePiAcp.compatible, true);
+    const agy = writeExecutable(tempDir, 'agy', '#!/usr/bin/env bash\nprintf "%s\\n" "Antigravity CLI"\n');
+    for (const version of ['1.4.5', '', '1.5.5', '1.6.0']) {
+      const resolutionOptions = { candidates: [agy], readVersion: () => version, cacheVersions: false };
+      const compatible = version === '1.5.5' || version === '1.6.0';
+      const resolution = resolveProviderAcpExecutable('agy', '', resolutionOptions);
+      assert.strictEqual(resolution.compatible, compatible, `AGY Chat version gate: ${version || 'unknown'}`);
+      assert.strictEqual(Boolean(validatePersistedAcpExecutable('agy', agy, resolutionOptions).error), !compatible);
+      if (!compatible) assert.match(resolution.error, /1\.5\.5 or newer/);
+    }
+    assert.strictEqual(resolveAgentExecutable('agy', tempDir), agy, 'the Chat minimum must not hide native Terminal');
     const oldPi = writeExecutable(
       tempDir,
       'old-pi',
