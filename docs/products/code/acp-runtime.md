@@ -94,6 +94,15 @@ Providers whose modes describe reasoning or build/plan behavior retain those
 settings; their native permission behavior or ACP client approval contract applies.
 Permission defaults never mutate another Session sharing the same process.
 
+When a native mode delegates tool approvals to ACP's client, the adapter may
+expose a Session-local Full access policy in addition to the native modes.
+The host must first confirm the delegating native mode, then approve each request
+with `allow_once`; it never creates permanent allow rules or enables a global
+skip-permissions flag. Native Auto and Manual remain distinct and keep delegated
+requests interactive. Mode changes, native updates and checkpoint recovery use
+the same configuration owner. A rejected or unconfirmed change cannot enable
+Full access or be replayed. Existing saved Auto selections remain Auto.
+
 Accepted model, reasoning and Fast changes update only the requested new-Agent
 Home defaults in the same Config, after verifying exact Home identity. Restoration
 does not rewrite defaults. Session success with a failed default save is reported

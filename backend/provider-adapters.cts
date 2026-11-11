@@ -125,6 +125,9 @@ type ProviderAcpExtensionEvent = ProviderAcpPromptSuggestion;
 
 interface ProviderAcpConfigPolicy {
   approvalModes?: Readonly<Record<string, string>>;
+  // The native mode delegates approval to ACP's client. Full access is then
+  // a Session-local host policy, never a process-wide skip-permissions flag.
+  clientFullAccess?: { nativeMode: string };
   coupleModelAndReasoning?: boolean;
   launchModelAndReasoning?: boolean;
   matchModelByName?: boolean;
@@ -1144,7 +1147,10 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       version: 'native',
       acceptsMcpServers: false,
       sharedRuntime: false,
-      config: { approvalModes: { full: 'auto', approve: 'accept-edits', ask: 'default' } },
+      config: {
+        approvalModes: { full: 'bypassPermissions', approve: 'default' },
+        clientFullAccess: { nativeMode: 'default' },
+      },
       sessionMetadata: ({ farmingSystemPrompt }) => farmingSystemPrompt
         ? { antigravity: { systemPrompt: { append: farmingSystemPrompt } } } : {},
       launch: options => resolveAgyAcpLaunch(options),

@@ -2093,7 +2093,7 @@ class AcpRuntime extends EventEmitter {
         binding.modes = (normalizeModes
           ? normalizeModes(sessionResponse?.modes || null, recordValue(binding.initializeResponse.agentInfo))
           : sessionResponse?.modes) as SessionResponse['modes'] || null;
-        binding.configOptions = sessionResponse?.configOptions || [];
+        binding.configOptions = this.normalizeClientPermissionOptions(binding, sessionResponse?.configOptions || []);
         const initializedSessionState = this.requireSessionState(binding);
         const responseAvailableCommands = (sessionResponse as SessionResponse & { availableCommands?: unknown })?.availableCommands;
         if (
@@ -3164,9 +3164,15 @@ class AcpRuntime extends EventEmitter {
           if (update) this.updateSubagentControlFromParent(binding, update);
           if (isPrimarySession && update?.sessionUpdate === 'current_mode_update' && binding.modes) {
             binding.modes = { ...binding.modes, currentModeId: String(update.currentModeId || '') };
+            if (providerAcpConfigPolicy(binding.provider)?.clientFullAccess) {
+              binding.configOptions = this.normalizeClientPermissionOptions(binding, binding.configOptions.map(option => (
+                option.category === 'mode' ? { ...option, currentValue: String(update.currentModeId || '') } : option
+              )));
+              this.syncSessionPermissionMode(binding);
+            }
           }
           if (isPrimarySession && update?.sessionUpdate === 'config_option_update') {
-            binding.configOptions = JSON.parse(JSON.stringify(update.configOptions || []));
+            binding.configOptions = this.normalizeClientPermissionOptions(binding, JSON.parse(JSON.stringify(update.configOptions || [])));
             this.syncSessionPermissionMode(binding);
           }
           if (!isPrimarySession && binding.sessionState) {
@@ -3243,13 +3249,20 @@ class AcpRuntime extends EventEmitter {
     }
     const approvalModes = providerAcpConfigPolicy(binding.provider)?.approvalModes;
     const currentMode = binding.configOptions.find(option => option.category === 'mode')?.currentValue
-      || binding.sessionState?.currentModeId;
+      || (providerAcpConfigPolicy(binding.provider)?.clientFullAccess ? '' : binding.sessionState?.currentModeId);
     // A later explicit Session choice supersedes the launch default. Providers
     // without permission modes (e.g. OpenCode) delegate approvals to the client.
-    const approvalMode = approvalModes && currentMode
+    const approvalMode = approvalModes && (currentMode || providerAcpConfigPolicy(binding.provider)?.clientFullAccess)
       ? Object.entries(approvalModes).find(([, mode]) => mode === currentMode)?.[0] || 'approve'
       : binding.approvalMode;
-    const automatic = autoPermissionResponse(request, approvalMode);
+    // Host Full access must not create persistent allow rules that survive a
+    // later downgrade to manual/auto. Approve only this exact tool request.
+    const clientFullAccess = this.hasClientFullAccess(binding)
+      && currentMode === 'bypassPermissions';
+    const automatic = clientFullAccess
+      ? autoPermissionResponse({ ...request, options: (Array.isArray(request.options) ? request.options : [])
+        .filter(option => option.kind === 'allow_once') }, 'full')
+      : autoPermissionResponse(request, approvalMode);
     if (automatic) return automatic;
     const requestId = `acp-permission-${crypto.randomUUID()}`;
     binding.interactionOrigins.set(requestId, binding.state);
@@ -4840,18 +4853,75 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
   }
 
+  private hasClientFullAccess(binding: AcpBinding) {
+    if (!providerAcpConfigPolicy(binding.provider)?.clientFullAccess) return false;
+    return binding.configOptions.some(option => option.category === 'mode'
+      && option.options?.some(choice => recordValue(recordValue(choice)._meta).farmingClientFullAccess === true));
+  }
+
+  private normalizeClientPermissionOptions(
+    binding: AcpBinding,
+    configOptions: SessionConfigOption[],
+    selectedMode: ConfigValue | undefined = binding.configOptions.find(option => option.category === 'mode')?.currentValue,
+  ): SessionConfigOption[] {
+    const policy = providerAcpConfigPolicy(binding.provider)?.clientFullAccess;
+    if (!policy) return configOptions;
+    return configOptions.map(option => {
+      if (option.category !== 'mode' || option.type !== 'select') return option;
+      const nativeOption = { ...option, options: option.options?.filter(choice => (
+        recordValue(recordValue(choice)._meta).farmingClientFullAccess !== true
+      )) };
+      const values = sessionConfigSelectValues(nativeOption);
+      // Never replace a native Full access implementation or advertise client
+      // approval when the provider no longer offers its delegating mode.
+      if (!values.includes(policy.nativeMode) || values.includes('bypassPermissions')) return nativeOption;
+      return {
+        ...nativeOption,
+        currentValue: option.currentValue === policy.nativeMode && selectedMode === 'bypassPermissions'
+          ? 'bypassPermissions' : option.currentValue,
+        options: [...(nativeOption.options || []), {
+          value: 'bypassPermissions', name: 'Full access',
+          description: 'Approve tool permission requests without asking.',
+          _meta: { farmingClientFullAccess: true },
+        }],
+      };
+    });
+  }
+
   private syncSessionPermissionMode(binding: AcpBinding) {
     if (!providerAcpConfigPolicy(binding.provider)?.approvalModes) return;
     const modeId = binding.configOptions.find(option => option.type === 'select' && option.category === 'mode')?.currentValue;
-    if (typeof modeId !== 'string') return;
+    if (typeof modeId !== 'string') {
+      if (providerAcpConfigPolicy(binding.provider)?.clientFullAccess) {
+        this.requireSessionState(binding).currentModeId = '';
+        this.requireSessionState(binding).configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+        if (binding.modes) binding.modes = null;
+      }
+      return;
+    }
     this.requireSessionState(binding).currentModeId = modeId;
-    if (binding.modes) binding.modes = { ...binding.modes, currentModeId: modeId };
+    this.requireSessionState(binding).configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+    if (binding.modes) {
+      const availableModes = (Array.isArray(binding.modes.availableModes) ? binding.modes.availableModes : []).filter(mode => (
+        recordValue(recordValue(mode)._meta).farmingClientFullAccess !== true
+      ));
+      if (this.hasClientFullAccess(binding)) availableModes.push({
+        id: 'bypassPermissions', name: 'Full access',
+        description: 'Approve tool permission requests without asking.',
+        _meta: { farmingClientFullAccess: true },
+      });
+      binding.modes = { ...binding.modes, currentModeId: modeId, availableModes };
+    }
   }
 
   async applySessionConfigOption(binding: AcpBinding, configId: string, value: ConfigValue, options: PrepareAgentOptions = {}) {
     this.requireOpenBinding(binding);
     const normalizedConfigId = String(configId || '');
     const currentOption = this.requireSessionConfigOption(binding, normalizedConfigId, value);
+    const permissionMode = currentOption.category === 'mode' && currentOption.type === 'select';
+    const clientPolicy = providerAcpConfigPolicy(binding.provider)?.clientFullAccess;
+    const nativeValue = permissionMode && value === 'bypassPermissions' && clientPolicy && this.hasClientFullAccess(binding)
+      ? clientPolicy.nativeMode : value;
     if (options.force !== true && currentOption?.currentValue === value) {
       this.syncSessionPermissionMode(binding);
       if (options.emit !== false) this.emitSession(binding);
@@ -4859,9 +4929,9 @@ class AcpRuntime extends EventEmitter {
     }
     const request = typeof value === 'boolean'
       ? { sessionId: binding.sessionId, configId: normalizedConfigId, type: 'boolean', value }
-      : { sessionId: binding.sessionId, configId: normalizedConfigId, value: String(value ?? '') };
+      : { sessionId: binding.sessionId, configId: normalizedConfigId, value: String(nativeValue ?? '') };
     let response;
-    const maxAttempts = options.maxAttempts === 1 ? 1 : 2;
+    const maxAttempts = permissionMode || options.maxAttempts === 1 ? 1 : 2;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       response = await withTimeout(
         binding.connection.setSessionConfigOption(request),
@@ -4869,9 +4939,13 @@ class AcpRuntime extends EventEmitter {
         'ACP session/set_config_option'
       );
       this.requireOpenBinding(binding);
-      binding.configOptions = response?.configOptions || binding.configOptions;
+      const nativeOptions = response?.configOptions || [];
+      const nativeConfirmed = !permissionMode || nativeOptions.find(candidate => candidate.id === normalizedConfigId)?.currentValue === request.value;
+      binding.configOptions = this.normalizeClientPermissionOptions(binding, response?.configOptions || binding.configOptions,
+        permissionMode ? (nativeConfirmed ? value : undefined) : binding.configOptions.find(option => option.category === 'mode')?.currentValue);
+      if (permissionMode) this.syncSessionPermissionMode(binding);
       const confirmed = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
-      if (confirmed?.currentValue === request.value) break;
+      if (nativeConfirmed && confirmed?.currentValue === value) break;
       if (attempt === maxAttempts - 1) {
         throw new Error(`ACP Agent did not confirm config option ${normalizedConfigId}`);
       }

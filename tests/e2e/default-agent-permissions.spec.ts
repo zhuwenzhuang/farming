@@ -7,7 +7,7 @@ const permissionModes = [
   { provider: 'claude', ordinary: 'default', bypass: 'bypassPermissions' },
   { provider: 'qoder', ordinary: 'default', bypass: 'bypassPermissions' },
   { provider: 'qwen', ordinary: 'default', bypass: 'yolo' },
-  { provider: 'agy', ordinary: 'agent_decides', bypass: 'bypassPermissions' },
+  { provider: 'agy', ordinary: 'default', bypass: 'bypassPermissions' },
 ]
 for (const { provider, ordinary, bypass } of permissionModes) {
  for (const appearance of ['light', 'dark', 'paper'] as const) {
@@ -20,7 +20,9 @@ for (const { provider, ordinary, bypass } of permissionModes) {
     expect(seeded.ok()).toBe(true)
     const modesFixture = path.join(workspaceRoot, '.fake-acp-permission-modes')
     fs.writeFileSync(modesFixture, JSON.stringify({ currentModeId: ordinary,
-      availableModes: [{ id: ordinary, name: 'Default' }, { id: bypass, name: 'Bypass permissions' }],
+      availableModes: provider === 'agy'
+        ? ['default', 'accept-edits', 'auto', 'plan'].map(id => ({ id, name: id }))
+        : [{ id: ordinary, name: 'Default' }, { id: bypass, name: 'Bypass permissions' }],
     }))
     try {
       await openFarming(page)
@@ -56,6 +58,22 @@ for (const { provider, ordinary, bypass } of permissionModes) {
         body: await mode.screenshot({ path: testInfo.outputPath(`default-permissions-${provider}-${appearance}.png`) }),
         contentType: 'image/png',
       })
+      if (provider === 'agy') {
+        const menu = page.getByTestId('code-acp-mode-menu')
+        await mode.click()
+        await expect(menu.getByRole('menuitemradio')).toHaveCount(5)
+        const full = menu.getByRole('menuitemradio', { name: /Full access/ })
+        await expect(full).toHaveAttribute('aria-checked', 'true')
+        await testInfo.attach(`native-agy-permission-menu-${appearance}`, {
+          body: await menu.screenshot({ path: testInfo.outputPath(`native-agy-permission-menu-${appearance}.png`) }), contentType: 'image/png',
+        })
+        await page.keyboard.press('Escape')
+        for (const [id, label] of [['auto', /Auto/], ['bypassPermissions', /Full access/], ['default', /Manual/]] as const) {
+          await mode.click()
+          await menu.getByRole('menuitemradio', { name: label }).click()
+          await expect(mode).toHaveAttribute('data-acp-value', id)
+        }
+      }
     } finally {
       fs.rmSync(modesFixture, { force: true })
       const reset = await page.request.post('/farming/api/settings', { data: { dangerouslySkipAgentPermissionsByDefault: false } })

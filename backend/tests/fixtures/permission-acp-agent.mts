@@ -5,10 +5,10 @@ import { Readable, Writable } from 'node:stream';
 import { agent, ndJsonStream, type AgentContext, type SessionConfigOption } from '@agentclientprotocol/sdk/unstable';
 
 // Captured provider contracts, deliberately independent of the production map.
-const contracts: Record<string, [string, string] | null> = {
+const contracts: Record<string, string[] | null> = {
   codex: ['agent', 'agent-full-access'], claude: ['default', 'bypassPermissions'],
   qoder: ['default', 'bypassPermissions'], qwen: ['default', 'yolo'],
-  agy: ['agent_decides', 'bypassPermissions'], opencode: null, pi: null,
+  agy: ['default', 'accept-edits', 'auto', 'plan'], opencode: null, pi: null,
 };
 const provider = process.argv[2];
 const contract = contracts[provider];
@@ -48,8 +48,8 @@ agent()
   })
   .onRequest('session/prompt', async ({ params }) => {
     const session = sessions.get(params.sessionId)!;
-    if (contract && session.mode !== contract[1]) throw new Error('Provider is still restricted');
-    if (provider === 'opencode') {
+    if (contract && provider !== 'agy' && session.mode !== contract[1]) throw new Error('Provider is still restricted');
+    if (provider === 'opencode' || provider === 'agy') {
       const result = await client.request('session/request_permission', { sessionId: params.sessionId,
         toolCall: { toolCallId: 'write-proof', title: 'Write test proof', kind: 'edit', status: 'pending' },
         options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }] });

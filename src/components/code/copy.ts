@@ -1136,7 +1136,7 @@ const EN_COPY: CodeCopy = {
     agent_decides: 'Accept edits',
     plan: 'Plan',
     dontAsk: "Don't ask",
-    bypassPermissions: 'Bypass permissions',
+    bypassPermissions: 'Full access',
     build: 'Build',
   }[value] ?? fallback),
   acpModeDescription: (value, fallback) => ({
@@ -1973,7 +1973,7 @@ const ZH_COPY: CodeCopy = {
     agent_decides: '接受编辑',
     plan: '计划',
     dontAsk: '不询问',
-    bypassPermissions: '绕过权限',
+    bypassPermissions: '完全访问',
     build: '执行',
   }[value] ?? fallback),
   acpModeDescription: (value, fallback) => ({
