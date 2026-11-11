@@ -916,7 +916,7 @@ test('mobile ACP keeps one compact Composer state and exposes model selection be
   expect(measured.publishedHeight).toBe(measured.composerHeight)
 })
 
-for (const provider of ['claude', 'opencode', 'qoder', 'qwen']) {
+for (const provider of ['claude', 'pi', 'agy', 'opencode', 'qoder', 'qwen']) {
   test(`${provider} ACP exposes and updates its advertised profile controls`, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, `acp-controls-${provider}`)
     fs.mkdirSync(workspace, { recursive: true })
@@ -1072,17 +1072,10 @@ test('Terminal Codex keeps live profile controls disabled while a turn is active
   await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toBeDisabled()
 })
 
-test('Terminal Codex expires its browser catalog and reports refresh failure without stale choices', async ({ page, workspaceRoot }) => {
+test('Terminal Codex refreshes on every opening and reports failure without stale choices', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-model-catalog-expiry')
   fs.mkdirSync(workspace, { recursive: true })
-  await page.addInitScript(() => {
-    const realNow = Date.now.bind(Date)
-    let offset = 0
-    Date.now = () => realNow() + offset
-    ;(window as typeof window & { __advanceCodexCatalogClock?: (ms: number) => void }).__advanceCodexCatalogClock = ms => {
-      offset += ms
-    }
-  })
+
 
   let catalogRequests = 0
   await page.route('**/farming/api/codex/models**', route => {
@@ -1127,10 +1120,7 @@ test('Terminal Codex expires its browser catalog and reports refresh failure wit
   await picker.click()
   await expect(page.getByTestId('code-model-matrix-picker')).toBeVisible()
   await picker.click()
-  await page.evaluate(() => {
-    ;(window as typeof window & { __advanceCodexCatalogClock?: (ms: number) => void })
-      .__advanceCodexCatalogClock?.(5 * 60_000 + 1)
-  })
+
   await picker.click()
 
   await expect(page.getByTestId('code-copy-toast')).toHaveText('Codex model catalog timed out after 15000ms')

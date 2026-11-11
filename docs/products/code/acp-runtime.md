@@ -64,6 +64,19 @@ present, the shared model picker uses those choices for that model, including an
 empty list; another model's current reasoning options cannot authorize a pair.
 Providers without this metadata retain their advertised session-level controls.
 
+Model and reasoning inventories come from the selected runtime and Agent Home.
+Farming must not seed a model catalog, manufacture selectable rows from saved
+preferences, or substitute static choices after discovery failure. Native launch
+pickers query their native runtime on opening; ACP Sessions use provider-advertised
+configuration. Discovery is bounded and failures stay explicit. Late responses
+cannot populate another Home's picker. An inherited setting delegates to the
+provider; it is not evidence of a particular model or reasoning capability.
+Antigravity requires a native ACP runtime (1.5.5 or newer). Chat launches `agy acp`
+with the exact Agent Home and consumes its advertised models, thinking levels,
+permissions and Session lifecycle directly. Farming does not parse `agy models`
+or translate print-mode output into ACP. System context is appended through the
+native ACP metadata contract. Unsupported runtime capabilities remain unavailable.
+
 New-Agent permission defaults are resolved by the backend at launch. The Config's
 skip-permission default takes precedence over saved launch-profile defaults;
 an explicit per-launch permission choice takes precedence over that default.
@@ -128,21 +141,6 @@ does not end execution, and a provider timeout must not be reported as completio
 Provider service limits and explicitly requested tool or goal budgets remain
 independent of Farming's Turn lifetime.
 
-Antigravity implements Steering by hard-stopping the current CLI cycle and
-continuing the same native conversation. Interrupted tools retain an explicit
-failure with unconfirmed completion; continuation cannot turn them into success.
-Model and effort slash changes become active only after a successful native result
-and clean process exit, then publish the confirmed configuration to the UI.
-Its CLI can retain an earlier error in a print result even after native recovery.
-The adapter reconciles that result only after clean process exit, exactly one new
-persisted input, a completed response, no unfinished step, and an exact error
-match in native history. Errors within the current turn additionally require
-every error to be a recognized transport failure and the native transcript to
-confirm a final response after them, with no further tool calls. Account and
-unrecognized failures remain failures. The admission boundary and steps must
-remain unchanged during verification; missing, conflicting or oversized evidence
-preserves failure. This never retries input or rewrites an earlier failed Turn.
-
 Permission and elicitation requests have independent identity and validity.
 Receiving a question does not suspend a Turn. Answer, decline, withdrawal and
 request cancellation settle once; only the live pending set authorizes responses.
@@ -166,10 +164,7 @@ after an intervening entry must not overwrite that earlier segment.
 Adapters distinguish message deltas from cumulative snapshots and preserve native
 message boundaries. Final results reconcile with streamed text: an echo is not
 repeated, an extension contributes its suffix, and a distinct final answer remains
-visible after progress. Contradictory snapshots fail explicitly. Antigravity
-history restores tool outputs from native result steps; a planner tool declaration
-alone cannot prove completion. Missing or interrupted results remain visibly
-unconfirmed, and unreadable or malformed transcripts fail the history read.
+visible after progress. Contradictory snapshots fail explicitly.
 
 - Checkpoints identify Agent, Provider Session, runtime epoch and revision.
   Deltas require that identity and the exact previous revision; gaps, resets and
@@ -235,17 +230,6 @@ History reads verify ancestry and do not start, load, resume or cancel Sessions.
 Standard child-session associations appear in the shared Chat collaboration
 surface as well as the sidebar, without requiring provider-specific activity
 metadata. A recorded association or completed tool does not prove child activity.
-
-Antigravity discovers native children from the owning parent's structured child
-registry, keyed by conversation identity rather than spawn-step index or display
-name. Live updates, history loading and fresh inventory reads reconcile these
-associations through the shared child protocol. Related history is read-only and
-bounded; cursors are bound to parent, child and history file identity. Registry
-`ALIVE` means existence, not current activity, so activity remains unknown until
-the provider supplies authoritative foreground state. During an owned CLI turn,
-Antigravity's `PreInvocation` and fully idle `Stop` hooks report activity by
-conversation ID. Losing the observer clears that turn's live state. Neither child input nor
-cancellation is advertised without provider support.
 
 In Chat, a registered child with readable history can be opened from its name
 or session ID in assistant text. Names must resolve uniquely within the parent

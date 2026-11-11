@@ -659,7 +659,7 @@ function run() {
     manager.updateSettings({
       defaultLaunchAgent: 'missing-agent',
       agentLaunchProfiles: {
-        claude: { permissionMode: 'bad-mode', model: 'bad model', effort: 'huge' },
+        claude: { permissionMode: 'bad-mode', model: 'bad model', effort: 'bad effort' },
       },
     });
     assert.strictEqual(manager.getDefaultLaunchAgent(), 'codex');
@@ -670,6 +670,9 @@ function run() {
       effort: 'config',
       runtimeMode: 'chat',
     });
+
+    manager.updateSettings({ agentLaunchProfiles: { claude: { effort: 'future-effort' } } });
+    assert.strictEqual(manager.getAgentLaunchProfile('claude').effort, 'future-effort');
 
     fs.rmSync(farmingDir, { recursive: true, force: true });
     const archivedAt = Date.now();

@@ -1031,15 +1031,10 @@ function run() {
     providerHomePath: '/tmp/agy-home',
     farmingSystemPrompt: 'Farming bootstrap',
   });
-  assert(agyLaunch.args[0].endsWith('agy-acp-bridge.cjs'));
-  assert.deepStrictEqual(agyLaunch.args.slice(1), [
-    '--farming-agy-command',
-    '/opt/bin/agy',
-    '--farming-agy-home',
-    '/tmp/agy-home',
-    '--farming-append-system-prompt',
-    'Farming bootstrap',
-  ]);
+  assert.strictEqual(agyLaunch.command, '/opt/bin/agy');
+  assert.deepStrictEqual(agyLaunch.args, ['acp', '--stdio', '--gemini_dir', '/tmp', '--app_data_dir', 'agy-home']);
+  assert.deepStrictEqual(agyAdapter.acp.sessionMetadata({ farmingSystemPrompt: 'Farming bootstrap', sessionEnv: {} }),
+    { antigravity: { systemPrompt: { append: 'Farming bootstrap' } } });
   assert.deepStrictEqual(providerCapabilities('agy'), {
     supportedRuntimes: ['terminal', 'acp'],
     runtimeSwitch: true,

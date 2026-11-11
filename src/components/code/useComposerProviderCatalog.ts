@@ -6,6 +6,7 @@ import {
   normalizeClaudeSettingsSummary,
   type ClaudeSettingsSummary,
 } from './composer-profile'
+import { normalizeModelCatalog } from './model'
 import { LatestRequestFence } from './latest-request-fence'
 import { useCodexModelCatalog } from './useCodexModelCatalog'
 
@@ -26,9 +27,16 @@ export const SLASH_COMMAND_REQUEST_TIMEOUT_MS = 8_000
 
 export async function requestClaudeSettings(homeId: string, request: JsonRequest = fetch) {
   const params = new URLSearchParams({ homeId })
-  const response = await request(appPath(`/api/claude/settings?${params.toString()}`))
-  const data = await response.json() as { settings?: ClaudeSettingsSummary }
-  return normalizeClaudeSettingsSummary(data.settings)
+  const controller = new AbortController()
+  const timer = globalThis.setTimeout(() => controller.abort(), 20_000)
+  try {
+    const response = await request(appPath(`/api/claude/models?${params.toString()}`), { signal: controller.signal })
+    const data = await response.json() as { error?: string; catalog?: import('./types').CodexModelOption[] }
+    if (response.ok === false) throw new Error(data.error || 'Failed to load Claude model catalog')
+    const modelOptions = normalizeModelCatalog(data)
+    if (!modelOptions.length) throw new Error('Claude model catalog returned no models')
+    return normalizeClaudeSettingsSummary({ available: true, modelOptions })
+  } finally { globalThis.clearTimeout(timer) }
 }
 
 export async function requestSlashCommands(
@@ -88,6 +96,8 @@ export function useComposerProviderCatalog({
   onModelCatalogError,
 }: ComposerProviderCatalogTarget) {
   const adapter = COMPOSER_PROVIDER_CATALOG_ADAPTERS[providerKind]
+  const onErrorRef = useRef(onModelCatalogError)
+  onErrorRef.current = onModelCatalogError
   const modelOptions = useCodexModelCatalog({
     providerHomeId: homeId,
     enabled: modelCatalogOpen && adapter?.codexModelCatalog === true,
@@ -107,7 +117,8 @@ export function useComposerProviderCatalog({
   useEffect(() => {
     const requestFence = claudeRequestFenceRef.current
     const lease = requestFence.begin()
-    if (!adapter?.loadSettings) {
+    setClaudeSettings(DEFAULT_CLAUDE_SETTINGS)
+    if (!modelCatalogOpen || !adapter?.loadSettings) {
       setClaudeSettings(DEFAULT_CLAUDE_SETTINGS)
       return () => requestFence.invalidate()
     }
@@ -115,11 +126,11 @@ export function useComposerProviderCatalog({
       .then(settings => {
         if (lease.isCurrent()) setClaudeSettings(settings)
       })
-      .catch(() => {
-        if (lease.isCurrent()) setClaudeSettings(DEFAULT_CLAUDE_SETTINGS)
+      .catch(error => {
+        if (lease.isCurrent()) onErrorRef.current(error instanceof Error ? error.message : 'Failed to load Claude model catalog')
       })
     return () => requestFence.invalidate()
-  }, [adapter, homeId])
+  }, [adapter, homeId, modelCatalogOpen])
 
   useEffect(() => {
     const requestFence = slashRequestFenceRef.current

@@ -95,7 +95,7 @@ export function selectBrowserScreen(files) {
     if (['shared/appearance-themes.json', 'src/styles/tokens.css', 'src/components/code/CodeOverlays.tsx',
       'src/components/code/menu-model.ts', 'src/components/code/useWorkspaceContextMenu.ts',
       'tests/e2e/iphone-mobile-layout.spec.ts'].includes(filename)) select(['mobile-menus']);
-    if (['backend/agy-related-sessions.cts', 'backend/acp/agy-acp-bridge.cts',
+    if (['backend/agy-related-sessions.cts', 'backend/acp/packaged-agy-acp.cts',
       'tests/e2e/agy-related-sessions.spec.ts'].includes(filename)) select(['agy-children']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }

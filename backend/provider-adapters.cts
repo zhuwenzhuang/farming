@@ -1144,9 +1144,12 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       version: 'native',
       acceptsMcpServers: false,
       sharedRuntime: false,
-      config: { approvalModes: { full: 'bypassPermissions' } },
+      config: { approvalModes: { full: 'auto', approve: 'accept-edits', ask: 'default' } },
+      sessionMetadata: ({ farmingSystemPrompt }) => farmingSystemPrompt
+        ? { antigravity: { systemPrompt: { append: farmingSystemPrompt } } } : {},
       launch: options => resolveAgyAcpLaunch(options),
     },
+    prepareAcpEnvironment: options => ({ ...(options?.env || process.env), AGY_CLI_DISABLE_AUTO_UPDATE: '1' }),
     usage: {
       collection: { kind: 'unavailable' },
       defaultHomeDirectory: '.gemini/antigravity',

@@ -65,7 +65,9 @@ function run() {
   assert.strictEqual(pendingCatalogState.currentModelLabel, '5.6-sol');
   assert.strictEqual(pendingCatalogState.currentReasoningLabel, 'Ultra');
   assert.strictEqual(pendingCatalogState.currentSpeedLabel, 'Fast');
-  assert.strictEqual(pendingCatalogState.currentModelOption.value, 'gpt-5.6-sol');
+  assert.strictEqual(pendingCatalogState.currentModelOption, undefined);
+  assert.deepStrictEqual(pendingCatalogState.agentModelOptions, []);
+  assert.deepStrictEqual(pendingCatalogState.currentReasoningOptions, []);
   assert.deepStrictEqual(
     normalizeModelCatalog({}),
     [],
@@ -171,7 +173,7 @@ function run() {
   );
 
   const defaults = defaultComposerProviderProfiles();
-  const selectedClaude = selectComposerProviderModel('claude', defaults.claude, ' sonnet ', []);
+  const selectedClaude = selectComposerProviderModel('claude', defaults.claude, ' sonnet ', [{ value: 'sonnet', label: 'Sonnet', reasoningLevels: [] }]);
   assert.strictEqual(selectedClaude.model, 'sonnet');
   assert.strictEqual(
     selectComposerProviderPermissionMode('claude', selectedClaude, 'invalid').permissionMode,

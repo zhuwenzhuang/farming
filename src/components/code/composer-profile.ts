@@ -139,39 +139,12 @@ export const CLAUDE_PERMISSION_OPTIONS: PermissionModeOption[] = CLAUDE_PERMISSI
   color: mode === 'bypassPermissions' ? 'orange' : ['auto', 'acceptEdits', 'plan'].includes(mode) ? 'blue' : 'muted',
 }))
 
-export const CLAUDE_EFFORT_OPTIONS = [
-  { value: 'low', effort: 'low', label: 'Low' },
-  { value: 'medium', effort: 'medium', label: 'Medium' },
-  { value: 'high', effort: 'high', label: 'High' },
-  { value: 'xhigh', effort: 'xhigh', label: 'Extra High' },
-  { value: 'max', effort: 'max', label: 'Max' },
-]
-
-const CLAUDE_SETTINGS_LABEL = 'Claude settings'
-
-export const CLAUDE_SETTINGS_EFFORT_OPTION: CodexReasoningOption = {
-  value: 'config',
-  effort: 'config',
-  label: CLAUDE_SETTINGS_LABEL,
-}
-
-export const FALLBACK_CLAUDE_MODEL_OPTIONS: CodexModelOption[] = [
-  {
-    value: 'config',
-    label: CLAUDE_SETTINGS_LABEL,
-    displayName: CLAUDE_SETTINGS_LABEL,
-    defaultEffort: 'config',
-    reasoningLevels: [CLAUDE_SETTINGS_EFFORT_OPTION, ...CLAUDE_EFFORT_OPTIONS],
-    source: 'settings',
-  },
-]
-
 export const DEFAULT_CLAUDE_SETTINGS: ClaudeSettingsSummary = {
   available: false,
   effectiveModel: '',
   effectiveEffort: '',
   modelOptions: [],
-  effortOptions: CLAUDE_EFFORT_OPTIONS,
+  effortOptions: [],
 }
 
 export function isCodexApprovalMode(mode: string | undefined): mode is CodexApprovalMode {
@@ -213,7 +186,7 @@ export function normalizeClaudeModel(model: string | undefined) {
 }
 
 function normalizeClaudeEffortValue(effort: string | undefined) {
-  return effort && CLAUDE_EFFORT_OPTIONS.some(option => option.value === effort) ? effort : ''
+  return typeof effort === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(effort) ? effort : ''
 }
 
 export function normalizeClaudeEffort(effort: string | undefined) {
@@ -236,7 +209,7 @@ function normalizeClaudeEffortOptions(options: CodexReasoningOption[] | undefine
     })
   }
 
-  return normalized.length > 0 ? normalized : CLAUDE_EFFORT_OPTIONS
+  return normalized
 }
 
 export function normalizeClaudeSettingsSummary(settings: ClaudeSettingsSummary | undefined): ClaudeSettingsSummary {
@@ -254,23 +227,13 @@ export function normalizeClaudeSettingsSummary(settings: ClaudeSettingsSummary |
         value,
         label: option.label || value,
         displayName: option.displayName || value,
-        defaultEffort: normalizeClaudeEffortValue(option.defaultEffort) || effectiveEffort || 'medium',
-        reasoningLevels: effortOptions,
+        defaultEffort: normalizeClaudeEffortValue(option.defaultEffort),
+        reasoningLevels: normalizeClaudeEffortOptions(option.reasoningLevels),
         source: option.source || 'settings',
       })
     })
   }
 
-  if (effectiveModel && !modelOptions.some(option => option.value === effectiveModel)) {
-    modelOptions.unshift({
-      value: effectiveModel,
-      label: effectiveModel,
-      displayName: effectiveModel,
-      defaultEffort: effectiveEffort || 'medium',
-      reasoningLevels: effortOptions,
-      source: 'settings',
-    })
-  }
 
   return {
     available: settings?.available === true,
@@ -282,27 +245,8 @@ export function normalizeClaudeSettingsSummary(settings: ClaudeSettingsSummary |
 }
 
 export function claudeModelOptionsWithCurrent(model: string, settings: ClaudeSettingsSummary): CodexModelOption[] {
-  const reasoningLevels = settings.effortOptions?.length ? settings.effortOptions : CLAUDE_EFFORT_OPTIONS
-  const options = settings.modelOptions?.length
-    ? settings.modelOptions
-    : FALLBACK_CLAUDE_MODEL_OPTIONS.map(option => ({ ...option }))
-  const normalizedModel = normalizeClaudeModel(model)
-
-  if (!normalizedModel || normalizedModel === 'config' || options.some(option => option.value === normalizedModel)) {
-    return options.map(option => ({ ...option, reasoningLevels: option.reasoningLevels?.length ? option.reasoningLevels : reasoningLevels }))
-  }
-
-  return [
-    ...options.map(option => ({ ...option, reasoningLevels: option.reasoningLevels?.length ? option.reasoningLevels : reasoningLevels })),
-    {
-      value: normalizedModel,
-      label: normalizedModel,
-      displayName: normalizedModel,
-      defaultEffort: settings.effectiveEffort || 'medium',
-      reasoningLevels,
-      source: 'settings',
-    },
-  ]
+  void model
+  return settings.modelOptions || []
 }
 
 export function resolveClaudeModel(model: string, settings: ClaudeSettingsSummary) {
@@ -315,55 +259,10 @@ export function resolveClaudeEffort(effort: string, settings: ClaudeSettingsSumm
   return settings.effectiveEffort || 'config'
 }
 
-export function claudeReasoningOptionsWithCurrent(effort: string, settings: ClaudeSettingsSummary) {
-  const options = settings.effortOptions?.length ? settings.effortOptions : CLAUDE_EFFORT_OPTIONS
-  if (effort === 'config') return [CLAUDE_SETTINGS_EFFORT_OPTION, ...options]
-  if (options.some(option => option.value === effort)) return options
-
-  return [
-    ...options,
-    {
-      value: effort,
-      effort,
-      label: effortLabel(effort),
-    },
-  ]
-}
-
-export function codexModelOptionsWithCurrent(
-  model: string,
-  effort: string,
-  serviceTier: string,
-  options: CodexModelOption[],
-) {
-  if (!model || options.some(option => option.value === model)) return options
-  const serviceTiers: CodexServiceTierOption[] = [
-    { value: 'default', label: 'Standard', description: 'Default speed' },
-  ]
-  if (serviceTier && serviceTier !== 'default') {
-    serviceTiers.push({
-      value: serviceTier,
-      label: serviceTier === 'priority' ? 'Fast' : serviceTier,
-    })
-  }
-  return [
-    ...options,
-    {
-      value: model,
-      label: codexModelDisplayName(undefined, model),
-      displayName: codexModelDisplayName(undefined, model),
-      defaultEffort: effort,
-      reasoningLevels: [{ value: effort, effort, label: effortLabel(effort) }],
-      serviceTiers,
-      source: 'pending-catalog',
-    },
-  ]
-}
-
 const DEFAULT_CODEX_PROFILE: ComposerProviderProfile = {
   permissionMode: 'approve',
-  model: 'gpt-5.5',
-  reasoningEffort: 'xhigh',
+  model: 'config',
+  reasoningEffort: 'config',
   serviceTier: 'default',
 }
 
@@ -400,20 +299,12 @@ function claudeProfileFromSettings(settings: GlobalSettings): ComposerProviderPr
 }
 
 function codexReasoningOptions(profile: ComposerProviderProfile, model: CodexModelOption | undefined) {
-  if (model?.reasoningLevels?.length) return model.reasoningLevels
-  return profile.reasoningEffort
-    ? [{
-        value: profile.reasoningEffort,
-        effort: profile.reasoningEffort,
-        label: effortLabel(profile.reasoningEffort),
-      }]
-    : []
+  void profile
+  return model?.reasoningLevels || []
 }
 
 function codexServiceTierOptions(model: CodexModelOption | undefined): CodexServiceTierOption[] {
-  return model?.serviceTiers?.length
-    ? model.serviceTiers
-    : [{ value: 'default', label: 'Standard', description: 'Default speed' }]
+  return model?.serviceTiers || []
 }
 
 const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, ComposerProviderProfileAdapter> = {
@@ -426,12 +317,7 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
       launchPermissionMode,
       isCodexApprovalMode(fallback) ? fallback : 'approve',
     ),
-    modelOptions: (profile, options) => codexModelOptionsWithCurrent(
-      profile.model,
-      profile.reasoningEffort,
-      profile.serviceTier,
-      options,
-    ),
+    modelOptions: (_profile, options) => options,
     resolvedModel: profile => profile.model,
     resolvedReasoningEffort: profile => profile.reasoningEffort,
     reasoningOptions: (profile, model) => codexReasoningOptions(profile, model),
@@ -507,10 +393,7 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
     modelOptions: (profile, _options, settings) => claudeModelOptionsWithCurrent(profile.model, settings),
     resolvedModel: (profile, settings) => resolveClaudeModel(profile.model, settings),
     resolvedReasoningEffort: (profile, settings) => resolveClaudeEffort(profile.reasoningEffort, settings),
-    reasoningOptions: (profile, _model, settings) => claudeReasoningOptionsWithCurrent(
-      resolveClaudeEffort(profile.reasoningEffort, settings),
-      settings,
-    ),
+    reasoningOptions: (_profile, model) => model?.reasoningLevels || [],
     serviceTierOptions: () => [],
     permissionOptions: CLAUDE_PERMISSION_OPTIONS,
     settingsPatch: (profile, scope) => ({
@@ -519,7 +402,13 @@ const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, Compos
         ? { model: profile.model, effort: profile.reasoningEffort }
         : {}),
     }),
-    selectModel: (profile, model) => ({ ...profile, model: normalizeClaudeModel(model) }),
+    selectModel: (profile, model, options) => {
+      const selected = options.find(option => option.value === model.trim())
+      if (!selected) return profile
+      return { ...profile, model: selected.value,
+        reasoningEffort: selected.reasoningLevels?.some(level => level.value === profile.reasoningEffort)
+          ? profile.reasoningEffort : 'config' }
+    },
     selectReasoningEffort: (profile, effort) => ({
       ...profile,
       reasoningEffort: normalizeClaudeEffort(effort),
@@ -672,7 +561,7 @@ export function buildComposerControlState({
   const agentReasoningEffort = adapter.resolvedReasoningEffort(profile, claudeSettings)
   const agentServiceTier = profile.serviceTier
   const agentModelPreset = `${agentModel}:${agentReasoningEffort}`
-  const currentModelOption = agentModelOptions.find(option => option.value === agentModel) ?? agentModelOptions[0]
+  const currentModelOption = agentModelOptions.find(option => option.value === agentModel)
   const resolvedProfile = { ...profile, model: agentModel, reasoningEffort: agentReasoningEffort }
   const currentReasoningOptions = adapter.reasoningOptions(resolvedProfile, currentModelOption, claudeSettings)
   const currentServiceTierOptions = adapter.serviceTierOptions(currentModelOption)
@@ -698,7 +587,7 @@ export function buildComposerControlState({
     currentServiceTierOption,
     currentModelLabel: codexModelDisplayName(currentModelOption, agentModel),
     currentReasoningLabel: currentReasoningOption?.label ?? effortLabel(agentReasoningEffort),
-    currentSpeedLabel: currentServiceTierOption?.label ?? '',
+    currentSpeedLabel: currentServiceTierOption?.label ?? (agentServiceTier === 'priority' ? 'Fast' : ''),
     permissionModeOptions,
     currentPermissionMode,
     currentPermissionOption,

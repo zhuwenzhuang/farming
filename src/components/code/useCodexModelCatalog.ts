@@ -5,7 +5,6 @@ import { LatestRequestFence } from './latest-request-fence'
 import { normalizeModelCatalog } from './model'
 import type { CodexModelOption } from './types'
 
-export const CODEX_MODEL_CATALOG_TTL_MS = 5 * 60_000
 const EMPTY_CATALOG_ERROR = 'Codex model catalog did not contain any visible models'
 const CATALOG_LOAD_ERROR = 'Failed to load Codex model catalog'
 
@@ -14,7 +13,7 @@ type CodexModelCatalogResponse = {
   error?: string
 }
 
-type CodexModelCatalogRequest = (url: string) => Promise<{
+type CodexModelCatalogRequest = (url: string, init?: RequestInit) => Promise<{
   ok: boolean
   status: number
   json(): Promise<unknown>
@@ -25,10 +24,14 @@ export async function requestCodexModelCatalog(
   request: CodexModelCatalogRequest = fetch,
 ) {
   const params = new URLSearchParams({ homeId })
-  const response = await request(appPath(`/api/codex/models?${params.toString()}`))
-  const data = await response.json().catch(() => ({})) as CodexModelCatalogResponse
-  if (!response.ok) throw new Error(data.error || `${CATALOG_LOAD_ERROR} (${response.status})`)
-  return normalizeModelCatalog(data)
+  const controller = new AbortController()
+  const timer = globalThis.setTimeout(() => controller.abort(), 20_000)
+  try {
+    const response = await request(appPath(`/api/codex/models?${params.toString()}`), { signal: controller.signal })
+    const data = await response.json().catch(() => ({})) as CodexModelCatalogResponse
+    if (!response.ok) throw new Error(data.error || `${CATALOG_LOAD_ERROR} (${response.status})`)
+    return normalizeModelCatalog(data)
+  } finally { globalThis.clearTimeout(timer) }
 }
 
 export interface CodexModelCatalogOptions {
@@ -43,40 +46,23 @@ export function useCodexModelCatalog({
   onError,
 }: CodexModelCatalogOptions) {
   const [codexModelOptions, setCodexModelOptions] = useState<CodexModelOption[]>([])
-  const cacheRef = useRef<{ homeId: string; loadedAt: number; options: CodexModelOption[] }>({
-    homeId: '',
-    loadedAt: 0,
-    options: [],
-  })
   const requestFenceRef = useRef(new LatestRequestFence())
   const retryOnReconnectRef = useRef(false)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
 
   const loadCatalog = useCallback((homeId: string) => {
-    const cache = cacheRef.current
-    if (
-      cache.homeId === homeId
-      && cache.loadedAt > 0
-      && Date.now() - cache.loadedAt <= CODEX_MODEL_CATALOG_TTL_MS
-    ) {
-      setCodexModelOptions(cache.options)
-      return
-    }
-
     const lease = requestFenceRef.current.begin()
     setCodexModelOptions([])
     void requestCodexModelCatalog(homeId)
       .then(options => {
         if (!lease.isCurrent()) return
         if (options.length === 0) throw new Error(EMPTY_CATALOG_ERROR)
-        cacheRef.current = { homeId, loadedAt: Date.now(), options }
         retryOnReconnectRef.current = false
         setCodexModelOptions(options)
       })
       .catch(error => {
         if (!lease.isCurrent()) return
-        cacheRef.current = { homeId: '', loadedAt: 0, options: [] }
         if (!getBackendConnectionSnapshot().connected) {
           retryOnReconnectRef.current = true
           return
@@ -89,11 +75,7 @@ export function useCodexModelCatalog({
   useEffect(() => {
     requestFenceRef.current.invalidate()
     retryOnReconnectRef.current = false
-    const cache = cacheRef.current
-    const cached = cache.homeId === providerHomeId
-      && cache.loadedAt > 0
-      && Date.now() - cache.loadedAt <= CODEX_MODEL_CATALOG_TTL_MS
-    setCodexModelOptions(cached ? cache.options : [])
+    setCodexModelOptions([])
   }, [providerHomeId])
 
   useEffect(() => {

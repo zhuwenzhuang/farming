@@ -28,13 +28,7 @@ test('provider metadata requests preserve query encoding and normalize their pay
     return {
       async json() {
         return {
-          settings: {
-            available: true,
-            effectiveModel: ' opus ',
-            effectiveEffort: 'high',
-            modelOptions: [],
-            effortOptions: [],
-          },
+          catalog: [{ value: 'future-claude', label: 'Future Claude', reasoningLevels: [{ value: 'future', effort: 'future', label: 'Future' }] }],
         }
       },
     }
@@ -51,12 +45,19 @@ test('provider metadata requests preserve query encoding and normalize their pay
   })
 
   assert.deepEqual(urls, [
-    '/api/claude/settings?homeId=home+%2Fone',
+    '/api/claude/models?homeId=home+%2Fone',
     '/api/slash-commands?provider=codex&homeId=home+%2Fone&workspace=%2Frepo+path',
     '/api/slash-commands?provider=claude&homeId=default',
   ])
-  assert.equal(claude.effectiveModel, 'opus')
+  assert.equal(claude.modelOptions?.[0]?.value, 'future-claude')
+  assert.equal(claude.modelOptions?.[0]?.reasoningLevels?.[0]?.value, 'future')
   assert.equal(claude.available, true)
   assert.equal(slashRequestSignal instanceof AbortSignal, true)
   assert.deepEqual(commands, [pluginCommand])
+})
+
+
+test('model discovery failures never turn into configured or static options', async () => {
+  await assert.rejects(requestClaudeSettings('one', async () => ({ ok: false, async json() { return { error: 'provider unavailable' } } })), /provider unavailable/)
+  await assert.rejects(requestClaudeSettings('one', async () => ({ async json() { return { catalog: [] } } })), /no models/)
 })

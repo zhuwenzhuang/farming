@@ -48,8 +48,8 @@ export function effortLabel(effort: string) {
 }
 
 export function splitModelPreset(preset: string | undefined) {
-  if (!preset || preset === 'config') return { model: 'gpt-5.5', effort: 'xhigh' }
-  const [model = 'gpt-5.5', effort = 'xhigh'] = preset.split(':')
+  if (!preset || preset === 'config') return { model: 'config', effort: 'config' }
+  const [model = 'config', effort = 'config'] = preset.split(':')
   return { model, effort }
 }
 

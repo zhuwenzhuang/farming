@@ -46,9 +46,9 @@ async function run(): Promise<void> {
       if (modelFailure) throw modelFailure;
       return { models: [{ id: 'gpt-5-codex', label: 'GPT-5 Codex' }], source: homePath };
     },
-    readClaudeSettings(homePath: string): unknown {
+    async loadClaudeModels(homePath: string) {
       settingsRequests.push(homePath);
-      return { permissions: { allow: ['Bash'] }, settingsFile: `${homePath}/settings.json` };
+      return { catalog: [{ value: 'future-claude' }], source: homePath };
     },
     resolveProviderHome(provider: string, rawHomeId: unknown): RequestedProviderHomeFixture {
       resolveCalls.push({ provider, rawHomeId });
@@ -103,14 +103,9 @@ async function run(): Promise<void> {
     modelFailure = null;
 
     resolveCalls.length = 0;
-    const settingsResponse = await fetch(`${baseUrl}/claude/settings`);
+    const settingsResponse = await fetch(`${baseUrl}/claude/models`);
     assert.strictEqual(settingsResponse.status, 200);
-    assert.deepStrictEqual(await settingsResponse.json(), {
-      settings: {
-        permissions: { allow: ['Bash'] },
-        settingsFile: '/homes/codex/settings.json',
-      },
-    });
+    assert.deepStrictEqual(await settingsResponse.json(), { catalog: [{ value: 'future-claude' }], source: '/homes/codex' });
     assert.deepStrictEqual(resolveCalls, [{ provider: 'claude', rawHomeId: undefined }]);
     assert.deepStrictEqual(settingsRequests, ['/homes/codex']);
 
@@ -120,14 +115,14 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(await invalidModels.json() as ErrorResponse, {
       error: 'Invalid Agent Home id',
     });
-    const invalidSettings = await fetch(`${baseUrl}/claude/settings?homeId=../escape`);
+    const invalidSettings = await fetch(`${baseUrl}/claude/models?homeId=../escape`);
     assert.strictEqual(invalidSettings.status, 400);
     assert.deepStrictEqual(await invalidSettings.json() as ErrorResponse, {
       error: 'Invalid Agent Home id',
     });
 
     requestedHome = { error: 'Unknown claude Agent Home: ghost', home: null, status: 404 };
-    const unknownSettings = await fetch(`${baseUrl}/claude/settings?homeId=ghost`);
+    const unknownSettings = await fetch(`${baseUrl}/claude/models?homeId=ghost`);
     assert.strictEqual(unknownSettings.status, 404);
     assert.deepStrictEqual(await unknownSettings.json() as ErrorResponse, {
       error: 'Unknown claude Agent Home: ghost',

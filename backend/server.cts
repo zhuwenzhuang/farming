@@ -246,7 +246,7 @@ import { rejectReadOnlyClientMutation } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgentsAsync, resolveTerminalExecutableAsync } from './executable-discovery.cjs';
 import { getAgentLaunchMetadata } from './cli-agents.cjs';
-import { readClaudeSettingsSummary } from './claude-settings.cjs';
+import { listClaudeModelOptions } from './claude-models.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
 import {
@@ -1241,10 +1241,8 @@ app.post(
 );
 
 app.use(routePath(BASE_PATH, '/api'), createProviderCatalogRouter({
-  loadCodexModels: homePath => codexModelOptionsCache.get(homePath),
-  readClaudeSettings: homePath => readClaudeSettingsSummary({
-    settingsFile: path.join(homePath, 'settings.json'),
-  }),
+  loadCodexModels: homePath => codexModelOptionsCache.get(homePath, { force: true }),
+  loadClaudeModels: homePath => listClaudeModelOptions({ env: applyProviderHomeEnvironment({ ...process.env }, 'claude', homePath) }),
   resolveProviderHome: requestedProviderHome,
 }));
 

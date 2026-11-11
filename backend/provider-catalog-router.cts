@@ -30,7 +30,7 @@ interface RequestedProviderHome {
 
 interface ProviderCatalogRouterPort {
   loadCodexModels(homePath: string): Promise<unknown>;
-  readClaudeSettings(homePath: string): unknown;
+  loadClaudeModels(homePath: string): Promise<unknown>;
   resolveProviderHome(provider: string, rawHomeId: unknown): RequestedProviderHome;
 }
 
@@ -65,14 +65,13 @@ function createProviderCatalogRouter(service: ProviderCatalogRouterPort): Expres
     }
   });
 
-  router.get('/claude/settings', (req, res) => {
+  router.get('/claude/models', async (req, res) => {
     const requested = service.resolveProviderHome('claude', req.query.homeId);
-    if (!requested.home) {
-      res.status(requested.status).json({ error: requested.error });
-      return;
-    }
-    res.json({ settings: service.readClaudeSettings(requested.home.path) });
+    if (!requested.home) { res.status(requested.status).json({ error: requested.error }); return; }
+    try { res.json(await service.loadClaudeModels(requested.home.path)); }
+    catch (error) { res.status(502).json({ error: caughtError(error).message || 'Failed to load Claude model catalog' }); }
   });
+
 
   return router;
 }

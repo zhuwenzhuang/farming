@@ -993,7 +993,7 @@ class ConfigManager {
 
   normalizeClaudeEffort(effort: unknown): string {
     if (effort === 'config') return effort;
-    if (typeof effort === 'string' && ['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) return effort;
+    if (typeof effort === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(effort)) return effort;
     return 'config';
   }
 
