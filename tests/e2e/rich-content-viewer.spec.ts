@@ -3,6 +3,68 @@ import path from 'node:path'
 import type { Locator } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
+test('attached images stay inside the message bubble across widths and appearances', async ({ page, workspaceRoot, isMobile }, testInfo) => {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    if (isMobile) await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const image = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1200
+      canvas.height = 800
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#dce8ed'
+      context.fillRect(0, 0, 1200, 800)
+      context.fillStyle = '#264653'
+      context.font = '64px sans-serif'
+      context.fillText('Cluster overview', 80, 120)
+      for (let index = 0; index < 24; index++) {
+        context.fillRect(80 + (index % 6) * 180, 200 + Math.floor(index / 6) * 130, 140, 90)
+      }
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    await page.getByTestId('code-acp-composer-input').fill('Please compare each image attachment and suggest a more compact layout that keeps every cluster visible. Reduce unnecessary information without collapsing the content.')
+    await page.getByTestId('code-acp-composer-file-input').setInputFiles([1, 2].map(index => ({
+      name: `cluster-${index}.png`, mimeType: 'image/png', buffer: Buffer.from(image, 'base64'),
+    })))
+    await expect(page.locator('.code-composer-attachment.ready')).toHaveCount(2)
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.getByText('Received 2 image.', { exact: true })).toBeVisible()
+    const images = page.getByTestId('code-agent-transcript-user-images')
+    await expect(images.locator('img')).toHaveCount(2)
+    for (const width of [1440, 800, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.evaluate(value => { document.body.dataset.appearance = value }, appearance)
+        await expect.poll(() => images.evaluate(element => {
+          const bubble = element.closest('.code-agent-transcript-user')!
+          const frame = bubble.getBoundingClientRect()
+          const style = getComputedStyle(bubble)
+          const left = frame.left + parseFloat(style.paddingLeft)
+          const right = frame.right - parseFloat(style.paddingRight)
+          const pictures = Array.from(element.querySelectorAll('img'))
+          const boxes = pictures.map(image => image.getBoundingClientRect())
+          return pictures.every((image, index) => image.complete && image.naturalWidth > 0
+            && boxes[index].width > 0 && boxes[index].left >= left - 1 && boxes[index].right <= right + 1
+            && Math.abs(boxes[index].top - boxes[0].top) < 1
+            && Math.abs(boxes[index].width / boxes[index].height - image.naturalWidth / image.naturalHeight) < 0.03)
+            && boxes.every((box, index) => boxes.slice(index + 1).every(other =>
+              box.right <= other.left + 1 || other.right <= box.left + 1
+              || box.bottom <= other.top + 1 || other.bottom <= box.top + 1))
+        })).toBe(true)
+        await images.locator('..').screenshot({ animations: 'disabled', path: testInfo.outputPath(`attachments-${width}-${appearance}.png`) })
+      }
+    }
+  } finally {
+    await page.request.delete(`/farming/api/control/agents/${agentId}`)
+  }
+})
+
 test.describe('image preview dismissal', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 

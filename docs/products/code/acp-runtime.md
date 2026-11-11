@@ -558,6 +558,11 @@ Composer failure feedback keeps its heading, reason and optional recovery action
 in separate slots. Long reasons wrap; compact layouts scroll the feedback within
 its allocated space while keeping the input and toolbar unobscured.
 
+User-message image attachments share the bubble's available content width.
+Adjacent previews shrink proportionally within their columns before another row
+is needed; they must not overlap or clip. Opening the full-size viewer remains
+available.
+
 Rich content uses safe Markdown and bounded media/render paths. Source is preserved;
 untrusted HTML does not execute. Streaming, settled and interrupted content have
 explicit states. During streaming, inline links and images with an opened destination

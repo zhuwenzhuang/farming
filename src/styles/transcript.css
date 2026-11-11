@@ -389,14 +389,20 @@ button.code-agent-transcript-message-source {
 
 .code-agent-transcript-user-images {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, max-content));
+  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
+  align-items: start;
   gap: 8px;
   margin-top: 10px;
 }
 
+.code-agent-transcript-user-images .code-agent-transcript-image-trigger {
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .code-agent-transcript-user-images img {
   display: block;
-  max-width: min(220px, 58vw);
+  max-width: min(220px, 58vw, 100%);
   max-height: 180px;
   object-fit: contain;
   border: 1px solid var(--code-border);
