@@ -1,6 +1,6 @@
 import path from 'node:path'
 import type { Page, Route } from '@playwright/test'
-import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
+import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, startCrtMainAgent, test } from './fixtures'
 
 async function createControlAgent(page: Page, command: string, workspace: string, agentRuntimeMode: 'terminal' | 'chat' | 'acp' = 'terminal') {
   const response = await page.request.post('/farming/api/control/agents', {
@@ -991,16 +991,18 @@ test('keeps every session command reachable through a Terminal to MSG keyboard f
 })
 
 test('round-trips every CRT top-level surface with keyboard-only navigation', async ({ page, workspaceRoot }) => {
-  await openFarming(page)
+  await startCrtMainAgent(page)
   const agentId = await createControlAgent(page, 'bash', workspaceRoot)
 
-  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
   const agentCard = page.locator(`#map-area .agent-block[data-agent-id="${agentId}"]`)
   await expect(agentCard).toBeVisible({ timeout: 30_000 })
 
   await page.keyboard.press('n')
-  await expect(page.locator('#input-dialog')).toHaveClass(/active/)
-  await page.keyboard.press('3')
+  const dialog = page.locator('#input-dialog')
+  await expect(dialog).toHaveClass(/active/)
+  await expect(dialog.locator('#dialog-title')).toHaveText('Start New Agent')
+  await expect(dialog.locator('#agent-list .agent-item[data-index="0"] .key-hint')).toHaveText('[1]')
+  await page.keyboard.press('1')
   await expect(page.locator('#workspace-input')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.locator('#workspace-input-container')).toBeHidden()

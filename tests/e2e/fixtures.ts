@@ -439,6 +439,16 @@ export async function openFarming(page: Page, options: { terminalComposerExpande
   await expect(page.getByTestId('app-shell')).toBeVisible()
 }
 
+export async function startCrtMainAgent(page: Page) {
+  await page.goto('/farming/crt/', { waitUntil: 'domcontentloaded' })
+  const dialog = page.locator('#input-dialog')
+  await expect(dialog).toHaveClass(/active/)
+  await expect(dialog.locator('#dialog-title')).toHaveText('Start Main Agent')
+  await dialog.getByRole('button', { name: /^bash\b/ }).click()
+  await expect(page.locator('#main-agent-block[data-agent-id]')).toBeVisible({ timeout: 30_000 })
+  await expect(dialog).not.toHaveClass(/active/)
+}
+
 export async function selectAgent(page: Page, name: string) {
   await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
   const agentOption = page.getByTestId(`agent-option-${name}`)
