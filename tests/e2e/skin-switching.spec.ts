@@ -992,11 +992,6 @@ test('keeps every session command reachable through a Terminal to MSG keyboard f
 
 test('round-trips every CRT top-level surface with keyboard-only navigation', async ({ page, workspaceRoot }) => {
   await openFarming(page)
-  await expect.poll(async () => {
-    const response = await page.request.get('/farming/api/control/agents')
-    const payload = await response.json() as { mainAgentId?: string }
-    return payload.mainAgentId || ''
-  }, { timeout: 30_000 }).not.toBe('')
   const agentId = await createControlAgent(page, 'bash', workspaceRoot)
 
   await page.goto('/farming/crt/', { waitUntil: 'networkidle' })

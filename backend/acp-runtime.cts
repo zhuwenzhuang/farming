@@ -1,4 +1,4 @@
-import { acpPeerPrompt } from './acp-peer-prompt.cjs';
+import { acpPeerPrompt, sameAcpInputContent } from './acp-peer-prompt.cjs';
 import { acpPeerReplyText } from './acp-peer-reply.cjs';
 import type { AcpPeerMessage } from '../shared/acp-peer-message.js';
 import { COMPOSER_ADMISSION_TIMEOUT_MS } from '../shared/chat-capacity.js';
@@ -165,9 +165,10 @@ interface AcpTurn {
     clientMessageId: string;
     accepted: boolean;
     failed: boolean;
+    echoedBlocks: number;
     accept: () => void;
     reject: (error: unknown) => void;
-    result: Promise<AcpPromptOutcome>;
+    result: Promise<AcpPromptOutcome | null>;
   }>;
   [key: string]: unknown;
 }
@@ -1455,7 +1456,7 @@ class AcpRuntime extends EventEmitter {
       const handlers = this.sharedClientHandlers(runtime);
       const connection = this.createConnection
         ? await this.createConnection(handlers, child, binding)
-        : await this.officialConnection(handlers, child);
+        : await this.officialConnection(handlers, child, binding.provider);
       runtime.connection = connection;
       binding.connection = connection;
       connection.closed.catch((error: unknown) => this.handleRuntimeExit(runtime, error));
@@ -2999,7 +3000,7 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  async officialConnection(handlers: AcpClientHandlers, child: import('child_process').ChildProcessWithoutNullStreams): Promise<AcpConnection> {
+  async officialConnection(handlers: AcpClientHandlers, child: import('child_process').ChildProcessWithoutNullStreams, provider: string): Promise<AcpConnection> {
     const sdk = await loadAcpSdk();
     const stream = sdk.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
     const readable = stream.readable.pipeThrough(new TransformStream({
@@ -3027,8 +3028,11 @@ class AcpRuntime extends EventEmitter {
       .onRequest('terminal/output', ({ params }) => handlers.terminalOutput(params))
       .onRequest('terminal/wait_for_exit', ({ params }) => handlers.waitForTerminalExit(params))
       .onRequest('terminal/kill', ({ params }) => handlers.killTerminal(params))
-      .onRequest('terminal/release', ({ params }) => handlers.releaseTerminal(params))
-      .onRequest('*', ({ method, params }) => handlers.extRequest(method, recordValue(params)));
+      .onRequest('terminal/release', ({ params }) => handlers.releaseTerminal(params));
+    const steering = getProviderAdapter(provider)?.acp.steering;
+    if (steering?.kind === 'pull') {
+      app.onRequest(steering.method, recordValue, ({ params }) => handlers.extRequest(steering.method, params));
+    }
     const connection = app.connect({ ...stream, readable });
     const sessionRequest = (method: string) => (params: UnknownRecord) => connection.agent.request<SessionResponse>(method, params);
     return {
@@ -3089,10 +3093,14 @@ class AcpRuntime extends EventEmitter {
         const binding = this.bindingForRuntimeSession(runtime, String(params?.sessionId || ''));
         return binding ? runtime.handlers.get(binding.agentId)?.extNotification(method, params) : undefined;
       },
-      extRequest: (method: string, params: UnknownRecord) => {
-        const binding = this.bindingForRuntimeSession(runtime, String(params.sessionId || ''));
-        if (!binding) throw new Error('ACP request does not match an active Session');
-        return runtime.handlers.get(binding.agentId)?.extRequest(method, params);
+      extRequest: async (method: string, params: UnknownRecord) => {
+        const binding = typeof params.sessionId === 'string' && this.bindingForRuntimeSession(runtime, params.sessionId);
+        const target = binding && runtime.handlers.get(binding.agentId);
+        if (!target) {
+          const { RequestError } = await loadAcpSdk();
+          throw RequestError.invalidParams(undefined, 'ACP request does not match an active Session');
+        }
+        return target.extRequest(method, params);
       },
       requestPermission: async (params: UnknownRecord, signal?: AbortSignal): Promise<PermissionResponse> => {
         const target = handler('requestPermission', params);
@@ -3187,12 +3195,20 @@ class AcpRuntime extends EventEmitter {
         // The concurrent-prompt transport echoes an idless user block before
         // answering the replacement prompt. Bind only an exact pending input.
         if (isPrimarySession && !binding.historyReplayActive && native?.sessionUpdate === 'user_message_chunk' && !native.messageId) {
-          const pending = binding.activeTurn?.concurrentSteers?.find(item => !item.accepted && !item.failed
-            && item.content.some(block => block.type === 'text'
-              && recordValue(native.content).type === 'text' && block.text === recordValue(native.content).text));
-          if (pending) {
+          const echoed = recordValue(native.content);
+          for (const pending of binding.activeTurn?.concurrentSteers || []) {
+            if (pending.failed || pending.echoedBlocks >= pending.content.length) continue;
+            const remaining = pending.content.slice(pending.echoedBlocks);
+            const exactBlock = sameAcpInputContent([remaining[0]], [echoed])
+              || (echoed.type === 'text' && remaining[0].type === 'text'
+                && typeof remaining[0].text === 'string' && remaining[0].text === echoed.text);
+            const joinedText = !exactBlock && echoed.type === 'text' && remaining.every(block => block.type === 'text')
+              && ['', '\n', '\n\n'].some(separator => remaining.map(block => block.text).join(separator) === echoed.text);
+            if (!exactBlock && !joinedText) continue;
+            pending.echoedBlocks += exactBlock ? 1 : remaining.length;
             pending.accept();
             notification = { ...notification, update: { ...native, messageId: pending.clientMessageId } };
+            break;
           }
         }
         if (targetState?.apply(notification, {
@@ -3296,8 +3312,15 @@ class AcpRuntime extends EventEmitter {
     if (!origin) return notification;
     if (notification.sessionId !== binding.sessionId) throw new Error('Child event does not belong to the owning Session');
     const previous = binding.subagentStates.get(origin.sessionId)?.nativeSubagent;
-    if (!previous || previous.parentSessionId !== origin.parentSessionId
-      || (origin.title !== undefined && previous.title !== origin.title)) {
+    if (previous && previous.parentSessionId !== origin.parentSessionId) throw new Error('Native subagent parent cannot change');
+    let ancestor = origin.parentSessionId;
+    for (let depth = 1; depth < origin.depth; depth += 1) {
+      const parent = binding.subagentStates.get(ancestor)?.nativeSubagent?.parentSessionId;
+      if (!parent) throw new Error('Native subagent parent has not been announced at the reported depth');
+      ancestor = parent;
+    }
+    if (ancestor !== binding.sessionId) throw new Error('Native subagent depth does not match its owning Session');
+    if (!previous || (origin.title !== undefined && previous.title !== origin.title)) {
       this.applyNativeSubagentAssociation(binding, {
         sessionId: origin.parentSessionId,
         update: { sessionUpdate: 'subagent_update', sessionId: origin.sessionId,
@@ -3633,7 +3656,8 @@ class AcpRuntime extends EventEmitter {
       for (let index = 0; index < (turn.concurrentSteers?.length || 0); index += 1) {
         // A failed request can precede a later handover. The latest result
         // owns completion, and no outstanding successor may be left running.
-        outcome = await turn.concurrentSteers![index].result;
+        const result = await turn.concurrentSteers![index].result;
+        if (result) outcome = result;
       }
       if (outcome.ok === false) throw outcome.error;
       response = outcome.response;
@@ -3819,6 +3843,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   async steerConcurrentPrompt(binding: AcpBinding, turn: AcpTurn, content: PromptBlock[], clientMessageId: string, options: PrepareAgentOptions) {
+    const { RequestError } = await loadAcpSdk();
     let resolveReceipt!: (value: { sessionId: string; clientMessageId: string; turnId: string }) => void;
     let rejectReceipt!: (error: unknown) => void;
     const receipt = new Promise<{ sessionId: string; clientMessageId: string; turnId: string }>((resolve, reject) => {
@@ -3831,10 +3856,17 @@ class AcpRuntime extends EventEmitter {
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
       this.requireSavedSessionModel(binding);
+      if (turn.concurrentSteers?.some(pending => !pending.accepted && !pending.failed)) {
+        throw new Error('Waiting for Antigravity to confirm the previous steer');
+      }
       const state = this.requireSessionState(binding);
       const insertionIndex = state.entries.length;
-      const pending = {
-        content: acpPeerPrompt(content, options.peerMessage), clientMessageId, accepted: false, failed: false,
+      const prompt = acpPeerPrompt(content, options.peerMessage);
+      // A failed admission or synchronous transport throw creates no successor.
+      this.submissionPhase(binding, options, 'dispatching');
+      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt });
+      const pending: NonNullable<AcpTurn['concurrentSteers']>[number] = {
+        content: prompt, clientMessageId, accepted: false, failed: false, echoedBlocks: 0,
         reject: rejectReceipt,
         accept: () => {
           if (pending.accepted || !this.isCurrentTurn(binding, turn)) return;
@@ -3844,18 +3876,19 @@ class AcpRuntime extends EventEmitter {
           this.emitSession(binding);
           resolveReceipt({ sessionId: binding.sessionId, clientMessageId, turnId });
         },
-        result: Promise.resolve<AcpPromptOutcome>({ ok: true, response: {} }),
+        result: responsePromise.then<AcpPromptOutcome, AcpPromptOutcome | null>(response => {
+          if (response.stopReason !== 'cancelled') pending.accept();
+          else if (!pending.accepted) rejectReceipt(new Error('ACP steer was cancelled before acceptance'));
+          return { ok: true, response };
+        }, error => {
+          pending.failed = true;
+          rejectReceipt(error);
+          // A peer's rejection before acceptance belongs to the steer receipt;
+          // an accepted handover or transport failure still owns settlement.
+          return !pending.accepted && error instanceof RequestError ? null : { ok: false, error };
+        }),
       };
       (turn.concurrentSteers ??= []).push(pending);
-      this.submissionPhase(binding, options, 'dispatching');
-      pending.result = binding.connection.prompt({ sessionId: binding.sessionId, prompt: pending.content }).then<AcpPromptOutcome, AcpPromptOutcome>(response => {
-        pending.accept();
-        return { ok: true, response };
-      }, error => {
-        pending.failed = true;
-        rejectReceipt(error);
-        return { ok: false, error };
-      });
     });
     // Do not hold the Turn control lock while waiting for an echo/completion:
     // cancellation must still reach the Agent during a long native tool call.

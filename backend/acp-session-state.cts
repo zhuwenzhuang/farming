@@ -9,6 +9,7 @@ const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
+const NATIVE_TERMINAL_METADATA_FIELDS = ['terminal_info', 'terminal_output', 'terminal_output_delta', 'terminal_exit'];
 import { createHash } from 'node:crypto';
 import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
 import type { NativeSubagentAssociation } from './acp-native-subagents.cjs';
@@ -1100,9 +1101,21 @@ class AcpSessionState {
     if (entry.status === 'cancelled') return;
     const terminal = applyAcpNativeTerminal(entry.nativeTerminal, update._meta, acpSessionProviderPolicy(this.provider).terminalOutputReplaces);
     if (terminal) entry.nativeTerminal = terminal;
-    for (const field of ['name', 'title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta']) {
+    for (const field of ['name', 'title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput']) {
       if (!isPatch || Object.prototype.hasOwnProperty.call(update, field)) {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
+      }
+    }
+    if (update._meta !== undefined) {
+      const metadata = update._meta;
+      if (metadata && NATIVE_TERMINAL_METADATA_FIELDS.some(field => Object.hasOwn(metadata, field))) {
+        const retained = { ...metadata };
+        for (const field of NATIVE_TERMINAL_METADATA_FIELDS) delete retained[field];
+        // Terminal events are transport data. Keep their bounded representation
+        // in nativeTerminal, leaving unrelated metadata on terminal-only updates.
+        if (Object.keys(retained).length > 0) entry._meta = clone(retained);
+      } else {
+        entry._meta = clone(metadata);
       }
     }
     if (receivedAt !== null) entry.lastActivityAt = receivedAt;
@@ -1117,19 +1130,19 @@ class AcpSessionState {
       this.compactionEntries.set(id, entry);
     }
     if (entry.status === 'cancelled') return;
-    if (Object.prototype.hasOwnProperty.call(update, 'status')) entry.status = String(update.status || 'completed');
+    if (update.status !== undefined) entry.status = String(update.status || 'completed');
     if (update.sessionUpdate === 'compaction_summary_chunk' && update.content) {
       entry.content = [...(entry.content || []), clone(update.content)];
-    } else if (Object.prototype.hasOwnProperty.call(update, 'summary')) {
+    } else if (update.summary !== undefined) {
       entry.content = Array.isArray(update.summary) ? clone(update.summary) as AcpContent[]
         : typeof update.summary === 'string' ? [{ type: 'text', text: update.summary }] : [];
     }
     if (Array.isArray(entry.content)) {
       entry.summary = entry.content.filter(block => block.type === 'text').map(block => String(block.text || '')).join('');
     }
-    if (Object.prototype.hasOwnProperty.call(update, 'error')) entry.error = typeof update.error === 'string' ? update.error : '';
-    if (update.sessionUpdate !== 'compaction_summary_chunk' && Object.prototype.hasOwnProperty.call(update, '_meta')) {
-      if (update._meta == null) delete entry._meta;
+    if (update.error !== undefined) entry.error = typeof update.error === 'string' ? update.error : '';
+    if (update.sessionUpdate !== 'compaction_summary_chunk' && update._meta !== undefined) {
+      if (update._meta === null) delete entry._meta;
       else entry._meta = clone(update._meta);
     }
     this.touchEntry(entry);

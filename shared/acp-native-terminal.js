@@ -2,7 +2,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.applyAcpNativeTerminal = applyAcpNativeTerminal;
-exports.acpNativeTerminalText = acpNativeTerminalText;
+exports.acpNativeTerminalDisplay = acpNativeTerminalDisplay;
 const record = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const MAX_OUTPUT_CHARS = 1024 * 1024;
 /** Display-only native terminals never acquire client-terminal process controls. */
@@ -16,10 +16,10 @@ function applyAcpNativeTerminal(previous, metadata, replaceOutput) {
     if (typeof id !== 'string' || !id || id.length > 512)
         return null;
     for (const event of [info, output, exit]) {
-        if (event.terminal_id !== undefined && event.terminal_id !== id)
+        if (event.terminal_id != null && event.terminal_id !== id)
             throw new Error('Native terminal identity changed within a tool call');
     }
-    const replaces = replaceOutput && meta.terminal_output !== undefined;
+    const replaces = replaceOutput && meta.terminal_output != null && typeof output.data === 'string';
     const before = typeof old.output === 'string' ? old.output : '';
     const text = typeof output.data === 'string' ? (replaces ? output.data : before + output.data) : before;
     return {
@@ -32,12 +32,15 @@ function applyAcpNativeTerminal(previous, metadata, replaceOutput) {
         } : {}),
     };
 }
-function acpNativeTerminalText(value) {
+function acpNativeTerminalDisplay(value) {
     const terminal = record(value);
     if (typeof terminal.id !== 'string')
-        return '';
+        return null;
     const output = typeof terminal.output === 'string' ? terminal.output.trimEnd() : '';
     const exit = Number.isInteger(terminal.exitCode) ? `Exit code: ${terminal.exitCode}`
         : typeof terminal.signal === 'string' && terminal.signal ? `Signal: ${terminal.signal}` : '';
-    return [terminal.truncated === true ? '[Earlier terminal output truncated]' : '', output, exit].filter(Boolean).join('\n');
+    return {
+        output,
+        text: [terminal.truncated === true ? '[Earlier terminal output truncated]' : '', output, exit].filter(Boolean).join('\n'),
+    };
 }

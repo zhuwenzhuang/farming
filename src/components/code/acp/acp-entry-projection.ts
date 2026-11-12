@@ -1,5 +1,5 @@
 import { composerDocumentFromContent, type ComposerDocument } from '../../../../shared/composer-document.js'
-import { acpNativeTerminalText } from '../../../../shared/acp-native-terminal'
+import { acpNativeTerminalDisplay } from '../../../../shared/acp-native-terminal'
 import { isUnavailableAcpPeerReceipt, normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../../../../shared/agent-handoff-context'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
@@ -545,11 +545,11 @@ function detailForTool(entry: AcpRecord) {
   let structuredContent = toolContentText(list(entry.content).filter(value => record(value).type !== 'terminal'))
   const rawOutput = toolOutputText(entry)
   if (equivalentJsonText(structuredContent, entry.rawOutput)) structuredContent = ''
+  const terminal = acpNativeTerminalDisplay(entry.nativeTerminal)
   if (rawInput) sections.push(`Input\n${rawInput}`)
-  if (structuredContent) sections.push(structuredContent)
-  if (rawOutput) sections.push(`Output\n${rawOutput}`)
-  const nativeOutput = acpNativeTerminalText(entry.nativeTerminal)
-  if (nativeOutput && nativeOutput !== structuredContent && nativeOutput !== rawOutput) sections.push(nativeOutput)
+  if (structuredContent && structuredContent.trim() !== terminal?.output.trim()) sections.push(structuredContent)
+  if (rawOutput && rawOutput.trim() !== terminal?.output.trim()) sections.push(`Output\n${rawOutput}`)
+  if (terminal?.text) sections.push(terminal.text)
   return sections.join('\n\n')
 }
 

@@ -198,8 +198,10 @@ use the same start/settlement rules as submitted Turns.
 Steering transport belongs to the provider boundary. The common extension and
 legacy Codex extension require their advertised capability. Antigravity's verified
 native server uses concurrent prompts: an earlier RPC may settle at handover,
-but the logical Turn stays active until its last prompt settles. An exact native
-input echo or successful response confirms the input once. Qwen's reverse input
+but the logical Turn stays active until outstanding prompts settle. A rejection
+before acceptance fails only that input. Ordered echo blocks or a non-cancelled
+response confirm the input once; a cancelled response alone confirms no delivery.
+Only one input can await confirmation at a time. Qwen's reverse input
 drain is enabled only after an owning-session request proves support; pending
 input is bounded, drained once, and withdrawn on timeout, cancellation or Turn
 settlement before delivery. Waiting for either transport must not hold the Turn
@@ -260,7 +262,7 @@ transcript projection use the same retained output.
 
 Provider child-event envelopes normalize before transcript or permission routing.
 A parent envelope does not make child output a parent answer. Validate the child
-identity and announced parent, retain the association, and route by the actual
+identity, announced parent and reported depth, retain the association, and route by the actual
 child Session. Observation metadata does not grant child cancellation or remote
 history access; permissions keep their original child ownership.
 

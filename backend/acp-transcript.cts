@@ -7,7 +7,7 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
   diffLines(oldText: string, newText: string): Array<{ count?: number; added?: boolean; removed?: boolean }>;
 };
 import { isCodexContextCompactionMessage } from './codex-transcript-sanitizer.cjs';
-import { acpNativeTerminalText } from '../shared/acp-native-terminal.js';
+import { acpNativeTerminalDisplay } from '../shared/acp-native-terminal.js';
 
 type DataRecord = Record<string, unknown>;
 
@@ -307,11 +307,11 @@ function detailForTool(entry: DataRecord): string {
   // Some ACP adapters mirror rawOutput as a text content block. Keep the
   // canonical output once instead of presenting the same JSON twice.
   if (equivalentJsonText(structuredContent, entry.rawOutput)) structuredContent = '';
+  const terminal = acpNativeTerminalDisplay(entry.nativeTerminal);
   if (rawInput) sections.push(`Input\n${rawInput}`);
-  if (structuredContent) sections.push(structuredContent);
-  if (rawOutput) sections.push(`Output\n${rawOutput}`);
-  const nativeOutput = acpNativeTerminalText(entry.nativeTerminal);
-  if (nativeOutput && nativeOutput !== structuredContent && nativeOutput !== rawOutput) sections.push(nativeOutput);
+  if (structuredContent && structuredContent.trim() !== terminal?.output.trim()) sections.push(structuredContent);
+  if (rawOutput && rawOutput.trim() !== terminal?.output.trim()) sections.push(`Output\n${rawOutput}`);
+  if (terminal?.text) sections.push(terminal.text);
   return sections.join('\n\n');
 }
 

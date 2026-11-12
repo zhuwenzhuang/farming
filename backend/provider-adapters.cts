@@ -152,7 +152,7 @@ interface ProviderAcpContract {
   // Native transports that do not advertise the common steering extension.
   // Pull support is enabled only after a request from the owning live session.
   steering?: { kind: 'pull'; method: string } | { kind: 'concurrent-prompt'; agentName: string };
-  childSessionOrigin?: (update: Record<string, unknown>) => { sessionId: string; parentSessionId: string; title?: string } | null;
+  childSessionOrigin?: (update: Record<string, unknown>) => { sessionId: string; parentSessionId: string; depth: number; title?: string } | null;
   acceptsMcpServers?: boolean;
   executablePolicy: 'managed' | 'system';
   packageName?: string;
@@ -960,9 +960,10 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
         const child = value as Record<string, unknown>;
         if (typeof child.id !== 'string' || !child.id.trim() || child.id.length > 512
           || typeof child.parentID !== 'string' || !child.parentID.trim() || child.parentID.length > 512
-          || child.id === child.parentID || !Number.isSafeInteger(child.depth) || Number(child.depth) < 1
-          || (child.title !== undefined && typeof child.title !== 'string')) throw new Error('Invalid OpenCode child session');
-        return { sessionId: child.id, parentSessionId: child.parentID, ...(typeof child.title === 'string' ? { title: child.title } : {}) };
+          || child.id === child.parentID || !Number.isSafeInteger(child.depth) || Number(child.depth) < 1 || Number(child.depth) > 128
+          || (child.title != null && typeof child.title !== 'string')) throw new Error('Invalid OpenCode child session');
+        const title = typeof child.title === 'string' ? child.title.trim().slice(0, 512) : '';
+        return { sessionId: child.id, parentSessionId: child.parentID, depth: Number(child.depth), ...(title ? { title } : {}) };
       },
       launch: options => ({
         command: options.executable || 'opencode',

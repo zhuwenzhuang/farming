@@ -12,8 +12,8 @@ import { integrateCodexModelConfig } from './vendor/codex-model-config-integrati
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '2.6.0';
 const expectedUpstreamSha256 = '733b7521c2a437a34ed016d45a6f46bebff2bac123a172467574ee827db98b99';
-const expectedBundleSha256 = 'b0880c86cabf559555691b4160124d3f70935dcacb67b39dde56b5b0f29e0eb4';
-const expectedPatchedSha256 = '805514b80c41d98b92bc05b1e06064e996c86531e23803987ad2415ad175c0f6';
+const expectedBundleSha256 = '67028fd72cfca5555e058aa49c84545763468f0568eef6357a8bfdb33c4af7f6';
+const expectedPatchedSha256 = 'cd040457d95d986cf2699ac1d9705afb551fe088947bd41ee3837033750f189b';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');

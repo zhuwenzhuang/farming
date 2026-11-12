@@ -580,6 +580,15 @@ class FakeAgent {
       const previous = nativeSteerTurns.get(params.sessionId);
       if (previous && nativeSteeringTransport === 'pull') throw new Error('Concurrent prompt interrupts Qwen; use the drain extension');
       if (previous && text === 'reject native steer') throw RequestError.internalError(undefined, 'Native steer rejected before handover');
+      if (previous && text === 'hold native steer without echo') {
+        return new Promise(done => {
+          const cancelOriginal = cancelledSessions.get(params.sessionId);
+          cancelledSessions.set(params.sessionId, () => {
+            cancelOriginal?.();
+            done({ stopReason: 'cancelled' });
+          });
+        });
+      }
       if (previous) previous.resolve({ stopReason: 'end_turn' });
       let resolve!: (response: PromptResponse) => void;
       const completion = new Promise<PromptResponse>(done => { resolve = done; });
@@ -592,14 +601,23 @@ class FakeAgent {
         turn.resolve({ stopReason });
       };
       cancelledSessions.set(params.sessionId, () => stop('cancelled'));
-      await client.notify('session/update', { sessionId: params.sessionId, update: {
-        sessionUpdate: 'user_message_chunk', content: { type: 'text', text },
-      } });
+      for (const content of params.prompt) {
+        await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'user_message_chunk', content } });
+      }
       await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: previous ? `Native steer accepted: ${text}` : 'Native turn running.' },
       } });
       if (text === 'finish native turn') stop('end_turn');
       if (nativeSteeringTransport === 'pull') {
+        if (process.env.FARMING_TEST_NATIVE_STEERING_DRAIN_ONCE) {
+          const verifyRejected = async (method: string, params: Record<string, unknown>, code: number) => {
+            try { await client.request(method, params); }
+            catch (error) { if (error instanceof RequestError && error.code === code) return; throw error; }
+            throw new Error(`Unexpected success for ${method}`);
+          };
+          await verifyRejected('craft/unknown', {}, -32601);
+          await verifyRejected('craft/drainMidTurnQueue', { sessionId: 'another-session' }, -32602);
+        }
         const drain = async () => {
           if (nativeSteerTurns.get(params.sessionId) !== turn) return;
           const response = await client.request<{ items: Array<{ displayText: string }> }>('craft/drainMidTurnQueue', { sessionId: params.sessionId });

@@ -20,9 +20,9 @@ export function applyAcpNativeTerminal(previous: unknown, metadata: unknown, rep
   const id = old.id || info.terminal_id || output.terminal_id || exit.terminal_id
   if (typeof id !== 'string' || !id || id.length > 512) return null
   for (const event of [info, output, exit]) {
-    if (event.terminal_id !== undefined && event.terminal_id !== id) throw new Error('Native terminal identity changed within a tool call')
+    if (event.terminal_id != null && event.terminal_id !== id) throw new Error('Native terminal identity changed within a tool call')
   }
-  const replaces = replaceOutput && meta.terminal_output !== undefined
+  const replaces = replaceOutput && meta.terminal_output != null && typeof output.data === 'string'
   const before = typeof old.output === 'string' ? old.output : ''
   const text = typeof output.data === 'string' ? (replaces ? output.data : before + output.data) : before
   return {
@@ -36,11 +36,14 @@ export function applyAcpNativeTerminal(previous: unknown, metadata: unknown, rep
   }
 }
 
-export function acpNativeTerminalText(value: unknown): string {
+export function acpNativeTerminalDisplay(value: unknown) {
   const terminal = record(value)
-  if (typeof terminal.id !== 'string') return ''
+  if (typeof terminal.id !== 'string') return null
   const output = typeof terminal.output === 'string' ? terminal.output.trimEnd() : ''
   const exit = Number.isInteger(terminal.exitCode) ? `Exit code: ${terminal.exitCode}`
     : typeof terminal.signal === 'string' && terminal.signal ? `Signal: ${terminal.signal}` : ''
-  return [terminal.truncated === true ? '[Earlier terminal output truncated]' : '', output, exit].filter(Boolean).join('\n')
+  return {
+    output,
+    text: [terminal.truncated === true ? '[Earlier terminal output truncated]' : '', output, exit].filter(Boolean).join('\n'),
+  }
 }

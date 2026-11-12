@@ -37,7 +37,17 @@ async function run() {
         await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'reject native steer' }]), /Native steer rejected/);
         assert(runtime.canSteer('native'), 'a rejected handover leaves the active request steerable');
       }
-      await runtime.submitMessage('native', [{ type: 'text', text: 'second change' }], { delivery: 'steer' });
+      const secondChange = [{ type: 'text', text: 'second change' }];
+      if (provider === 'agy') {
+        await runtime.submitMessage('native', [
+          { type: 'resource_link', uri: 'file:///demo/fixture.txt', name: 'fixture.txt' },
+          ...secondChange, { type: 'text', text: 'additional block' },
+        ], { delivery: 'steer' });
+      } else {
+        await runtime.submitMessage('native', secondChange, { delivery: 'steer' });
+      }
+      await until(() => binding.sessionState.entries.some(entry => entry.role === 'assistant'
+        && entry.content?.some(block => String(block.text || '').includes('Native steer accepted: second change'))));
       const users = binding.sessionState.entries.filter(entry => entry.role === 'user');
       assert.equal(users.length, 3, 'idless native echoes must not duplicate accepted input');
       assert.equal(projectAcpTranscript(binding.sessionState.snapshot()).turns.length, 1);
@@ -54,6 +64,32 @@ async function run() {
       await runtime.steer('native', [{ type: 'text', text: 'finish native turn' }]);
       assert.equal((await next).stopReason, 'end_turn');
       assert.equal(projectAcpTranscript(binding.sessionState.snapshot()).turns.length, 2);
+
+      if (provider === 'agy') {
+        const rejected = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void rejected.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'reject native steer' }]), /Native steer rejected/);
+        await runtime.cancel('native');
+        assert.equal((await rejected).stopReason, 'cancelled', 'a last rejected successor cannot override the original outcome');
+
+        const original = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void original.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'reject native steer' }]), /Native steer rejected/);
+        const send = binding.connection.prompt;
+        binding.connection.prompt = () => { throw new Error('synchronous send failure'); };
+        try {
+          await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'not sent' }]), /synchronous send failure/);
+        } finally { binding.connection.prompt = send; }
+        assert.equal(binding.activeTurn?.concurrentSteers?.length, 1, 'pre-dispatch throws leave no successor');
+        const unconfirmed = assert.rejects(runtime.steer('native', [{ type: 'text', text: 'hold native steer without echo' }]), /before steer acceptance|cancelled before acceptance/);
+        await until(() => binding.activeTurn?.concurrentSteers?.length === 2);
+        await runtime.cancel('native');
+        await unconfirmed;
+        assert.equal((await original).stopReason, 'cancelled', 'rejecting or cancelling a successor does not fail the original Turn');
+        assert(!JSON.stringify(binding.sessionState.entries).includes('hold native steer without echo'));
+      }
     } finally {
       await runtime.dispose();
       fs.rmSync(root, { recursive: true, force: true });
@@ -112,6 +148,12 @@ async function run() {
       _meta: { 'opencode/child-session': { id: 'grandchild', parentID: 'child', depth: 2 } },
     } });
     assert.equal(parent.subagentStates.get('grandchild')?.nativeSubagent?.parentSessionId, 'child');
+    assert.equal(runtime.routeProviderChildUpdate(parent, { sessionId: parent.sessionId, update: {
+      _meta: { 'opencode/child-session': { id: 'untitled', parentID: parent.sessionId, depth: 1, title: null } },
+    } }).sessionId, 'untitled');
+    assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: parent.sessionId, update: {
+      _meta: { 'opencode/child-session': { id: 'wrong-depth', parentID: 'child', depth: 1 } },
+    } }), /depth does not match/);
     assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: 'unrelated-session', update: { _meta: childMeta } }), /owning Session/);
     assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: parent.sessionId, update: {
       _meta: { 'opencode/child-session': { id: 'child', parentID: 'grandchild', depth: 3 } },

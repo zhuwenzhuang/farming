@@ -62,6 +62,11 @@ const tasks: FastScreenTask[] = [
     args: ['--import', 'tsx', 'backend/tests/test-codex-acp-upgrade.ts'],
   },
   {
+    name: 'Codex ACP descendant archive and historical child reads',
+    managedUpgrade: true,
+    args: ['--import', 'tsx', 'backend/tests/test-codex-acp-archive.ts'],
+  },
+  {
     name: 'fresh Codex startup precedes model-control acceptance',
     args: ['--import', 'tsx', '--test', 'tests/codex-startup-readiness.test.ts', 'tests/codex-model-status.test.ts'],
   },

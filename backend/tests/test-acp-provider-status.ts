@@ -20,6 +20,10 @@ for (const provider of ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'a
   update({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'failed', error: 'Context unavailable' });
   assert.equal(entry.summary, 'Replacement', 'omitted summary keeps the current snapshot');
   assert.equal(entry._meta?.reason, 'auto');
+  update({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: undefined, summary: undefined, error: undefined, _meta: undefined });
+  assert.equal(entry.status, 'failed');
+  assert.equal(entry.summary, 'Replacement');
+  assert.equal(entry._meta?.reason, 'auto');
   assert.match(projectAcpTranscript(state.snapshot()).turns[0].processItems.find(item => item.type === 'compaction')!.detail!, /Context unavailable/);
   update({ sessionUpdate: 'compaction_update', compactionId: 'compact', status: 'completed', summary: null, error: null, _meta: null });
   assert.equal(entry.summary, '');
@@ -34,26 +38,34 @@ for (const provider of ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'a
   state = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!;
   update({ sessionUpdate: 'compaction_update', compactionId: 'collision', status: 'completed', summary: [] });
   assert.equal(state.entries.filter(item => item.compactionId === 'collision').length, 1);
-  update({ sessionUpdate: 'compaction_update', compactionId: 'cancel', status: 'in_progress' });
+  update({ sessionUpdate: 'compaction_summary_chunk', compactionId: 'cancel', status: undefined, content: { type: 'text', text: 'Partial summary' } });
   state.completePrompt('cancelled');
   update({ sessionUpdate: 'compaction_summary_chunk', compactionId: 'cancel', content: { type: 'text', text: 'late' } });
   assert.equal(state.entries.find(item => item.compactionId === 'cancel')?.status, 'cancelled');
-  assert.equal(state.entries.find(item => item.compactionId === 'cancel')?.summary, '');
+  assert.equal(state.entries.find(item => item.compactionId === 'cancel')?.summary, 'Partial summary');
 
   state.beginPrompt('Observe a native command');
+  const terminalBlock = { type: 'terminal', terminalId: 'term' };
   update({ sessionUpdate: 'tool_call', toolCallId: 'native-terminal', title: 'Command', kind: 'execute', status: 'in_progress',
-    content: [{ type: 'terminal', terminalId: 'term' }], _meta: { terminal_info: { terminal_id: 'term' } } });
+    content: [terminalBlock], _meta: { terminal_info: { terminal_id: 'term' }, providerEvidence: 'preserved' } });
   const terminalUpdate = (key: string, data: string) => update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-terminal', _meta: { [key]: { terminal_id: 'term', data } } });
   terminalUpdate('terminal_output', 'first\n');
   terminalUpdate('terminal_output', provider === 'claude' ? 'first\nsecond\n' : 'second\n');
   terminalUpdate('terminal_output_delta', 'third\n');
-  update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-terminal', status: 'completed', _meta: { terminal_exit: { terminal_id: 'term', exit_code: 0 } } });
+  const output = 'first\nsecond\nthird\n';
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-terminal', status: 'completed',
+    content: [terminalBlock, { type: 'content', content: { type: 'text', text: output } }], rawOutput: { stdout: output },
+    _meta: { terminal_exit: { terminal_id: null, exit_code: 0 } } });
   const nativeTool = state.entries.find(item => item.id === 'native-terminal')!;
-  assert.match(acpToolDetail(nativeTool) as string, /first\nsecond\nthird\nExit code: 0/);
-  assert.match(projectAcpTranscript(state.snapshot()).turns.at(-1)!.processItems[0].detail!, /first\nsecond\nthird/);
+  const expectedDetail = 'first\nsecond\nthird\nExit code: 0';
+  assert.equal(nativeTool.status, 'completed');
+  assert.deepEqual(nativeTool._meta, { providerEvidence: 'preserved' });
+  assert.equal(acpToolDetail(nativeTool), expectedDetail);
+  assert.equal(projectAcpTranscript(state.snapshot()).turns.at(-1)!.processItems[0].detail, expectedDetail);
   assert.equal(projectAcpTranscript(state.snapshot()).turns.at(-1)!.processItems[0].terminalIds, undefined);
   const projected = acpTranscriptEntries([nativeTool]);
   assert(!JSON.stringify(projected).includes('"terminalId"'), 'display-only native output must not poll client-owned terminals');
+  assert.equal(projected[0].transcriptDetail, expectedDetail);
   const restored = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!;
   assert.deepEqual(restored.entries.find(item => item.id === 'native-terminal')?.nativeTerminal, nativeTool.nativeTerminal);
   assert.throws(() => update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-terminal',
@@ -66,6 +78,19 @@ assert.equal(bounded.truncated, true);
 const replacement = applyAcpNativeTerminal(bounded, { terminal_output: { terminal_id: 'large', data: 'fresh' } }, true)!;
 assert.equal(replacement.output, 'fresh');
 assert.equal(replacement.truncated, false);
+const largeTerminal = new AcpSessionState({ provider: 'claude', sessionId: 'large-output' });
+largeTerminal.apply({ sessionId: 'large-output', update: {
+  sessionUpdate: 'tool_call', toolCallId: 'command', kind: 'execute', status: 'completed',
+  _meta: {
+    terminal_output: { terminal_id: 'large', data: 'discarded-prefix' + 'x'.repeat(1024 * 1024) },
+    terminal_exit: { exit_code: 0 },
+    providerEvidence: 'preserved',
+  },
+} });
+const largeEntry = largeTerminal.entries[0];
+assert.deepEqual(largeEntry.nativeTerminal, { id: 'large', output: bounded.output, truncated: true, exitCode: 0, signal: null });
+assert.deepEqual(largeEntry._meta, { providerEvidence: 'preserved' });
+assert(!JSON.stringify(largeTerminal.exportCheckpoint()).includes('discarded-prefix'));
 
 const state = new AcpSessionState({ provider: 'opencode', sessionId: 'session' });
 state.beginPrompt('Work');
