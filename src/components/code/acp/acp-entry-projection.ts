@@ -1,5 +1,5 @@
 import { composerDocumentFromContent, type ComposerDocument } from '../../../../shared/composer-document.js'
-import { acpNativeTerminalDisplay } from '../../../../shared/acp-native-terminal'
+import { acpNativeTerminalDisplay, acpNativeTerminalToolFields } from '../../../../shared/acp-native-terminal'
 import { isUnavailableAcpPeerReceipt, normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../../../../shared/agent-handoff-context'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
@@ -542,14 +542,15 @@ function toolOutputText(entry: AcpRecord) {
 function detailForTool(entry: AcpRecord) {
   const sections: string[] = []
   const rawInput = jsonText(entry.rawInput).trim()
-  let structuredContent = toolContentText(list(entry.content).filter(value => record(value).type !== 'terminal'))
-  const rawOutput = toolOutputText(entry)
-  if (equivalentJsonText(structuredContent, entry.rawOutput)) structuredContent = ''
+  const fields = acpNativeTerminalToolFields(entry.nativeTerminal, entry.content, entry.rawOutput)
+  let structuredContent = toolContentText(list(fields.content).filter(value => record(value).type !== 'terminal'))
+  const rawOutput = toolOutputText({ ...entry, rawOutput: fields.rawOutput })
+  if (equivalentJsonText(structuredContent, fields.rawOutput)) structuredContent = ''
   const terminal = acpNativeTerminalDisplay(entry.nativeTerminal)
   if (rawInput) sections.push(`Input\n${rawInput}`)
-  if (structuredContent && structuredContent.trim() !== terminal?.output.trim()) sections.push(structuredContent)
-  if (rawOutput && rawOutput.trim() !== terminal?.output.trim()) sections.push(`Output\n${rawOutput}`)
-  if (terminal?.text) sections.push(terminal.text)
+  if (structuredContent) sections.push(structuredContent)
+  if (rawOutput) sections.push(`Output\n${rawOutput}`)
+  if (terminal) sections.push(terminal)
   return sections.join('\n\n')
 }
 

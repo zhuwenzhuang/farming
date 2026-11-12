@@ -579,7 +579,19 @@ class FakeAgent {
       const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
       const previous = nativeSteerTurns.get(params.sessionId);
       if (previous && nativeSteeringTransport === 'pull') throw new Error('Concurrent prompt interrupts Qwen; use the drain extension');
-      if (previous && text === 'reject native steer') throw RequestError.internalError(undefined, 'Native steer rejected before handover');
+      if (previous && text === 'reject native steer') throw RequestError.invalidParams(undefined, 'Native steer rejected before handover');
+      if (previous && text === 'fail native handover without echo') {
+        nativeSteerTurns.delete(params.sessionId);
+        cancelledSessions.delete(params.sessionId);
+        previous.resolve({ stopReason: 'end_turn' });
+        throw RequestError.internalError(undefined, 'Native handover failed before echo');
+      }
+      if (previous && text === 'cancel native steer after original ended') {
+        nativeSteerTurns.delete(params.sessionId);
+        cancelledSessions.delete(params.sessionId);
+        previous.resolve({ stopReason: 'end_turn' });
+        return { stopReason: 'cancelled' };
+      }
       if (previous && text === 'hold native steer without echo') {
         return new Promise(done => {
           const cancelOriginal = cancelledSessions.get(params.sessionId);
@@ -602,7 +614,16 @@ class FakeAgent {
       };
       cancelledSessions.set(params.sessionId, () => stop('cancelled'));
       for (const content of params.prompt) {
+        if (text.startsWith('sparse native echo') && content.type !== 'text') continue;
         await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'user_message_chunk', content } });
+        if (content.type === 'text' && content.text === 'pause after first echo') {
+          const gate = path.join(process.cwd(), 'continue-echo');
+          const deadline = Date.now() + 5000;
+          while (!fs.existsSync(gate)) {
+            if (Date.now() >= deadline) throw new Error('Native echo fixture gate did not open');
+            await new Promise(resolve => setTimeout(resolve, 5));
+          }
+        }
       }
       await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: previous ? `Native steer accepted: ${text}` : 'Native turn running.' },

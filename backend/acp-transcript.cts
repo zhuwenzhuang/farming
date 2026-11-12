@@ -7,7 +7,7 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
   diffLines(oldText: string, newText: string): Array<{ count?: number; added?: boolean; removed?: boolean }>;
 };
 import { isCodexContextCompactionMessage } from './codex-transcript-sanitizer.cjs';
-import { acpNativeTerminalDisplay } from '../shared/acp-native-terminal.js';
+import { acpNativeTerminalDisplay, acpNativeTerminalToolFields } from '../shared/acp-native-terminal.js';
 
 type DataRecord = Record<string, unknown>;
 
@@ -181,8 +181,9 @@ function boundedSummaryValue(
 }
 
 function transcriptToolSummaryEntry(entry: DataRecord): DataRecord {
+  const fields = acpNativeTerminalToolFields(entry.nativeTerminal, entry.content, entry.rawOutput);
   const contentBudget = { remaining: MAX_TRANSCRIPT_SUMMARY_VALUE_CHARS };
-  const content = (Array.isArray(entry.content) ? entry.content : [])
+  const content = (Array.isArray(fields.content) ? fields.content : [])
     .slice(0, MAX_TRANSCRIPT_SUMMARY_COLLECTION_ITEMS)
     .flatMap((block: unknown) => {
       if (!isDataRecord(block) || block.type === 'terminal') return [];
@@ -195,7 +196,7 @@ function transcriptToolSummaryEntry(entry: DataRecord): DataRecord {
     ...entry,
     content,
     rawInput: boundedSummaryValue(entry.rawInput),
-    rawOutput: boundedSummaryValue(entry.rawOutput),
+    rawOutput: boundedSummaryValue(fields.rawOutput),
   };
 }
 
@@ -295,23 +296,24 @@ function toolOutputText(entry: DataRecord): string {
 function detailForTool(entry: DataRecord): string {
   const sections = [];
   const rawInput = jsonText(entry.rawInput).trim();
+  const fields = acpNativeTerminalToolFields(entry.nativeTerminal, entry.content, entry.rawOutput);
   // Terminal blocks have a dedicated, live presentation populated by the ACP
   // client terminal manager. Rendering the same block through generic detail
   // text duplicates its output directly below the terminal card.
   let structuredContent = toolContentText(
-    (Array.isArray(entry.content) ? entry.content : []).filter((block: unknown) => (
+    (Array.isArray(fields.content) ? fields.content : []).filter((block: unknown) => (
       !isDataRecord(block) || block.type !== 'terminal'
     ))
   );
-  const rawOutput = toolOutputText(entry);
+  const rawOutput = toolOutputText({ ...entry, rawOutput: fields.rawOutput });
   // Some ACP adapters mirror rawOutput as a text content block. Keep the
   // canonical output once instead of presenting the same JSON twice.
-  if (equivalentJsonText(structuredContent, entry.rawOutput)) structuredContent = '';
+  if (equivalentJsonText(structuredContent, fields.rawOutput)) structuredContent = '';
   const terminal = acpNativeTerminalDisplay(entry.nativeTerminal);
   if (rawInput) sections.push(`Input\n${rawInput}`);
-  if (structuredContent && structuredContent.trim() !== terminal?.output.trim()) sections.push(structuredContent);
-  if (rawOutput && rawOutput.trim() !== terminal?.output.trim()) sections.push(`Output\n${rawOutput}`);
-  if (terminal?.text) sections.push(terminal.text);
+  if (structuredContent) sections.push(structuredContent);
+  if (rawOutput) sections.push(`Output\n${rawOutput}`);
+  if (terminal) sections.push(terminal);
   return sections.join('\n\n');
 }
 

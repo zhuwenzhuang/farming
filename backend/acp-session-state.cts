@@ -1,5 +1,5 @@
 import { composerDocumentFromContent } from '../shared/composer-document.js';
-import { applyAcpNativeTerminal } from '../shared/acp-native-terminal.js';
+import { acpNativeTerminalToolFields, applyAcpNativeTerminal } from '../shared/acp-native-terminal.js';
 import { isAcpPeerPromptEcho, isAcpPeerPromptHistory, sameAcpInputContent } from './acp-peer-prompt.cjs';
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
@@ -413,7 +413,10 @@ class AcpSessionState {
     for (const entry of state.entries) {
       maximumRevision = Math.max(maximumRevision, Number(entry?._revision || 0));
       if (entry?.type === 'question' && entry.status === 'pending') state.pendingQuestionEntries.set(String(entry.id), entry);
-      if (entry?.type === 'tool' && entry.id) state.toolEntries.set(String(entry.id), entry);
+      if (entry?.type === 'tool' && entry.id) {
+        if (entry.nativeTerminal) Object.assign(entry, acpNativeTerminalToolFields(entry.nativeTerminal, entry.content, entry.rawOutput));
+        state.toolEntries.set(String(entry.id), entry);
+      }
       if (entry?.type === 'compaction' && entry.id) state.compactionEntries.set(String(entry.compactionId || entry.id), entry);
     }
     state.revision = Math.max(state.revision, maximumRevision);
@@ -1101,10 +1104,19 @@ class AcpSessionState {
     if (entry.status === 'cancelled') return;
     const terminal = applyAcpNativeTerminal(entry.nativeTerminal, update._meta, acpSessionProviderPolicy(this.provider).terminalOutputReplaces);
     if (terminal) entry.nativeTerminal = terminal;
-    for (const field of ['name', 'title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput']) {
+    for (const field of ['name', 'title', 'kind', 'status', 'locations', 'rawInput']) {
       if (!isPatch || Object.prototype.hasOwnProperty.call(update, field)) {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
       }
+    }
+    const toolFields = acpNativeTerminalToolFields(
+      entry.nativeTerminal,
+      update.content === undefined ? entry.content : update.content,
+      update.rawOutput === undefined ? entry.rawOutput : update.rawOutput,
+    );
+    for (const [field, value] of Object.entries(toolFields)) {
+      if (value === undefined) delete entry[field];
+      else if (value !== entry[field]) entry[field] = clone(value);
     }
     if (update._meta !== undefined) {
       const metadata = update._meta;
@@ -1130,7 +1142,7 @@ class AcpSessionState {
       this.compactionEntries.set(id, entry);
     }
     if (entry.status === 'cancelled') return;
-    if (update.status !== undefined) entry.status = String(update.status || 'completed');
+    if (typeof update.status === 'string' && update.status.trim()) entry.status = update.status;
     if (update.sessionUpdate === 'compaction_summary_chunk' && update.content) {
       entry.content = [...(entry.content || []), clone(update.content)];
     } else if (update.summary !== undefined) {

@@ -66,6 +66,21 @@ async function run() {
       assert.equal(projectAcpTranscript(binding.sessionState.snapshot()).turns.length, 2);
 
       if (provider === 'agy') {
+        const partial = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void partial.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        await runtime.steer('native', [
+          { type: 'text', text: 'pause after first echo' },
+          { type: 'text', text: 'finish native turn' },
+        ]);
+        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'finish native turn' }]), /confirm the previous steer/);
+        fs.writeFileSync(path.join(root, 'continue-echo'), 'ready');
+        await until(() => binding.activeTurn?.concurrentSteers?.[0]?.echoedBlocks === 2);
+        await runtime.steer('native', [{ type: 'text', text: 'finish native turn' }]);
+        assert.equal((await partial).stopReason, 'end_turn');
+        assert.equal(binding.sessionState.entries.filter(entry => entry.role === 'user' && entry.content?.length === 1
+          && entry.content[0].text === 'finish native turn').length, 2, 'repeated text gets its own accepted input after the previous echo closes');
+
         const rejected = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
         void rejected.catch(() => {});
         await until(() => runtime.canSteer('native'));
@@ -89,6 +104,23 @@ async function run() {
         await unconfirmed;
         assert.equal((await original).stopReason, 'cancelled', 'rejecting or cancelling a successor does not fail the original Turn');
         assert(!JSON.stringify(binding.sessionState.entries).includes('hold native steer without echo'));
+
+        const completed = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void completed.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        await runtime.steer('native', [
+          { type: 'resource_link', uri: 'file:///demo/fixture.txt', name: 'fixture.txt' },
+          { type: 'text', text: 'sparse native echo' },
+        ]);
+        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'cancel native steer after original ended' }]), /cancelled before acceptance/);
+        assert.equal((await completed).stopReason, 'end_turn', 'an unconfirmed cancelled successor does not change a completed owner');
+        assert.equal(binding.sessionState.entries.filter(entry => entry.role === 'user'
+          && entry.content?.some(block => block.text === 'sparse native echo')).length, 1);
+
+        const failed = assert.rejects(runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]), /Native handover failed before echo/);
+        await until(() => runtime.canSteer('native'));
+        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'fail native handover without echo' }]), /Native handover failed before echo/);
+        await failed;
       }
     } finally {
       await runtime.dispose();
@@ -154,6 +186,9 @@ async function run() {
     assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: parent.sessionId, update: {
       _meta: { 'opencode/child-session': { id: 'wrong-depth', parentID: 'child', depth: 1 } },
     } }), /depth does not match/);
+    assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: parent.sessionId, update: {
+      _meta: { 'opencode/child-session': { id: parent.sessionId, parentID: 'child', depth: 2 } },
+    } }), /identity conflicts/);
     assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: 'unrelated-session', update: { _meta: childMeta } }), /owning Session/);
     assert.throws(() => runtime.routeProviderChildUpdate(parent, { sessionId: parent.sessionId, update: {
       _meta: { 'opencode/child-session': { id: 'child', parentID: 'grandchild', depth: 3 } },

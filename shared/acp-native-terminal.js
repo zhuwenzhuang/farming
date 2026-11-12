@@ -2,6 +2,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.applyAcpNativeTerminal = applyAcpNativeTerminal;
+exports.acpNativeTerminalToolFields = acpNativeTerminalToolFields;
 exports.acpNativeTerminalDisplay = acpNativeTerminalDisplay;
 const record = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const MAX_OUTPUT_CHARS = 1024 * 1024;
@@ -32,6 +33,83 @@ function applyAcpNativeTerminal(previous, metadata, replaceOutput) {
         } : {}),
     };
 }
+/** A bound terminal owns its output. Preserve independent tool content and result fields. */
+function acpNativeTerminalToolFields(value, content, rawOutput) {
+    const terminal = record(value);
+    const output = terminal.output;
+    if (typeof terminal.id !== 'string' || !terminal.id || typeof output !== 'string' || !output) {
+        return { content, rawOutput };
+    }
+    const outputText = output.trim();
+    const suffix = terminal.truncated === true && output.length === MAX_OUTPUT_CHARS
+        ? output.replace(/\r?\n$/, '') : '';
+    // Require the complete retained suffix before omitting a longer snapshot.
+    const mirrorsOutput = (candidate) => typeof candidate === 'string'
+        && (candidate === output || !!outputText && candidate.trim() === outputText
+            || !!suffix && candidate.replace(/\r?\n$/, '').endsWith(suffix));
+    const mirrorsBlock = (candidate) => {
+        const block = record(candidate);
+        const text = block.type === 'content' ? record(block.content) : block;
+        return text.type === 'text' && mirrorsOutput(text.text);
+    };
+    const stripBlocks = (blocks) => {
+        if (!Array.isArray(blocks))
+            return blocks;
+        const kept = blocks.filter(block => !mirrorsBlock(block));
+        return kept.length === blocks.length ? blocks : kept;
+    };
+    const stripResult = (source) => {
+        const result = { ...source };
+        let changed = false;
+        for (const key of ['content', 'content_items', 'contentItems']) {
+            const blocks = source[key];
+            const kept = stripBlocks(blocks);
+            if (kept === blocks)
+                continue;
+            if (Array.isArray(kept) && kept.length === 0)
+                delete result[key];
+            else
+                result[key] = kept;
+            changed = true;
+        }
+        return changed ? result : source;
+    };
+    const stripRawOutput = (raw) => {
+        if (mirrorsOutput(raw) || mirrorsBlock(raw))
+            return undefined;
+        if (Array.isArray(raw)) {
+            const kept = stripBlocks(raw);
+            return kept !== raw && Array.isArray(kept) && kept.length === 0 ? undefined : kept;
+        }
+        if (!raw || typeof raw !== 'object')
+            return raw;
+        const source = record(raw);
+        const result = { ...stripResult(source) };
+        const { stdout, stderr } = source;
+        const stdoutMirror = mirrorsOutput(stdout);
+        const stderrMirror = mirrorsOutput(stderr);
+        const combined = !stdoutMirror && !stderrMirror
+            && typeof stdout === 'string' && stdout && typeof stderr === 'string' && stderr
+            && mirrorsOutput(`${stdout}\n${stderr}`);
+        if (combined || stdoutMirror)
+            delete result.stdout;
+        if (combined || stderrMirror)
+            delete result.stderr;
+        const nested = record(source.result);
+        const kept = stripResult(nested);
+        if (kept !== nested) {
+            if (Object.keys(kept).length === 0)
+                delete result.result;
+            else
+                result.result = kept;
+        }
+        const keys = Object.keys(result);
+        if (keys.length === Object.keys(source).length && keys.every(key => result[key] === source[key]))
+            return raw;
+        return keys.length > 0 ? result : undefined;
+    };
+    return { content: stripBlocks(content), rawOutput: stripRawOutput(rawOutput) };
+}
 function acpNativeTerminalDisplay(value) {
     const terminal = record(value);
     if (typeof terminal.id !== 'string')
@@ -39,8 +117,5 @@ function acpNativeTerminalDisplay(value) {
     const output = typeof terminal.output === 'string' ? terminal.output.trimEnd() : '';
     const exit = Number.isInteger(terminal.exitCode) ? `Exit code: ${terminal.exitCode}`
         : typeof terminal.signal === 'string' && terminal.signal ? `Signal: ${terminal.signal}` : '';
-    return {
-        output,
-        text: [terminal.truncated === true ? '[Earlier terminal output truncated]' : '', output, exit].filter(Boolean).join('\n'),
-    };
+    return [terminal.truncated === true ? '[Earlier terminal output truncated]' : '', output, exit].filter(Boolean).join('\n');
 }

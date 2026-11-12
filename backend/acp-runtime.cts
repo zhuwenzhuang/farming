@@ -3199,13 +3199,18 @@ class AcpRuntime extends EventEmitter {
           for (const pending of binding.activeTurn?.concurrentSteers || []) {
             if (pending.failed || pending.echoedBlocks >= pending.content.length) continue;
             const remaining = pending.content.slice(pending.echoedBlocks);
-            const exactBlock = sameAcpInputContent([remaining[0]], [echoed])
-              || (echoed.type === 'text' && remaining[0].type === 'text'
-                && typeof remaining[0].text === 'string' && remaining[0].text === echoed.text);
-            const joinedText = !exactBlock && echoed.type === 'text' && remaining.every(block => block.type === 'text')
-              && ['', '\n', '\n\n'].some(separator => remaining.map(block => block.text).join(separator) === echoed.text);
+            // Text-only echoes can omit preceding attachments, but may not
+            // skip an earlier text block in order to claim another input.
+            const firstText = echoed.type === 'text' ? remaining.findIndex(block => block.type === 'text') : 0;
+            if (firstText < 0) continue;
+            const next = remaining[firstText];
+            const exactBlock = sameAcpInputContent([next], [echoed])
+              || (echoed.type === 'text' && next.type === 'text' && typeof next.text === 'string' && next.text === echoed.text);
+            const textSuffix = remaining.slice(firstText);
+            const joinedText = !exactBlock && echoed.type === 'text' && textSuffix.every(block => block.type === 'text')
+              && ['', '\n', '\n\n'].some(separator => textSuffix.map(block => block.text).join(separator) === echoed.text);
             if (!exactBlock && !joinedText) continue;
-            pending.echoedBlocks += exactBlock ? 1 : remaining.length;
+            pending.echoedBlocks += exactBlock ? firstText + 1 : remaining.length;
             pending.accept();
             notification = { ...notification, update: { ...native, messageId: pending.clientMessageId } };
             break;
@@ -3856,7 +3861,7 @@ class AcpRuntime extends EventEmitter {
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
       this.requireSavedSessionModel(binding);
-      if (turn.concurrentSteers?.some(pending => !pending.accepted && !pending.failed)) {
+      if (turn.concurrentSteers?.some(pending => !pending.failed && pending.echoedBlocks < pending.content.length)) {
         throw new Error('Waiting for Antigravity to confirm the previous steer');
       }
       const state = this.requireSessionState(binding);
@@ -3876,16 +3881,21 @@ class AcpRuntime extends EventEmitter {
           this.emitSession(binding);
           resolveReceipt({ sessionId: binding.sessionId, clientMessageId, turnId });
         },
-        result: responsePromise.then<AcpPromptOutcome, AcpPromptOutcome | null>(response => {
+        result: responsePromise.then<AcpPromptOutcome | null, AcpPromptOutcome | null>(response => {
+          pending.echoedBlocks = pending.content.length;
+          if (response.stopReason === 'cancelled' && !pending.accepted) {
+            rejectReceipt(new Error('ACP steer was cancelled before acceptance'));
+            return null;
+          }
           if (response.stopReason !== 'cancelled') pending.accept();
-          else if (!pending.accepted) rejectReceipt(new Error('ACP steer was cancelled before acceptance'));
           return { ok: true, response };
         }, error => {
           pending.failed = true;
           rejectReceipt(error);
-          // A peer's rejection before acceptance belongs to the steer receipt;
-          // an accepted handover or transport failure still owns settlement.
-          return !pending.accepted && error instanceof RequestError ? null : { ok: false, error };
+          // Only a protocol-level rejection proves no execution. An internal
+          // error can arrive after handover but before the first input echo.
+          const rejected = error instanceof RequestError && [-32600, -32601, -32602].includes(error.code);
+          return !pending.accepted && rejected ? null : { ok: false, error };
         }),
       };
       (turn.concurrentSteers ??= []).push(pending);
