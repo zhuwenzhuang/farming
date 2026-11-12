@@ -1214,7 +1214,11 @@ class ComputerResourceManager extends EventEmitter {
 
   async reconcileAgentLifecycle(agentStates: AgentLifecycleState[]): Promise<void> {
     const agents = new Map(agentStates.map(agent => [String(agent.id || ''), agent]));
-    for (const resource of this.store.list()) {
+    for (const { id, ownerAgentId } of this.store.list()) {
+      const resource = this.store.get(id);
+      // A live switch owns the commit. Earlier asynchronous cleanup may have
+      // already allowed that commit to change this Resource's owner.
+      if (!resource || resource.ownerAgentId !== ownerAgentId || this.agentOwnerReplacementHolds.has(ownerAgentId)) continue;
       const owner = agents.get(resource.ownerAgentId);
       if (!owner) {
         const replacement = replacementAgentOwner(
@@ -1226,7 +1230,6 @@ class ComputerResourceManager extends EventEmitter {
           this.completeAgentOwnerReplacement(resource.ownerAgentId, replacement.id);
           continue;
         }
-        if (this.agentOwnerReplacementHolds.has(resource.ownerAgentId)) continue;
         await this.delete(resource.id, true);
         continue;
       }

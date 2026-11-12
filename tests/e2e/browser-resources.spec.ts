@@ -1021,17 +1021,19 @@ test('offers explicit isolated Browser preparation when no local browser is avai
   page,
 }, testInfo) => {
   let prepared = false
-  let selectedSource = 'system'
-  await page.route('**/api/browsers/capability', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      enabled: false,
-      available: false,
-      browser: prepared && selectedSource === 'isolated'
-        ? { kind: 'isolated-computer', path: '' }
-        : null,
+  const disable = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: false },
+  })
+  expect(disable.ok()).toBeTruthy()
+  await page.route('**/api/browsers/capability', async route => {
+    const response = await route.fetch()
+    const { enabled } = await response.json() as { enabled: boolean }
+    await route.fulfill({ json: {
+      enabled,
+      available: enabled && prepared,
+      browser: null,
       selection: {
-        source: selectedSource,
+        source: 'system',
         executablePath: '',
       },
       sources: [
@@ -1059,32 +1061,16 @@ test('offers explicit isolated Browser preparation when no local browser is avai
         updateAvailable: false,
         error: '',
       },
-      message: prepared
+      message: enabled ? '' : prepared
         ? 'Browser extension is disabled'
         : 'Choose a local Chromium browser or prepare the isolated Browser runtime',
-    }),
-  }))
+    } })
+  })
   await page.route('**/api/browsers/isolated/prepare', route => {
     prepared = true
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ success: true }),
-    })
-  })
-  await page.route('**/api/settings', async route => {
-    if (route.request().method() !== 'POST') {
-      await route.continue()
-      return
-    }
-    const patch = route.request().postDataJSON() as { browserSource?: string }
-    if (patch.browserSource !== 'isolated') {
-      await route.continue()
-      return
-    }
-    selectedSource = 'isolated'
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ settings: patch }),
     })
   })
   await openFarming(page)
@@ -1108,6 +1094,30 @@ test('offers explicit isolated Browser preparation when no local browser is avai
     path: screenshot,
     contentType: 'image/png',
   })
+
+  const failedEnableMessage = 'No Browser source is available.'
+  await page.route('**/api/settings', route => route.fulfill({
+    status: 400,
+    json: { error: failedEnableMessage, code: 'BROWSER_EXECUTABLE_NOT_FOUND' },
+  }), { times: 1 })
+  await browserPlugin.getByRole('button', { name: 'Enable' }).click()
+  await expect(browserPlugin.getByRole('alert')).toHaveText(failedEnableMessage)
+  await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
+
+  const save = page.waitForResponse(response => (
+    response.url().endsWith('/api/settings') && response.request().method() === 'POST'
+  ))
+  await browserPlugin.getByRole('button', { name: 'Enable' }).click()
+  const saved = await save
+  expect(saved.request().postDataJSON()).toEqual({ browserExtensionEnabled: true })
+  expect(saved.ok()).toBeTruthy()
+  await expect(browserPlugin.getByRole('alert')).toHaveCount(0)
+  await expect(browserPlugin.getByRole('button', { name: 'Disable' })).toBeEnabled()
+  await expect(browserPlugin.locator('.code-plugin-status')).toHaveText('Enabled')
+
+  await page.reload()
+  await page.getByTestId('code-nav-plugins').click()
+  await expect(browserPlugin.getByRole('button', { name: 'Disable' })).toBeEnabled()
 })
 
 test('keeps Isolated Browser visible but disabled without Docker', async ({ page }) => {

@@ -2149,6 +2149,10 @@ app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({
   probeBrowser: settings => browserResourceManager.probeCapability(
     browserResourceManager.browserSelection(settings),
   ),
+  probeBrowserAvailability: async () => {
+    const snapshot = await browserResourceManager.capabilitySnapshot({ persistDefaultSelection: false });
+    return snapshot.sources.some(source => source.available);
+  },
   probeComputer: settings => computerResourceManager.probeSettings(settings),
   publishSettingsMetadata: () => {
     stateBroadcastScheduler.queueMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));

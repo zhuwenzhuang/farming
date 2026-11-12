@@ -575,7 +575,7 @@ class BrowserResourceManager extends EventEmitter {
   } | null = null;
   sourceCapabilitiesPromise: Promise<Array<Record<string, unknown>>> | null = null;
   sourceCapabilitiesPromiseKey = '';
-  capabilitySnapshotPromise: Promise<Record<string, unknown>> | null = null;
+  capabilitySnapshotPromise: ReturnType<BrowserResourceManager['takeCapabilitySnapshot']> | null = null;
   capabilitySnapshotKey = '';
   viewerInputMetrics = {
     admitted: 0,
@@ -1044,7 +1044,7 @@ class BrowserResourceManager extends EventEmitter {
   // per-source list are derived from those same observations, and concurrent
   // canonical reads coalesce only on the same in-flight pass. A completed
   // snapshot is never reused; the next canonical read observes again.
-  capabilitySnapshot(options: CapabilitySnapshotOptions = {}): Promise<Record<string, unknown>> {
+  capabilitySnapshot(options: CapabilitySnapshotOptions = {}) {
     const persistDefaultSelection = options.persistDefaultSelection !== false;
     const snapshotKey = JSON.stringify({ persistDefaultSelection });
     if (this.capabilitySnapshotPromise && this.capabilitySnapshotKey === snapshotKey) {
@@ -1070,9 +1070,7 @@ class BrowserResourceManager extends EventEmitter {
     return capabilitySnapshotPromise;
   }
 
-  private async takeCapabilitySnapshot(
-    options: CapabilitySnapshotOptions,
-  ): Promise<Record<string, unknown>> {
+  private async takeCapabilitySnapshot(options: CapabilitySnapshotOptions) {
     const settings = this.getBrowserSettings();
     let desiredSelection = this.browserSelection(settings);
     const browserOptions = this.discoverBrowserOptions();
@@ -3205,8 +3203,11 @@ class BrowserResourceManager extends EventEmitter {
 
   async reconcileAgentLifecycle(agentStates: AgentLifecycleState[]): Promise<void> {
     const agents = new Map(agentStates.map(agent => [String(agent.id || ''), agent]));
-    const resources = this.store.list();
-    for (const resource of resources) {
+    for (const { id, ownerAgentId } of this.store.list()) {
+      const resource = this.store.get(id);
+      // A live switch owns the commit. Earlier asynchronous cleanup may have
+      // already allowed that commit to change this Resource's owner.
+      if (!resource || resource.ownerAgentId !== ownerAgentId || this.agentOwnerReplacementHolds.has(ownerAgentId)) continue;
       const owner = agents.get(resource.ownerAgentId);
       if (!owner) {
         const replacement = replacementAgentOwner(
@@ -3218,7 +3219,6 @@ class BrowserResourceManager extends EventEmitter {
           this.completeAgentOwnerReplacement(resource.ownerAgentId, replacement.id);
           continue;
         }
-        if (this.agentOwnerReplacementHolds.has(resource.ownerAgentId)) continue;
         await this.delete(resource.id, true);
         continue;
       }

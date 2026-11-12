@@ -78,8 +78,11 @@ Stop combines those records with
 exact Host endpoints and persisted Runtime and Resource identities, verifies
 the current operating-system identity, and sends `SIGKILL` directly. Computer
 containers are selected by persisted container id and exact Config ownership
-labels and receive Docker's `KILL` signal. Missing or mismatched proof is a
-visible failure; stop never scans or signals every process owned by the user.
+labels and receive Docker's `KILL` signal. The Agent label matches the
+container's original owner through Chat and Terminal transfers. A persisted
+stopped status still requires current Docker observation. Missing or mismatched
+proof is a visible failure; stop never scans or signals every process owned by
+the user.
 A zombie process-group leader is already terminated and cannot execute or
 receive a useful signal, but that fact alone does not prove its descendants
 stopped. Stop inspects the complete group: an exited-only group is reconciled

@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 
 const {
   discoverLegacyConfigProcesses,
+  hardStopConfigComputerContainers,
   hardStopConfigProcesses,
   killOwnedProcessGroup,
   classifyDarwinProcessGroupStats,
@@ -15,6 +16,75 @@ const {
 const { configInstanceFingerprint } = require('../config-instance.cjs');
 const { acpRuntimeHostSocketPath } = require('../acp-runtime-host-path.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
+
+function verifyComputerContainerHardStop() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-hard-stop-computer.'));
+  const previousPath = process.env.PATH;
+  try {
+    const containerId = 'a'.repeat(64);
+    const impostorId = 'b'.repeat(64);
+    const legacyId = 'c'.repeat(64);
+    const offlineId = 'd'.repeat(64);
+    const resource = {
+      id: 'computer_transferred',
+      ownerAgentId: 'agent_current',
+      containerOwnerAgentId: 'agent_at_creation',
+      containerId,
+      status: 'running',
+    };
+    const impostor = { ...resource, id: 'computer_impostor', containerId: impostorId };
+    const legacy = { id: 'computer_legacy', ownerAgentId: 'agent_legacy', containerId: legacyId, status: 'stopped' };
+    const fingerprint = configInstanceFingerprint(configDir);
+    const inspection = (candidate, ownerAgentId) => [{
+      Id: candidate.containerId,
+      Config: { Labels: {
+        'farming.dev/kind': 'computer',
+        'farming.dev/config': fingerprint,
+        'farming.dev/resource': candidate.id,
+        'farming.dev/owner-agent': ownerAgentId,
+      } },
+      State: { Running: true },
+    }];
+    const inspections = {
+      [containerId]: inspection(resource, resource.containerOwnerAgentId),
+      [impostorId]: inspection(impostor, impostor.ownerAgentId),
+      [legacyId]: inspection(legacy, legacy.ownerAgentId),
+    };
+    const killLog = path.join(configDir, 'docker-kills.jsonl');
+    fs.writeFileSync(path.join(configDir, 'docker'), `#!/usr/bin/env node
+const fs = require('fs');
+const inspections = ${JSON.stringify(inspections)};
+const args = process.argv.slice(2);
+if (args[0] === 'inspect' && inspections[args[1]]) {
+  process.stdout.write(JSON.stringify(inspections[args[1]]));
+} else if (args[0] === 'inspect' && args[1] === ${JSON.stringify(offlineId)}) {
+  process.stderr.write('Cannot connect to the Docker daemon\\n');
+  process.exitCode = 1;
+} else if (args[0] === 'kill') {
+  fs.appendFileSync(${JSON.stringify(killLog)}, JSON.stringify(args) + '\\n');
+} else {
+  throw new Error('Unexpected Docker command: ' + args.join(' '));
+}
+`, { mode: 0o755 });
+    process.env.PATH = `${configDir}${path.delimiter}${previousPath || ''}`;
+    const resourcesDir = path.join(configDir, 'computers');
+    const resourcesFile = path.join(resourcesDir, 'resources.json');
+    fs.mkdirSync(resourcesDir);
+    fs.writeFileSync(resourcesFile, JSON.stringify({ resources: [resource, impostor, legacy] }));
+    assert.deepStrictEqual(hardStopConfigComputerContainers(configDir), { stopped: 2, refused: 1 });
+    const expectedKills = [['kill', '--signal', 'KILL', containerId], ['kill', '--signal', 'KILL', legacyId]];
+    const readKills = () => fs.readFileSync(killLog, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.deepStrictEqual(readKills(), expectedKills, 'only exact container owners can receive KILL');
+
+    fs.writeFileSync(resourcesFile, JSON.stringify({ resources: [{ ...legacy, containerId: offlineId }] }));
+    assert.throws(() => hardStopConfigComputerContainers(configDir), /Could not verify Config-owned Computer container/);
+    assert.deepStrictEqual(readKills(), expectedKills, 'stopped history with unavailable Docker is not current proof');
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
 
 function writeProcFixture(procRoot, pid, options) {
   const directory = path.join(procRoot, String(pid));
@@ -37,6 +107,8 @@ function writeProcFixture(procRoot, pid, options) {
 }
 
 async function run() {
+  if (process.platform !== 'win32') verifyComputerContainerHardStop();
+
   {
     const expected = {
       pid: 30001,

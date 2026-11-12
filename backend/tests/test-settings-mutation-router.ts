@@ -51,6 +51,10 @@ function harness(overrides: Partial<SettingsMutationPorts> = {}, initial: Settin
       calls.push(`probe-browser:${selection.browserSource}`);
       return { runtimeCapability: { kind: 'managed' } };
     },
+    async probeBrowserAvailability() {
+      calls.push('probe-browser-availability');
+      return true;
+    },
     async probeComputer() {
       calls.push('probe-computer');
       return { dockerAvailable: true, imageReady: true };
@@ -176,7 +180,7 @@ async function run(): Promise<void> {
   {
     const rawProbeFailure = new Error('probe transport failed');
     const state = harness({
-      async probeBrowser() {
+      async probeBrowserAvailability() {
         throw rawProbeFailure;
       },
     });
@@ -187,8 +191,8 @@ async function run(): Promise<void> {
     );
 
     const unavailable = harness({
-      async probeBrowser() {
-        return { runtimeCapability: { error: 'browser missing' } };
+      async probeBrowserAvailability() {
+        return false;
       },
     });
     await assert.rejects(
@@ -199,6 +203,30 @@ async function run(): Promise<void> {
         && caught.code === 'BROWSER_EXECUTABLE_NOT_FOUND'
       ),
     );
+    assert.deepStrictEqual(unavailable.patches, []);
+    assert.strictEqual(unavailable.settings().browserExtensionEnabled, false);
+  }
+
+  {
+    const state = harness({
+      async probeBrowser(selection) {
+        state.calls.push(`probe-browser:${selection.browserSource}`);
+        return { runtimeCapability: { error: 'Requested Browser source is unavailable' } };
+      },
+    }, { browserSource: 'extension' });
+    const coordinator = new SettingsMutationCoordinator(state.ports);
+    const enabled = await coordinator.mutate({ browserExtensionEnabled: true });
+    assert.strictEqual(enabled.settings.browserExtensionEnabled, true);
+    assert.strictEqual(enabled.settings.browserSource, 'extension');
+    assert.deepStrictEqual(state.calls, [
+      'get-settings', 'probe-browser-availability', 'commit', 'refresh-browser', 'get-settings',
+    ]);
+    await assert.rejects(coordinator.mutate({ browserSource: 'desktop' }), {
+      status: 400,
+      code: 'BROWSER_EXECUTABLE_NOT_FOUND',
+      message: 'Requested Browser source is unavailable',
+    });
+    assert.deepStrictEqual(state.patches, [{ browserExtensionEnabled: true }]);
   }
 
   {
@@ -240,9 +268,9 @@ async function run(): Promise<void> {
   }
 
   {
-    const firstProbe = deferred<{ runtimeCapability: { kind: string } }>();
+    const firstProbe = deferred<boolean>();
     const state = harness({
-      async probeBrowser() {
+      async probeBrowserAvailability() {
         state.calls.push('probe-browser:blocked');
         return firstProbe.promise;
       },
@@ -263,7 +291,7 @@ async function run(): Promise<void> {
       },
     });
     assert.deepStrictEqual(state.patches, [{ appearance: 'dark' }]);
-    firstProbe.resolve({ runtimeCapability: { kind: 'managed' } });
+    firstProbe.resolve(true);
     await blocked;
     assert.deepStrictEqual(state.patches, [
       { appearance: 'dark' },

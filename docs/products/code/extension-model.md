@@ -90,7 +90,9 @@ Extension, while Farming core requires:
 - restart reconciliation from authoritative persisted state;
 - deletion of only the Resource and external objects that owner can prove.
 
-Agent-owned Resources may survive Chat/Terminal replacement. When an Agent is
+During Chat/Terminal replacement, Browser and Computer Resources keep their
+source Agent owner until the replacement or rollback runtime starts
+successfully and the switch commits the transfer. When an Agent is
 stopped or archived, its Browser and Computer Resources are deleted by exact id
 so temporary rows, profiles, and containers do not accumulate. Deleting the
 Agent removes only Resources it exactly owns.

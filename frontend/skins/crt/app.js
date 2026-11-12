@@ -4858,6 +4858,12 @@ function connect() {
             updateSystemStats(data.stats, data.uptime);
         }
         else if (data.type === 'error') {
+            if ((data.reason === 'delivery-not-confirmed' || data.reason === 'uncertain-input-fence')
+                && data.agentId === focusedAgentId
+                && data.agentId === crtTerminalReplication?.agentId
+                && isCrtSessionOpen()) {
+                requestCrtTerminalReplay();
+            }
             waitingForAgent = false;
             if (workspaceDirectoryPrompt?.kind === 'creating') {
                 hideWorkspaceDirectoryPrompt({ focusInput: false });

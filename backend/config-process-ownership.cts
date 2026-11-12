@@ -673,12 +673,16 @@ function hardStopConfigComputerContainers(configDir: string): { stopped: number;
     const labels = inspect.Config && typeof inspect.Config === 'object'
       ? ((inspect.Config as Record<string, unknown>).Labels as Record<string, unknown> || {})
       : {};
+    // Docker labels retain the Agent identity from creation across runtime replacement.
+    const containerOwnerAgentId = resource.containerOwnerAgentId ?? resource.ownerAgentId;
     if (
       String(inspect.Id || '') !== containerId
       || labels['farming.dev/kind'] !== 'computer'
       || labels['farming.dev/config'] !== fingerprint
-      || labels['farming.dev/resource'] !== String(resource.id || '')
-      || labels['farming.dev/owner-agent'] !== String(resource.ownerAgentId || '')
+      || typeof resource.id !== 'string' || !resource.id
+      || labels['farming.dev/resource'] !== resource.id
+      || typeof containerOwnerAgentId !== 'string' || !containerOwnerAgentId
+      || labels['farming.dev/owner-agent'] !== containerOwnerAgentId
     ) {
       refused += 1;
       continue;

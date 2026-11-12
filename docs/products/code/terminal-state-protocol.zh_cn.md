@@ -130,6 +130,7 @@ Interrupt 保持被拒绝状态，Fence Active 期间也不允许新的 Input Ad
 该 Reconcile 之后 Admission 的 Input 生效。Terminal Runtime 替换优先于旧 Fence；在旧 Runtime
 下 Admission 的 Input 按其捕获的 Epoch 被拒绝。被拒绝的 Raw WebSocket Input 通过受协议验证的
 可见错误提示给写入方 Client，而不是被静默丢弃。
+Code 和 CRT 收到当前已连接 Terminal 的写入结果不确定或 Fence Active 错误后会请求 Checkpoint。
 
 IME Composition 在 Terminal Input Surface 内完整结束后再发送 Committed Text。Fallback 处理
 不能重复发送普通 ASCII Input。

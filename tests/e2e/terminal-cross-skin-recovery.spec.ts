@@ -228,6 +228,68 @@ test('CRT reload restores one checkpoint and keeps accepting input', async ({
   }
 })
 
+test('CRT reconciles an uncertain input and sends only new input after the checkpoint', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const agentId = await createBashAgent(page, workspaceRoot)
+  const uncertainInput = 'uncertain-write-fixture'
+  const recoveryFile = path.join(workspaceRoot, 'after-uncertain-write.txt')
+  const errorMessage = 'Terminal input delivery could not be confirmed. Check the terminal state and retry.'
+  let uncertainInputCount = 0
+  let recoveryRequestCount = 0
+  let fixtureFenced = false
+  await prepareBrowserPage(page)
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
+    const server = route.connectToServer()
+    route.onMessage(payload => {
+      const message = JSON.parse(String(payload)) as { type: string; agentId?: string; input?: string }
+      if (message.agentId === agentId && message.type === 'input') {
+        if (message.input === uncertainInput) {
+          uncertainInputCount += 1
+          fixtureFenced = true
+          route.send(JSON.stringify({ type: 'error', agentId, reason: 'delivery-not-confirmed', message: errorMessage }))
+          return
+        }
+        if (fixtureFenced) return
+      }
+      if (message.agentId === agentId && message.type === 'terminal-checkpoint-request' && uncertainInputCount > 0) {
+        recoveryRequestCount += 1
+      }
+      server.send(payload)
+    })
+    server.onMessage(payload => {
+      const message = JSON.parse(String(payload)) as { type: string; agentId?: string; ok?: boolean }
+      if (message.type === 'terminal-checkpoint-result' && message.agentId === agentId && message.ok) {
+        fixtureFenced = false
+      }
+      route.send(payload)
+    })
+  })
+
+  await openCrtTerminal(page, agentId)
+  const waitForCheckpoint = () => page.waitForFunction(() => {
+    const state = window.__farmingCrtTerminalTest?.getState()
+    return Boolean(state?.runtimeEpoch && !state.replaying && !state.checkpointInFlight)
+  })
+  await waitForCheckpoint()
+  await page.locator('#terminal-output .xterm-helper-textarea').focus()
+  const visibleError = page.waitForEvent('dialog').then(async dialog => {
+    const message = dialog.message()
+    await dialog.dismiss()
+    return message
+  })
+  await page.keyboard.insertText(uncertainInput)
+  expect(await visibleError).toContain(errorMessage)
+
+  await expect.poll(() => recoveryRequestCount).toBe(1)
+  await waitForCheckpoint()
+  await sendCrtCommand(page, "printf 'input-recovered\\n' > after-uncertain-write.txt")
+  await expectFileText(recoveryFile, 'input-recovered\n')
+  expect(uncertainInputCount).toBe(1)
+  expect(recoveryRequestCount).toBe(1)
+})
+
 test('CRT hidden-page disconnect resumes from one authoritative latest checkpoint', async ({
   page,
   context,

@@ -1809,12 +1809,31 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     manager.beginAgentOwnerReplacement('agent_a');
     await manager.reconcileAgentLifecycle([
       { id: 'agent_b', status: 'running' },
+      {
+        id: 'agent_failed_replacement',
+        projectWorkspace: '/tmp/shared',
+        restartedFromAgentId: 'agent_a',
+        status: 'pending',
+      },
     ]);
+    assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_a');
+    assert.strictEqual(manager.get(second.id).ownerAgentId, 'agent_a');
+    await manager.reconcileAgentLifecycle([{ id: 'agent_b', status: 'running' }]);
     assert.strictEqual(
       manager.get(first.id).status,
       'running',
-      'a replacement hold must retain the Browser while the old Agent is absent',
+      'a replacement hold must retain the Browser after target startup fails',
     );
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_b', status: 'running' },
+      {
+        id: 'agent_replacement',
+        projectWorkspace: '/tmp/shared',
+        restartedFromAgentId: 'agent_a',
+        status: 'running',
+      },
+    ]);
+    assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_a');
     manager.completeAgentOwnerReplacement('agent_a', 'agent_replacement');
     assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_replacement');
     assert.strictEqual(manager.get(second.id).ownerAgentId, 'agent_replacement');

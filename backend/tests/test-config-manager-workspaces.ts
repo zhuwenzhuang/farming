@@ -90,6 +90,8 @@ function run() {
     assert.strictEqual(manager.getSettings().computerExtensionEnabled, false);
     manager.updateSettings({ browserSource: 'extension' });
     assert.strictEqual(manager.getSettings().browserSource, 'extension');
+    manager.updateSettings({ browserSource: 'desktop' });
+    assert.strictEqual(manager.getSettings().browserSource, 'desktop');
     assert.strictEqual(
       fs
         .readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.md'), 'utf8')

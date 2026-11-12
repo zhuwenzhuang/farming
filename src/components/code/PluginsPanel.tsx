@@ -1257,8 +1257,19 @@ export function PluginsPanel({
     (source, target) => source.providerId === target.providerId,
   )
 
+  const desktopNativeBrowserReady = Boolean(window.farmingDesktop?.nativeBrowser)
+    && (capability?.sources || []).some(source => (
+      source.source === 'desktop' && source.available
+    ))
+  const browserReady = capability?.sources?.some(source => (
+    source.available && (source.source !== 'desktop' || desktopNativeBrowserReady)
+  ))
+    ?? Boolean(capability?.browser)
+  const browserToggleDisabled = Boolean(capabilityError) || loading || saving
+    || preparingIsolatedBrowser || (!browserReady && !enabled)
+
   const toggleBrowser = async () => {
-    if (saving || (!capability?.browser && !enabled)) return
+    if (browserToggleDisabled) return
     const nextEnabled = !enabled
     setSaving(true)
     setError('')
@@ -1393,14 +1404,6 @@ export function PluginsPanel({
     }
   }
 
-  const desktopNativeBrowserReady = Boolean(window.farmingDesktop?.nativeBrowser)
-    && (capability?.sources || []).some(source => (
-      source.source === 'desktop' && source.available
-    ))
-  const browserReady = capability?.sources?.some(source => (
-    source.available && (source.source !== 'desktop' || desktopNativeBrowserReady)
-  ))
-    ?? Boolean(capability?.browser)
   const systemBrowserReady = (capability?.sources || []).some(source => (
     source.source === 'system' && source.available
   ))
@@ -1916,7 +1919,7 @@ export function PluginsPanel({
             type="button"
             className={`code-plugin-toggle ${enabled ? 'active' : ''}`}
             aria-pressed={capabilityError ? false : enabled}
-            disabled={Boolean(capabilityError) || loading || saving || preparingIsolatedBrowser || (!browserReady && !enabled)}
+            disabled={browserToggleDisabled}
             onClick={() => void toggleBrowser()}
           >
             {loading && capability === null ? copy.checking : capabilityError ? copy.checkFailed : enabled ? copy.disable : copy.enable}

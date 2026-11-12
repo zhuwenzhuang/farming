@@ -8,6 +8,7 @@ export interface BrowserComputerRuntimePorts {
   probeBrowser(settings: BrowserComputerSettings): Promise<{
     runtimeCapability?: { error?: unknown; kind?: unknown } | null;
   }>;
+  probeBrowserAvailability(): Promise<boolean>;
   probeComputer(settings: BrowserComputerSettings): Promise<{
     dockerAvailable?: boolean;
     error?: unknown;
@@ -54,7 +55,7 @@ export class BrowserComputerSettingsLifecycle {
 
     this.busy = true;
     try {
-      if (browserSelectionChanged || (browserChanged && after.browserExtensionEnabled)) {
+      if (browserSelectionChanged) {
         const { runtimeCapability } = await this.ports.probeBrowser(after);
         if (!runtimeCapability || runtimeCapability.error) {
           throw new SettingsMutationResponseError(
@@ -62,6 +63,11 @@ export class BrowserComputerSettingsLifecycle {
             'BROWSER_EXECUTABLE_NOT_FOUND', 400,
           );
         }
+      } else if (browserChanged && after.browserExtensionEnabled && !await this.ports.probeBrowserAvailability()) {
+        throw new SettingsMutationResponseError(
+          'No Browser source is available. Open Farming Desktop, choose a local Chromium browser, connect Farming Browser Connector, or prepare Browser in Docker.',
+          'BROWSER_EXECUTABLE_NOT_FOUND', 400,
+        );
       }
       if (computerRuntimeChanged || (computerChanged && after.computerExtensionEnabled)) {
         await this.validateComputer(after);

@@ -15,6 +15,9 @@ Browser is enabled by default when a compatible local Chromium source is
 available. Open **Plugins → Browser** to see the available sources, disable
 Browser, or prepare **Browser in Docker (Experimental)** when needed. Normal Farming
 installation and Server startup do not silently download Chromium.
+You can enable the plugin when any usable source is available. Enabling keeps
+the configured default source. Choose another source for the specific Browser
+action when needed.
 
 Local Chromium is the simplest ordinary path. Browser in Docker is for an Agent
 that needs an independent Linux desktop or Computer Use. Cross-engine testing

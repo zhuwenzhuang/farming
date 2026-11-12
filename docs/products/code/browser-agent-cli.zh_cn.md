@@ -12,6 +12,7 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 
 存在兼容的本机 Chromium 时，Browser 默认启用。可在**插件 → 浏览器**中查看可用来源、关闭
 Browser，或按需准备 **Docker 中的浏览器（实验性）**。普通 Farming 安装和 Server 启动不会静默下载 Chromium。
+只要有一个可用来源，即可启用插件。启用会保留已配置的默认来源，具体 Browser 操作可按需指定其他来源。
 
 本机 Chromium 是普通使用最简单的路径；Docker 中的浏览器适合需要独立 Linux Desktop 或
 Computer Use 的 Agent。跨浏览器内核测试应交给专门 Testing Service，不能成为自动 Fallback。

@@ -56,7 +56,9 @@ PID 不代表拥有整个组。仍存活的旧版非 Leader 记录必须显式�
 Stop 会合并这些记录、精确 Host Endpoint 以及
 持久化 Runtime/Resource 身份，重新校验当前操作系统进程身份，然后直接发送 `SIGKILL`。
 Computer Container 必须通过持久化 Container ID 与精确 Config Ownership Label 选中，并接收
-Docker `KILL` 信号。证明缺失或不匹配时显式失败；Stop 绝不能扫描或终止当前用户的所有进程。
+Docker `KILL` 信号。Chat 与 Terminal 之间转移归属后，Agent Label 仍对应容器创建时的 Owner。
+即使持久化状态为已停止，也需要读取 Docker 的当前状态。证明缺失或不匹配时显式失败；
+Stop 绝不能扫描或终止当前用户的所有进程。
 进程组 Leader 成为僵尸后已经不能执行或接收有意义的信号，但这不能单独证明其 Descendant
 也已停止。Stop 必须检查完整进程组：只有 Exited-only Group 才能无信号收敛；仍有 Live
 Descendant 时必须继续向精确进程组发送 `SIGKILL`。由于身份与环境检查是两次独立的操作系统

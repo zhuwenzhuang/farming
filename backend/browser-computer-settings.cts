@@ -15,6 +15,7 @@ export type BrowserComputerSettings = typeof defaultBrowserComputerSettings;
 export function normalizeBrowserComputerSettings(settings: Record<string, unknown>): BrowserComputerSettings {
   const browserExtensionEnabled = settings.browserExtensionEnabled !== false;
   const browserSource = settings.browserSource === 'isolated' || settings.browserSource === 'extension'
+    || settings.browserSource === 'desktop'
     ? settings.browserSource : 'system';
   return {
     browserExtensionEnabled,

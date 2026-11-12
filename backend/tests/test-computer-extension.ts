@@ -1680,12 +1680,30 @@ async function run() {
     manager.beginAgentOwnerReplacement('agent_other');
     await manager.reconcileAgentLifecycle([
       { id: 'agent_owner', status: 'running' },
+      {
+        id: 'agent_failed_replacement',
+        projectWorkspace: workspace,
+        restartedFromAgentId: 'agent_other',
+        status: 'pending',
+      },
     ]);
+    assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_other');
+    await manager.reconcileAgentLifecycle([{ id: 'agent_owner', status: 'running' }]);
     assert.strictEqual(
       manager.get(lifecycleCandidate.id).containerId,
       retainedContainerId,
-      'a replacement hold must retain the Computer while the old Agent is absent',
+      'a replacement hold must retain the Computer after target startup fails',
     );
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      {
+        id: 'agent_replacement',
+        projectWorkspace: workspace,
+        restartedFromAgentId: 'agent_other',
+        status: 'running',
+      },
+    ]);
+    assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_other');
     manager.completeAgentOwnerReplacement('agent_other', 'agent_replacement');
     assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_replacement');
     assert.strictEqual(manager.get(lifecycleCandidate.id).containerId, retainedContainerId);
