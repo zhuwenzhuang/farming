@@ -66,6 +66,30 @@ a durable cross-surface interaction or lifecycle guarantee.
 Real-provider tests are explicit, low-volume, and isolated. They must not reset
 quotas, rewrite provider login or defaults, or launch broad unrelated work.
 
+## Provider Integration Review
+
+Review each supported provider against the [upstream integration references](../acp-runtime.md#upstream-integration-references)
+and, where useful, Zed's external-agent implementation at an identified commit.
+Record the exact protocol, adapter/runtime version, handshake and relevant wire
+events. Distinguish documented support, observed support, Farming integration and
+end-to-end verification; an initialize response alone proves none of the latter.
+
+Cover input and command echoes, queueing/Steer, cancellation and completion races,
+authentication, model/mode changes, permissions and elicitation, attachments and
+resources, tool/terminal events, compaction and usage, history/resume/Fork, child
+sessions and recovery after hard loss. Classify each reviewed capability as
+verified, a confirmed gap, intentionally unsupported, or unverified with a reason.
+Keep dated findings in issues or local untracked evidence, not a second product
+specification.
+
+Provider fixtures must preserve their actual capability declarations and event
+shapes, including absent capabilities and provider extensions. A generic fixture
+that advertises every feature is not provider-compatibility evidence. Replay
+redacted provider-shaped events through the public runtime boundary and verify
+their visible effect; use isolated real-provider smokes for semantics that mocks
+cannot establish. Do not turn a documented feature into a UI capability before
+its admission, delivery, settlement and recovery behavior are verified.
+
 ## Target Environments
 
 Use at least:

@@ -18,7 +18,7 @@ are preserved in `dist/frontend-licenses.txt` during the frontend build.
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@a2a-js/sdk` | 1.3.0 | Apache-2.0 | A2A Agent communication protocol client and server |
-| `@agentclientprotocol/sdk` | 2.4.0 | Apache-2.0 | ACP JSON-RPC client and protocol types |
+| `@agentclientprotocol/sdk` | 2.6.0 | Apache-2.0 | ACP JSON-RPC client and protocol types |
 | `@visactor/vtable` | 1.26.8 | MIT | Virtualized read-only spreadsheet rendering |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
@@ -85,7 +85,7 @@ files under `dist/acp/`:
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/codex-acp` | 2.5.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
+| `@agentclientprotocol/codex-acp` | 2.6.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
 | `@openai/codex` | 0.166.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
 | `@agentclientprotocol/claude-agent-acp` | 0.99.1 | Apache-2.0 | Claude Code ACP adapter |
 | `@agentclientprotocol/sdk` | 2.1.0 | Apache-2.0 | Protocol runtime bundled inside the Codex and Claude ACP adapters |

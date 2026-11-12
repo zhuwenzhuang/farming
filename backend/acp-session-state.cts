@@ -1,4 +1,5 @@
 import { composerDocumentFromContent } from '../shared/composer-document.js';
+import { applyAcpNativeTerminal } from '../shared/acp-native-terminal.js';
 import { isAcpPeerPromptEcho, isAcpPeerPromptHistory, sameAcpInputContent } from './acp-peer-prompt.cjs';
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
@@ -412,7 +413,7 @@ class AcpSessionState {
       maximumRevision = Math.max(maximumRevision, Number(entry?._revision || 0));
       if (entry?.type === 'question' && entry.status === 'pending') state.pendingQuestionEntries.set(String(entry.id), entry);
       if (entry?.type === 'tool' && entry.id) state.toolEntries.set(String(entry.id), entry);
-      if (entry?.type === 'compaction' && entry.id) state.compactionEntries.set(String(entry.id), entry);
+      if (entry?.type === 'compaction' && entry.id) state.compactionEntries.set(String(entry.compactionId || entry.id), entry);
     }
     state.revision = Math.max(state.revision, maximumRevision);
     state.sequence = Math.max(0, Math.floor(Number(source.sequence || 0)));
@@ -762,6 +763,12 @@ class AcpSessionState {
     const interrupted = ['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(stopReason);
     const policy = acpSessionProviderPolicy(this.provider);
     const start = this.entries.findLastIndex(entry => policy.transcriptTurnStart(entry));
+    for (const entry of this.entries.slice(Math.max(0, start))) {
+      if (entry.type === 'status' && entry.status === 'in_progress') {
+        entry.status = interrupted ? 'cancelled' : 'completed';
+        this.touchEntry(entry);
+      }
+    }
     if (interrupted) {
       for (const entry of this.entries.slice(Math.max(0, start))) {
         if ((entry.type === 'tool' || entry.type === 'compaction')
@@ -842,8 +849,11 @@ class AcpSessionState {
       this.applyToolCall(update, true, receivedAt);
     } else if (kind === 'plan') {
       this.applyPlan({ type: 'items', entries: clone(update.entries || []) });
-    } else if (kind === 'context_compaction' || kind === 'context_compaction_update') {
+    } else if (kind === 'context_compaction' || kind === 'context_compaction_update'
+      || kind === 'compaction_update' || kind === 'compaction_summary_chunk') {
       this.applyCompaction(update);
+    } else if (kind === 'status_update') {
+      this.applyStatus(update);
     } else if (kind === 'usage_update') {
       this.usage = clone(update);
     } else if (kind === 'available_commands_update') {
@@ -1088,6 +1098,8 @@ class AcpSessionState {
       this.toolEntries.set(id, entry);
     }
     if (entry.status === 'cancelled') return;
+    const terminal = applyAcpNativeTerminal(entry.nativeTerminal, update._meta, acpSessionProviderPolicy(this.provider).terminalOutputReplaces);
+    if (terminal) entry.nativeTerminal = terminal;
     for (const field of ['name', 'title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta']) {
       if (!isPatch || Object.prototype.hasOwnProperty.call(update, field)) {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
@@ -1101,13 +1113,40 @@ class AcpSessionState {
     const id = String(update.compactionId || update.id || this.nextEntryId('compaction'));
     let entry = this.compactionEntries.get(id);
     if (!entry) {
-      entry = this.pushEntry({ id, type: 'compaction', status: 'in_progress', summary: '' });
+      entry = this.pushEntry({ id: this.uniqueMessageEntryId(id, 'compaction'), compactionId: id, type: 'compaction', status: 'in_progress', summary: '' });
       this.compactionEntries.set(id, entry);
     }
     if (entry.status === 'cancelled') return;
     if (Object.prototype.hasOwnProperty.call(update, 'status')) entry.status = String(update.status || 'completed');
-    if (Object.prototype.hasOwnProperty.call(update, 'summary')) entry.summary = String(update.summary || '');
+    if (update.sessionUpdate === 'compaction_summary_chunk' && update.content) {
+      entry.content = [...(entry.content || []), clone(update.content)];
+    } else if (Object.prototype.hasOwnProperty.call(update, 'summary')) {
+      entry.content = Array.isArray(update.summary) ? clone(update.summary) as AcpContent[]
+        : typeof update.summary === 'string' ? [{ type: 'text', text: update.summary }] : [];
+    }
+    if (Array.isArray(entry.content)) {
+      entry.summary = entry.content.filter(block => block.type === 'text').map(block => String(block.text || '')).join('');
+    }
+    if (Object.prototype.hasOwnProperty.call(update, 'error')) entry.error = typeof update.error === 'string' ? update.error : '';
+    if (update.sessionUpdate !== 'compaction_summary_chunk' && Object.prototype.hasOwnProperty.call(update, '_meta')) {
+      if (update._meta == null) delete entry._meta;
+      else entry._meta = clone(update._meta);
+    }
     this.touchEntry(entry);
+  }
+
+  private applyStatus(update: AcpUpdate): void {
+    if (typeof update.statusId !== 'string' || !update.statusId) return;
+    const entry = this.entries.findLast(item => item.type === 'status'
+      && item.statusId === update.statusId && item.status === 'in_progress');
+    if (update.active === false) {
+      if (entry) { entry.status = 'completed'; this.touchEntry(entry); }
+      return;
+    }
+    if (update.active !== true || typeof update.title !== 'string' || !update.title.trim()) return;
+    const value = { title: update.title, description: typeof update.description === 'string' ? update.description : '' };
+    if (entry) { Object.assign(entry, value); this.touchEntry(entry); }
+    else this.pushEntry({ id: this.nextEntryId('status'), type: 'status', statusId: update.statusId, status: 'in_progress', ...value });
   }
 
   completeContextCompactionTool(summary: unknown = ''): boolean {

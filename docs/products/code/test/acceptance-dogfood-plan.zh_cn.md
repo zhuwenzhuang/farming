@@ -57,6 +57,23 @@ Scenario 失败会静默改变持久的 Cross-surface Interaction 或 Lifecycle 
 真实 Provider Test 必须显式、低频且隔离；不得 Reset Quota、改写 Provider Login/Default，
 也不得启动无关的大型任务。
 
+## Provider 接入审查
+
+按 [上游接入参考](../acp-runtime.zh_cn.md#上游接入参考)逐个审查受支持 Provider，
+必要时对照确定 Commit 的 Zed 外部 Agent 实现。记录确切协议、Adapter/Runtime 版本、
+握手和相关线上事件。区分文档声明、实际观察、Farming 接入和端到端验证；仅凭
+Initialize 响应不能证明后两项。
+
+覆盖输入与命令回显、排队/Steer、取消与完成竞态、认证、模型/模式切换、权限与提问、
+附件与资源、工具/终端事件、压缩与用量、历史/Resume/Fork、子会话以及 Hard Loss 恢复。
+每项被审查能力标明已验证、已确认缺口、有意不支持或待验证及原因。
+带日期的发现放在 Issue 或本地不跟踪的证据中，不另建一份产品规格。
+
+Provider Fixture 必须保留真实能力声明和事件形状，包括缺失能力及 Provider 扩展。
+统一声明所有功能的通用 Fixture 不能证明 Provider 兼容性。将脱敏后的 Provider 事件通过
+公开 Runtime 边界回放并核验可见效果；Mock 无法证明的语义使用隔离的真实 Provider Smoke。
+在接纳、投递、结束和恢复行为得到验证前，不将文档声明直接转为 UI 可用能力。
+
 ## 目标环境
 
 至少使用：

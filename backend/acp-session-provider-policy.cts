@@ -13,6 +13,7 @@ import type { AcpEntry, AcpUpdate } from './acp-session-state.cjs';
 type InternalUserScope = 'entry' | 'turn' | null;
 
 interface AcpSessionProviderPolicy {
+  terminalOutputReplaces: boolean;
   contextCompactionText(content: unknown): boolean;
   isInternalEntry(entries: AcpEntry[], targetEntry: AcpEntry | null | undefined): boolean;
   isMirroredUserMessage(
@@ -167,6 +168,28 @@ function isCodexMirroredUserMessage(
   return Boolean(incomingText) && visibleUserMessageText(incomingText, {
     renderedAttachmentKinds,
   }) === '';
+}
+
+function isAgyMirroredUserMessage(
+  existing: AcpEntry | null | undefined,
+  update: AcpUpdate,
+  role: string,
+  type: string,
+): boolean {
+  // Native /goal echoes its argument, including the separator whitespace,
+  // without a message id. Only the adjacent, active admitted input owns it.
+  if (role !== 'user' || type !== 'message'
+    || existing?.type !== 'message' || existing.role !== 'user'
+    || existing.optimistic !== true || existing.messageId || update.messageId
+    || existing.turnStartedAt == null || existing.turnCompletedAt != null
+    || isSteerMessage(existing) || update._meta?.farming?.steer === true
+    || update._meta?.codex?.steer === true
+    || existing.content?.length !== 1 || existing.content[0].type !== 'text'
+    || update.content?.type !== 'text') return false;
+  const submitted = String(existing.content[0].text || '');
+  return /^\/goal\s/.test(submitted)
+    && submitted.slice(5).trim().length > 0
+    && update.content.text === submitted.slice(5);
 }
 
 function isContinuousCodexAssistantEntry(entry: AcpEntry | null | undefined): boolean {
@@ -373,6 +396,7 @@ function isCodexInternalEntry(
 }
 
 const DEFAULT_ACP_SESSION_PROVIDER_POLICY: AcpSessionProviderPolicy = {
+  terminalOutputReplaces: false,
   contextCompactionText: () => false,
   isInternalEntry: () => false,
   isMirroredUserMessage: () => false,
@@ -383,9 +407,42 @@ const DEFAULT_ACP_SESSION_PROVIDER_POLICY: AcpSessionProviderPolicy = {
   transcriptTurnStart: genericTranscriptTurnStart,
 };
 
+function normalizeOpenCodeUpdate(update: AcpUpdate): AcpUpdate {
+  if (update.sessionUpdate !== 'session_info_update') return update;
+  const meta = update._meta || {};
+  const compaction = meta['opencode/compaction'];
+  if (compaction && typeof compaction === 'object' && !Array.isArray(compaction)) {
+    const value = compaction as Record<string, unknown>;
+    if (typeof value.messageId === 'string' && value.messageId
+      && ['started', 'completed', 'failed'].includes(String(value.status))) {
+      const error = value.error as Record<string, unknown> | undefined;
+      return { ...update, sessionUpdate: 'compaction_update', compactionId: value.messageId,
+        status: value.status === 'started' ? 'in_progress' : value.status,
+        ...(typeof error?.message === 'string' ? { error: error.message } : {}) };
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, 'opencode/retry')) {
+    const retry = meta['opencode/retry'];
+    if (retry === null) return { ...update, sessionUpdate: 'status_update', statusId: 'provider-retry', active: false };
+    if (retry && typeof retry === 'object' && !Array.isArray(retry)) {
+      const value = retry as Record<string, unknown>;
+      const error = value.error as Record<string, unknown> | undefined;
+      if (Number.isSafeInteger(value.attempt) && Number(value.attempt) > 0 && typeof error?.message === 'string') {
+        return { ...update, sessionUpdate: 'status_update', statusId: 'provider-retry', active: true,
+          title: `Retrying request (attempt ${value.attempt})`,
+          description: [error.message, typeof value.nextRetryAt === 'string' ? `Next attempt: ${value.nextRetryAt}` : ''].filter(Boolean).join('\n') };
+      }
+    }
+  }
+  return update;
+}
+
 const ACP_SESSION_PROVIDER_POLICIES: Readonly<Record<string, AcpSessionProviderPolicy>> = {
-  claude: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, normalizeUpdate: normalizeAirUpdate },
+  opencode: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, normalizeUpdate: normalizeOpenCodeUpdate },
+  agy: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, isMirroredUserMessage: isAgyMirroredUserMessage },
+  claude: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, normalizeUpdate: normalizeAirUpdate, terminalOutputReplaces: true },
   codex: {
+    terminalOutputReplaces: false,
     contextCompactionText: content => isCodexContextCompactionMessage(contentText(content)),
     isInternalEntry: isCodexInternalEntry,
     isMirroredUserMessage: isCodexMirroredUserMessage,

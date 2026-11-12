@@ -7,6 +7,8 @@ import { run as runIsolated, executeLane, isTcpPortAvailable } from './run-playw
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const definitions = [
   ['touch-files', 'release:fast-screen:touch-files'],
+  ['file-blame', 'release:fast-screen:file-blame'],
+  ['native-acp', 'release:fast-screen:native-acp'],
   ['mobile-files', 'release:fast-screen:mobile'],
   ['mobile-auth', 'release:fast-screen:mobile-auth'],
   ['composer', 'release:fast-screen:composer'],
@@ -42,6 +44,8 @@ export function selectBrowserScreen(files) {
       select(['touch-files', 'mobile-files', 'mobile-auth']);
     }
     if (/^extensions\/language-server\/|^src\/styles\/language-server\.css$|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
+    if (['shared/workspace-blame.ts', 'tests/e2e/file-blame.spec.ts'].includes(filename)) select(['file-blame']);
+    if (/^(?:backend\/tests\/test-acp-(?:native-steering|provider-status)\.ts|tests\/e2e\/acp-native-integration\.spec\.ts|shared\/acp-native-terminal\.[jt]s)$/.test(filename)) select(['native-acp']);
     if (/^src\/components\/code\/.*[Cc]omposer|^src\/lib\/composer-|^src\/styles\/composer|^tests\/e2e\/(?:composer-.*|mobile-composer|desktop-responsive-input|text-selection)\.spec\.ts(?:$|-snapshots\/)|^tests\/e2e\/composer-test-input\.ts$/.test(filename)) select(['composer']);
     if (/^src\/components\/code\/(acp\/|.*[Cc]hat|.*[Tt]ranscript|AgentWorkPane\.tsx$)|^(backend|shared)\/(acp|interaction-performance\.)|^backend\/control-api\.cts|^src\/components\/CodeWorkspace\.|^src\/styles\/(chat|transcript)|^tests\/e2e\/(acp-|chat-|agent-handoff|terminal-state-protocol|related-(session|history)|ui-interaction-layer)/.test(filename)) select(['interaction']);
     if (filename === 'src/lib/agent-live-state.ts') select(['interaction', 'sidebar']);
@@ -69,14 +73,14 @@ export function selectBrowserScreen(files) {
       'tests/e2e/agent-opening-flow.spec.ts'].includes(filename)) select(['agent-opening']);
     if (['src/components/code/NativeRelatedRows.tsx', 'src/components/code/RelatedSessionPanel.tsx',
       'src/components/code/related-session-status.ts', 'tests/e2e/native-related-sessions.spec.ts'].includes(filename)) select(['interaction', 'agy-children']);
-    if (['src/components/files/FileEditorMarkdownPreview.tsx', 'src/components/ContentViewerDialog.tsx',
+    if (['src/components/files/FileEditorMarkdownPreview.tsx', 'src/components/ContentViewerDialog.tsx', 'src/lib/mermaid-renderer.ts',
       'tests/e2e/mermaid-streaming-stability.spec.ts', 'tests/e2e/rich-content-viewer.spec.ts'].includes(filename)) select(['rich-content']);
     if (['src/lib/transcript-file-links.ts', 'src/lib/workspace-open-files.ts',
       'tests/e2e/path-link-navigation.spec.ts'].includes(filename)) select(['identity-files', 'path-navigation']);
     if (['src/components/code/CodeSidebar.tsx', 'src/components/code/workspace-derived.ts',
       'tests/e2e/file-editor-reveal.spec.ts', 'tests/e2e/external-file-project.spec.ts',
       'tests/e2e/terminal-regression-matrix.spec.ts'].includes(filename)) select(['path-navigation']);
-    if (filename === 'tests/e2e/model-matrix.spec.ts') select(['model-isolation']);
+    if (['src/components/code/model.ts', 'src/components/code/useCodexModelCatalog.ts', 'tests/e2e/model-matrix.spec.ts'].includes(filename)) select(['model-isolation']);
     // The separate live-provider composite remains mandatory for this case;
     // the early deterministic screen exercises its shared interaction owners.
     if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);

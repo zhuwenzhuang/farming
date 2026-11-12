@@ -108,3 +108,32 @@ for (const phase of ['commentary', 'final_answer']) {
 }
 assert.deepStrictEqual(phasedState.snapshot().entries.map(entry => entry._meta.codex.phase), ['commentary', 'final_answer'],
   'the boundary must preserve phase separation and the shared UI metadata contract');
+
+// Native Antigravity /goal sends an id-less echo with only the command removed.
+const goalText = '/goal Resolve the issue, retest, and continue until done.';
+const goalContent = [{ type: 'text', text: goalText, _meta: { retained: 'input document' } }];
+const goalState = new AcpSessionState({ provider: 'agy', sessionId: 'agy-goal' });
+const admittedGoal = goalState.beginPrompt(goalContent);
+applyMessage(goalState, 'agy-goal', 'user', goalText.slice(5));
+assert.strictEqual(goalState.entries.length, 1, 'the command echo must not create a second turn');
+assert.strictEqual(goalState.entries[0].id, admittedGoal.id);
+assert.deepStrictEqual(goalState.entries[0].content, goalContent, 'preserve the submitted command and rich input');
+applyMessage(goalState, 'agy-goal', 'assistant', 'Working');
+const restoredGoal = AcpSessionState.fromCheckpoint(goalState.exportCheckpoint());
+assert.strictEqual(restoredGoal.entries.filter(entry => entry.role === 'user').length, 1);
+
+for (const scenario of ['other-provider', 'different-text', 'native-id', 'settled', 'output-between', 'steer', 'other-command', 'history']) {
+  const state = new AcpSessionState({ provider: scenario === 'other-provider' ? 'codex' : 'agy', sessionId: scenario });
+  const original = scenario === 'other-command' ? '/goals Resolve the issue' : goalText;
+  if (scenario === 'history') applyMessage(state, scenario, 'user', original);
+  else state.beginPrompt([{ type: 'text', text: original }]);
+  if (scenario === 'settled') state.entries[0].turnCompletedAt = Date.now();
+  if (scenario === 'output-between') applyMessage(state, scenario, 'assistant', 'Working');
+  applyMessage(state, scenario, 'user', scenario === 'different-text' ? 'A different request' : original.slice(5), {
+    ...(scenario === 'native-id' ? { messageId: 'distinct-input' } : {}),
+    ...(scenario === 'steer' ? { _meta: { farming: { steer: true } } } : {}),
+  });
+  assert.strictEqual(state.entries.filter(entry => entry.role === 'user').length, 2,
+    `${scenario} must not be mistaken for a native command echo`);
+}
+console.log('Antigravity goal echo boundary tests passed');

@@ -7,6 +7,7 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
   diffLines(oldText: string, newText: string): Array<{ count?: number; added?: boolean; removed?: boolean }>;
 };
 import { isCodexContextCompactionMessage } from './codex-transcript-sanitizer.cjs';
+import { acpNativeTerminalText } from '../shared/acp-native-terminal.js';
 
 type DataRecord = Record<string, unknown>;
 
@@ -309,6 +310,8 @@ function detailForTool(entry: DataRecord): string {
   if (rawInput) sections.push(`Input\n${rawInput}`);
   if (structuredContent) sections.push(structuredContent);
   if (rawOutput) sections.push(`Output\n${rawOutput}`);
+  const nativeOutput = acpNativeTerminalText(entry.nativeTerminal);
+  if (nativeOutput && nativeOutput !== structuredContent && nativeOutput !== rawOutput) sections.push(nativeOutput);
   return sections.join('\n\n');
 }
 
@@ -475,7 +478,10 @@ function transcriptMediaBlocks(entry: DataRecord, options: TranscriptOptions = {
       const media = transcriptMediaValue(block);
       return media ? [compactTranscriptMedia(media, entry, options)] : [];
     }
-    if (block.type === 'terminal') return [{ type: 'terminal', terminalId: String(block.terminalId || '') }];
+    if (block.type === 'terminal') {
+      if (block.terminalId === dataRecord(entry.nativeTerminal).id) return [];
+      return [{ type: 'terminal', terminalId: String(block.terminalId || '') }];
+    }
     if (block.type === 'image' || block.type === 'audio') {
       return [compactTranscriptMedia(block, entry, options)];
     }
@@ -577,7 +583,10 @@ function transcriptEntryForClient(entry: DataRecord, options: TranscriptOptions 
     return boundedSummaryValue(block, budget, 0, truncation);
   });
   if (truncation.truncated) content.push({ type: 'text', text: '[Message truncated to fit transcript response]' });
-  return { ...projected, content };
+  return { ...projected, content,
+    ...(entry.type === 'compaction' ? { summary: content.filter(isDataRecord)
+      .filter(block => block.type === 'text').map(block => String(block.text || '')).join('') } : {}),
+  };
 }
 
 function transcriptMessageChars(value: unknown): number {

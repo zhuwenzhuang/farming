@@ -12,6 +12,7 @@ of the same behavior.
 | Question | Authoritative document |
 | --- | --- |
 | Chat execution, messages, child Sessions and recovery | [ACP runtime](../products/code/acp-runtime.md); [Codex-specific boundaries](../products/code/codex-runtime.md) |
+| Provider ACP documentation and Zed reference | [Upstream integration references](../products/code/acp-runtime.md#upstream-integration-references); [provider integration review](../products/code/test/acceptance-dogfood-plan.md#provider-integration-review) |
 | Conversation identity and Agent inventory | [Session identity](../products/code/provider-session-identity.md); [Agent state protocol](../products/code/agent-list-state-protocol.md) |
 | Native terminal state and reconnection | [Terminal protocol](../products/code/terminal-state-protocol.md) |
 | Files product, consistency and transport | [Files design](../products/code/project-files-section-design.md); [file state](../products/code/workspace-file-state-model.md); [transport protocol](../products/code/workspace-transport-protocol.md) |

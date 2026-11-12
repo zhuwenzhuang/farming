@@ -1,4 +1,5 @@
 import { composerDocumentFromContent, type ComposerDocument } from '../../../../shared/composer-document.js'
+import { acpNativeTerminalText } from '../../../../shared/acp-native-terminal'
 import { isUnavailableAcpPeerReceipt, normalizeAcpPeerMessage, type AcpPeerMessage } from '../../../../shared/acp-peer-message'
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../../../../shared/agent-handoff-context'
 import { normalizeAgentGoal, type AgentGoal } from '../../../../shared/agent-goal'
@@ -547,6 +548,8 @@ function detailForTool(entry: AcpRecord) {
   if (rawInput) sections.push(`Input\n${rawInput}`)
   if (structuredContent) sections.push(structuredContent)
   if (rawOutput) sections.push(`Output\n${rawOutput}`)
+  const nativeOutput = acpNativeTerminalText(entry.nativeTerminal)
+  if (nativeOutput && nativeOutput !== structuredContent && nativeOutput !== rawOutput) sections.push(nativeOutput)
   return sections.join('\n\n')
 }
 
@@ -661,6 +664,9 @@ function compactionTitle(status: unknown): string {
 }
 
 function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
+  if (entry.type === 'status') {
+    return { id: stringValue(entry.id), type: 'progress', title: stringValue(entry.title), detail: [stringValue(entry.title), stringValue(entry.description)].filter(Boolean).join('\n\n'), status: stringValue(entry.status) }
+  }
   if (entry.type === 'question') {
     const question = { requestId: stringValue(entry.id), message: stringValue(entry.message), status: stringValue(entry.status), answer: stringValue(entry.answer) }
     return { id: question.requestId, type: 'question', title: question.message, status: question.status, question }
@@ -678,7 +684,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
     const contextCompaction = record(entry._meta).contextCompaction === true
     const collaboration = entryCollaboration(entry)
     const terminalIds = list(entry.content).map(record)
-      .filter(block => block.type === 'terminal' && block.terminalId)
+      .filter(block => block.type === 'terminal' && block.terminalId && block.terminalId !== record(entry.nativeTerminal).id)
       .map(block => stringValue(block.terminalId))
     const richContent = list(entry.content).map(record).flatMap(block => {
       if (block.type === 'content' && block.content) return [block.content]
@@ -753,10 +759,16 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
     }
   }
   if (entry.type === 'compaction') {
+    const content = list(entry.content)
+    const prefix = stringValue(entry.id) || 'compaction'
+    const images = contentImages(content, prefix)
+    const audios = contentAudios(content, prefix)
+    const files = contentFiles(content, prefix)
     return {
       id: stringValue(entry.id), type: 'compaction',
       title: compactionTitle(entry.status),
-      detail: stringValue(entry.summary), status: stringValue(entry.status) || 'completed',
+      detail: [stringValue(entry.summary), stringValue(entry.error)].filter(Boolean).join('\n\n'), status: stringValue(entry.status) || 'completed',
+      ...(images.length ? { images } : {}), ...(audios.length ? { audios } : {}), ...(files.length ? { files } : {}),
     }
   }
   return null

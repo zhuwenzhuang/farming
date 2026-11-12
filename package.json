@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.97",
+  "version": "2.2.98",
   "farmingUserInstall": 1,
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
@@ -56,6 +56,8 @@
     "release:fast-screen:crt-markdown": "playwright test tests/e2e/crt-markdown.spec.ts tests/e2e/skin-switching.spec.ts --project=chromium --workers=1 --retries=0 --grep 'crt-markdown|previews structured Chat and closes a CRT session'",
     "release:fast-screen:mobile-menus": "playwright test tests/e2e/iphone-mobile-layout.spec.ts --project=chromium --project=iphone-webkit --workers=1 --retries=0 --grep 'mobile overflow actions and distinct project menu'",
     "release:fast-screen:agy-children": "playwright test tests/e2e/agy-related-sessions.spec.ts --project=chromium --workers=1 --retries=0",
+    "release:fast-screen:file-blame": "playwright test tests/e2e/file-blame.spec.ts --project=chromium --workers=1 --retries=0 --grep 'returning to a tab restores blame|source-preview navigation dismisses'",
+    "release:fast-screen:native-acp": "playwright test tests/e2e/acp-native-integration.spec.ts --project=chromium --workers=1 --retries=0",
     "release:fast-screen:permissions": "playwright test tests/e2e/default-agent-permissions.spec.ts --project=chromium --workers=1 --retries=0",
     "generate:appearance-css": "tsx scripts/generate-code-appearance-css.ts",
     "stop:all": "bash scripts/stop-all-farming.sh",
@@ -202,7 +204,7 @@
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",
-    "@agentclientprotocol/sdk": "2.4.0",
+    "@agentclientprotocol/sdk": "2.6.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-webgl": "^0.19.0",
@@ -251,8 +253,8 @@
     "saxes"
   ],
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.101.0",
-    "@agentclientprotocol/codex-acp": "2.5.0",
+    "@agentclientprotocol/claude-agent-acp": "0.106.0",
+    "@agentclientprotocol/codex-acp": "2.6.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@tiptap/core": "3.32.0",
@@ -306,26 +308,26 @@
   "overrides": {
     "@hono/node-server": "2.0.11",
     "dompurify": "3.4.13",
-    "@openai/codex": "0.167.0",
+    "@openai/codex": "0.167.2",
     "lodash": "4.18.1",
     "minimist": "1.2.8",
     "katex": "$katex"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.318",
-    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.318",
-    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.167.0-darwin-arm64",
-    "@openai/codex-darwin-x64": "npm:@openai/codex@0.167.0-darwin-x64",
-    "@openai/codex-linux-arm64": "npm:@openai/codex@0.167.0-linux-arm64",
-    "@openai/codex-linux-x64": "npm:@openai/codex@0.167.0-linux-x64",
-    "@openai/codex-win32-arm64": "npm:@openai/codex@0.167.0-win32-arm64",
-    "@openai/codex-win32-x64": "npm:@openai/codex@0.167.0-win32-x64"
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.322",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.322",
+    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.167.2-darwin-arm64",
+    "@openai/codex-darwin-x64": "npm:@openai/codex@0.167.2-darwin-x64",
+    "@openai/codex-linux-arm64": "npm:@openai/codex@0.167.2-linux-arm64",
+    "@openai/codex-linux-x64": "npm:@openai/codex@0.167.2-linux-x64",
+    "@openai/codex-win32-arm64": "npm:@openai/codex@0.167.2-win32-arm64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.167.2-win32-x64"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,

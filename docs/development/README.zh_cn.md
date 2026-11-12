@@ -11,6 +11,7 @@
 | 问题 | 权威文档 |
 | --- | --- |
 | Chat 执行、消息、子会话与恢复 | [ACP Runtime](../products/code/acp-runtime.zh_cn.md)；[Codex 特有边界](../products/code/codex-runtime.zh_cn.md) |
+| Provider ACP 文档与 Zed 参考 | [上游接入参考](../products/code/acp-runtime.zh_cn.md#上游接入参考)；[Provider 接入审查](../products/code/test/acceptance-dogfood-plan.zh_cn.md#provider-接入审查) |
 | 对话身份与 Agent 清单 | [Session 身份](../products/code/provider-session-identity.zh_cn.md)；[Agent 状态协议](../products/code/agent-list-state-protocol.zh_cn.md) |
 | 原生终端状态与重连 | [Terminal 协议](../products/code/terminal-state-protocol.zh_cn.md) |
 | Files 产品、一致性与传输 | [Files 设计](../products/code/project-files-section-design.zh_cn.md)；[文件状态](../products/code/workspace-file-state-model.zh_cn.md)；[传输协议](../products/code/workspace-transport-protocol.zh_cn.md) |

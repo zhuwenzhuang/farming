@@ -15,7 +15,7 @@ function checkFixture(options: { peer?: 'present' | 'broken' | 'missing-entry'; 
     fs.writeFileSync(path.join(sdk, 'package.json'), JSON.stringify({
       name: '@agentclientprotocol/sdk', type: 'module',
       exports: { '.': { import: './main.js' }, './experimental/mcp-server': { import: './optional.js' }, './schema': './schema.json' },
-      peerDependencies: { '@modelcontextprotocol/server': '^2.4.0' },
+      peerDependencies: { '@modelcontextprotocol/server': '^2.6.0' },
       peerDependenciesMeta: { '@modelcontextprotocol/server': { optional: options.optionalDeclaration !== false } },
     }));
     fs.writeFileSync(path.join(sdk, 'main.js'), options.mandatoryMissing ? 'import "missing-product-dependency";' : 'export const ready = true;');

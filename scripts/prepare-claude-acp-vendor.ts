@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.101.0';
-const expectedSdkVersion = '0.3.318';
-const expectedBundleSha256 = 'dbf1a30c1d1a87b3c69dc36ad30ba60527a1aac08b9ccd413bd938f420c66788';
+const expectedVersion = '0.106.0';
+const expectedSdkVersion = '0.3.322';
+const expectedBundleSha256 = '4fbeda3307da1e7b8615d228acf0c9236222c2d97ba2abcf85568a024e027bc6';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 // Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
@@ -18,7 +18,7 @@ const sdkEntry = require.resolve('@anthropic-ai/claude-agent-sdk', {
   paths: [packageRoot],
 });
 const sdkPackageJsonPath = path.join(path.dirname(sdkEntry), 'package.json');
-const acpAgentEntry = path.join(packageRoot, 'dist', 'acp-agent.js');
+const acpAgentEntry = path.join(packageRoot, 'dist', 'v1', 'acp-agent.js');
 const claudeCliEntry = path.join(packageRoot, 'dist', 'claude-cli.js');
 const sourceLicense = path.join(packageRoot, 'LICENSE');
 const sdkLicense = path.join(path.dirname(sdkPackageJsonPath), 'LICENSE.md');

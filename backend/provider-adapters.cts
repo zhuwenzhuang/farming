@@ -149,6 +149,10 @@ interface ProviderAcpSessionMetadataOptions {
 }
 
 interface ProviderAcpContract {
+  // Native transports that do not advertise the common steering extension.
+  // Pull support is enabled only after a request from the owning live session.
+  steering?: { kind: 'pull'; method: string } | { kind: 'concurrent-prompt'; agentName: string };
+  childSessionOrigin?: (update: Record<string, unknown>) => { sessionId: string; parentSessionId: string; title?: string } | null;
   acceptsMcpServers?: boolean;
   executablePolicy: 'managed' | 'system';
   packageName?: string;
@@ -704,7 +708,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
-      version: '2.5.0',
+      version: '2.6.0',
       sharedRuntime: true,
       normalizeHostMessageChunks: true,
       config: {
@@ -772,7 +776,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
-      version: '0.101.0',
+      version: '0.106.0',
       sharedRuntime: true,
       config: {
         approvalModes: {
@@ -948,6 +952,18 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
           : record.availableModes;
         return { ...record, availableModes };
       },
+      childSessionOrigin: update => {
+        const meta = update._meta as Record<string, unknown> | undefined;
+        const value = meta?.['opencode/child-session'];
+        if (value === undefined) return null;
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid OpenCode child session');
+        const child = value as Record<string, unknown>;
+        if (typeof child.id !== 'string' || !child.id.trim() || child.id.length > 512
+          || typeof child.parentID !== 'string' || !child.parentID.trim() || child.parentID.length > 512
+          || child.id === child.parentID || !Number.isSafeInteger(child.depth) || Number(child.depth) < 1
+          || (child.title !== undefined && typeof child.title !== 'string')) throw new Error('Invalid OpenCode child session');
+        return { sessionId: child.id, parentSessionId: child.parentID, ...(typeof child.title === 'string' ? { title: child.title } : {}) };
+      },
       launch: options => ({
         command: options.executable || 'opencode',
         args: ['acp', '--cwd', path.resolve(options.projectWorkspace || options.cwd || process.cwd())],
@@ -1070,6 +1086,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       version: 'native',
       sharedRuntime: true,
       config: { approvalModes: { full: 'yolo' } },
+      steering: { kind: 'pull', method: 'craft/drainMidTurnQueue' },
       launch: options => ({
         command: options.executable || 'qwen',
         args: [
@@ -1147,6 +1164,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       executablePolicy: 'system',
       version: 'native',
       acceptsMcpServers: false,
+      steering: { kind: 'concurrent-prompt', agentName: 'Antigravity ACP Server' },
       sharedRuntime: false,
       config: {
         approvalModes: { full: 'bypassPermissions', approve: 'default' },

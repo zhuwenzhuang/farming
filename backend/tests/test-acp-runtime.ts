@@ -81,8 +81,8 @@ async function run() {
   } finally {
     fs.readFileSync = readFileSync;
   }
-  assert.strictEqual(resolveAcpLaunch('codex').version, '2.5.0');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.101.0');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '2.6.0');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.106.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.34');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
@@ -1025,11 +1025,11 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-2\.5\.0\.mjs|codex-acp\/dist\/index\.js)$/);
+  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-2\.6\.0\.mjs|codex-acp\/dist\/index\.js)$/);
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),
-    /(?:dist\/acp\/claude-agent-acp-0\.101\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+    /(?:dist\/acp\/claude-agent-acp-0\.106\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
   const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
   assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.34\.mjs$/);

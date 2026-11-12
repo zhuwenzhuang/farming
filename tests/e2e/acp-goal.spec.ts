@@ -2,6 +2,42 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+test('Antigravity command echo keeps one user bubble across appearances and reload', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'agy', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await row.click()
+    await page.getByTestId('code-acp-composer-input').fill('/goal Verify native command echo')
+    await page.getByTestId('code-acp-composer-send').click()
+    const bubbles = page.locator('.code-agent-transcript-turn > .code-agent-transcript-user')
+    await expect(page.getByText('Native goal accepted once.', { exact: true })).toBeVisible()
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => {
+        document.body.dataset.appearance = value
+        document.documentElement.dataset.appearance = value
+      }, appearance)
+      await page.evaluate(() => document.fonts.ready)
+      await expect(bubbles).toHaveCount(1)
+      await expect(bubbles).toContainText('/goal Verify native command echo')
+      const capture = await page.screenshot({ path: testInfo.outputPath(`agy-goal-echo-${appearance}.png`), animations: 'disabled' })
+      expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([1440, 900])
+    }
+    await page.reload()
+    await row.click()
+    await expect(page.getByText('Native goal accepted once.', { exact: true })).toBeVisible()
+    await expect(bubbles).toHaveCount(1)
+    await expect(bubbles).toContainText('/goal Verify native command echo')
+  } finally {
+    await page.request.delete(`/farming/api/control/agents/${agentId}`)
+  }
+})
+
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`read-only Goal and cancelled tools survive follow-up (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'service-demo')

@@ -119,6 +119,9 @@ async function resultFor(method, params) {
   if (method === 'config/read') {
     return { config: {}, layers: [] };
   }
+  if (method === 'permissionProfile/list' || method === 'thread/backgroundTerminals/list') {
+    return { data: [], nextCursor: null };
+  }
   if (method === 'skills/extraRoots/set') {
     return {};
   }

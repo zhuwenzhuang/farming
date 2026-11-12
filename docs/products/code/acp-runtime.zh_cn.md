@@ -5,6 +5,45 @@
 ACP 是 Farming 结构化 Chat 的协议边界。后端拥有执行、会话身份、有序对话状态和恢复；
 浏览器负责呈现。终端文本、助手正文和缓存 UI 状态不能建立运行时事实。
 
+## 上游接入参考
+
+新增或审查 Provider 接入时使用以下一手资料。必须对照实际安装的 Adapter/Runtime 版本、
+发布说明和源码；最新文档或上游功能列表不能证明 Farming 已接入并验证了该功能。
+链接最后核对日期：2026-11-13。
+
+| Provider | ACP 接入文档 | 协议细节与变更 |
+| --- | --- | --- |
+| Codex | [Codex ACP Adapter](https://github.com/agentclientprotocol/codex-acp#readme) | [Adapter 文档](https://github.com/agentclientprotocol/codex-acp/tree/main/docs)；[变更记录](https://github.com/agentclientprotocol/codex-acp/blob/main/CHANGELOG.md) |
+| Claude Code | [Claude Agent ACP Adapter](https://github.com/agentclientprotocol/claude-agent-acp#readme) | [Adapter 文档](https://github.com/agentclientprotocol/claude-agent-acp/tree/main/docs)；[变更记录](https://github.com/agentclientprotocol/claude-agent-acp/blob/main/CHANGELOG.md) |
+| Pi | [pi-acp Adapter](https://github.com/svkozak/pi-acp#readme) | [Adapter 源码](https://github.com/svkozak/pi-acp/tree/main/src)；以实际依赖包的上游为准，不混用其他同名 Adapter |
+| OpenCode | [ACP 参考](https://opencode.ai/docs/cli/acp/) | [变更记录](https://github.com/anomalyco/opencode/blob/dev/CHANGELOG.md) |
+| Qoder | [ACP 接入](https://docs.qoder.com/cli/acp) | [CLI 参考](https://docs.qoder.com/cli/cli-reference)；[发布说明](https://changelog.qoder.com/cli) |
+| Qwen Code | [Zed/ACP 接入](https://qwenlm.github.io/qwen-code-docs/en/users/integration-zed/) | [架构](https://qwenlm.github.io/qwen-code-docs/en/developers/architecture/)；[ACP 客户端与轮内输入语义](https://github.com/QwenLM/qwen-code/blob/main/packages/qwen-live/src/adaptor/acp-adaptor.ts) |
+| Antigravity | [ACP 接入与行为](https://antigravity.google/docs/ide/extensions/acp)；[CLI ACP 入口](https://antigravity.google/docs/cli/acp/) | [CLI 变更记录](https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md) |
+
+Codex 和 Claude 链接描述各自的 ACP Adapter 项目；Pi 链接描述 Farming 使用的独立维护
+Adapter。它们不能与原生 CLI 文档或同一 Agent 的其他 Adapter 混为一谈。
+
+### 以 Zed 作为客户端参考
+
+结合 Provider 文档参考 [Zed External Agents](https://zed.dev/docs/ai/external-agents) 和
+[Zed 源码](https://github.com/zed-industries/zed)。存在本地副本时，使用不跟踪的
+`reference/zed`，得出结论前记录其 Commit 和工作区状态；本地快照可能早于当前协议行为。
+
+[ACP Transport 与版本适配](https://github.com/zed-industries/zed/tree/main/crates/agent_servers/src/acp)
+和[共享 Thread 状态](https://github.com/zed-industries/zed/tree/main/crates/acp_thread/src)
+可用于对照能力协商、提交回执、取消、历史、配置、权限、提问和压缩。
+必须区分 Zed 原生 Agent 与外部 ACP、ACP v1 与 v2。排队、取消后发送和实时 Steer
+是不同操作，不能因 UI 文案相似而混用。参考实现不能覆盖 Farming 的所有权、Hard Stop、
+隔离和不确定投递契约。
+
+兼容性验收遵循 [Provider 接入审查](test/acceptance-dogfood-plan.zh_cn.md#provider-接入审查)。
+
+Zed 还实现了 ACP v2 的回执/状态语义、可关闭的实时通知及预览版 Plan 操作。
+Farming 当前协商 v1，拒绝其他 wire 版本，不声明通知或 Plan 修改能力。
+读取 Plan 不授予编辑操作。这些是明确的能力差异，不能静默接受不支持的事件。
+MCP 注入受 Provider 能力约束；Adapter 无法与当前运行时组合时，必须在启动前明确拒绝。
+
 ## 所有权与 Provider 边界
 
 | 所有者 | 职责 |
@@ -112,6 +151,13 @@ Cancel、配置和子会话操作排序，并以 binding 代际和确切 Turn �
 自动转为排队重试；迟到确认不能恢复已完成 Turn 的忙碌状态。Provider 自发续跑使用同样的
 Turn 开始与结算规则。
 
+Steering 的传输方式由 Provider 边界负责。通用扩展和旧 Codex 扩展要求对应能力声明。
+经验证的 Antigravity 原生服务使用并发 Prompt：先前 RPC 可在交接时返回，但逻辑 Turn
+保持运行，直到最后一个 Prompt 结算；精确输入回显或成功响应只确认一次输入。
+Qwen 通过反向拉取输入，只有所属 Session 的请求证明支持后才启用；待投递输入有界，
+每条只拉取一次，投递前超时、取消或 Turn 结束时撤回。等待两种传输的确认都不能占住
+Turn 控制锁阻塞取消。未知投递不能重放为新 Prompt，排队能力本身也不代表 Live Steering。
+
 Provider 已接管的 Turn 不受 Farming 施加的总时长或无输出时长限制，此规则适用于所有
 Provider 以及主、子 Session。长时间工具执行保持运行，直到 Provider 返回结果、显式取消
 或权威故障。Adapter 关闭可选的 CLI 整轮时间限制。初始化、准入、控制、读取和取消清理
@@ -134,6 +180,22 @@ Host 将类型化 Provider 历史与实时事件归约为一个有序流。文�
 
 Adapter 区分消息增量与累积快照，并保留原生消息边界。最终结果与流式文本核对：相同回显
 不重复，补全文本只追加后缀，独立最终回复在进度消息之后仍然可见。矛盾快照明确失败。
+
+Adapter 只能将原生命令经过已知精确转换的回显，与相邻、仍在执行的已接纳输入合并。
+保留原始输入及其富文本；不同原生消息身份、已结束的输入和后续消息必须保持独立。
+
+标准压缩更新与摘要增量按 compaction 身份归并为同一实体，保持首次出现的时间位置。
+摘要快照替换、增量追加、省略保留、显式 null 清除。富内容摘要、失败详情和取消状态
+随 checkpoint 保留。Provider 压缩标记归一到此契约；重试状态保持可见，直到明确清除
+或 Turn 结束。两者都不能冒充助手回答。
+
+原生终端输出与客户端创建的终端不同。按 Provider 的追加/替换语义消费已声明的元数据
+通道，保留有界输出和退出证据，不给只读展示终端授予进程控制。一个工具调用内的终端
+身份不能改变；工具详情与 transcript 投影使用同一份输出。
+
+Provider 子会话事件在 transcript 和权限路由前归一。父会话信封不代表子会话输出是
+父会话回答；核对子会话身份与已声明父会话，保留关联，按实际子 Session 路由。
+观测元数据不授予子会话取消或远程历史读取能力；权限请求保留原始子会话所有权。
 
 - Checkpoint 标明 Agent、Provider Session、runtime epoch 和 revision。Delta 要求同一
   身份及确切前序 revision；缺口、reset 或身份变化必须换 checkpoint，过期结果不能发布。

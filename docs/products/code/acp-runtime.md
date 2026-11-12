@@ -6,6 +6,53 @@ ACP is Farming's structured Chat boundary. The backend owns execution, session
 identity, ordered conversation state and recovery. Browsers display that state;
 terminal text, assistant prose and cached UI state cannot establish runtime truth.
 
+## Upstream Integration References
+
+Use these primary sources when adding or reviewing a provider integration. Check
+the exact installed adapter/runtime version against its release notes and source;
+the latest documentation and an upstream feature list do not prove that Farming
+has integrated or verified that feature. Links last checked on 2026-11-13.
+
+| Provider | ACP integration documentation | Protocol details and changes |
+| --- | --- | --- |
+| Codex | [Codex ACP adapter](https://github.com/agentclientprotocol/codex-acp#readme) | [Adapter documentation](https://github.com/agentclientprotocol/codex-acp/tree/main/docs); [changelog](https://github.com/agentclientprotocol/codex-acp/blob/main/CHANGELOG.md) |
+| Claude Code | [Claude Agent ACP adapter](https://github.com/agentclientprotocol/claude-agent-acp#readme) | [Adapter documentation](https://github.com/agentclientprotocol/claude-agent-acp/tree/main/docs); [changelog](https://github.com/agentclientprotocol/claude-agent-acp/blob/main/CHANGELOG.md) |
+| Pi | [pi-acp adapter](https://github.com/svkozak/pi-acp#readme) | [Adapter source](https://github.com/svkozak/pi-acp/tree/main/src); use the package's upstream, not another similarly named adapter |
+| OpenCode | [ACP reference](https://opencode.ai/docs/cli/acp/) | [Changelog](https://github.com/anomalyco/opencode/blob/dev/CHANGELOG.md) |
+| Qoder | [ACP integration](https://docs.qoder.com/cli/acp) | [CLI reference](https://docs.qoder.com/cli/cli-reference); [release notes](https://changelog.qoder.com/cli) |
+| Qwen Code | [Zed/ACP integration](https://qwenlm.github.io/qwen-code-docs/en/users/integration-zed/) | [Architecture](https://qwenlm.github.io/qwen-code-docs/en/developers/architecture/); [ACP client and mid-turn input semantics](https://github.com/QwenLM/qwen-code/blob/main/packages/qwen-live/src/adaptor/acp-adaptor.ts) |
+| Antigravity | [ACP integration and behavior](https://antigravity.google/docs/ide/extensions/acp); [CLI ACP entry point](https://antigravity.google/docs/cli/acp/) | [CLI changelog](https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md) |
+
+Codex and Claude links describe their ACP adapter projects; Pi's link describes
+the independently maintained adapter used by Farming. They are not interchangeable
+with native CLI documentation or other adapters for the same Agent.
+
+### Zed As A Client Reference
+
+Consult [Zed External Agents](https://zed.dev/docs/ai/external-agents) and the
+[Zed source](https://github.com/zed-industries/zed) alongside provider documentation.
+When available, use the untracked local checkout at `reference/zed`; record its
+commit and working-tree state before drawing conclusions. A local snapshot may
+predate current protocol behavior.
+
+The [ACP transport and version adapters](https://github.com/zed-industries/zed/tree/main/crates/agent_servers/src/acp)
+and [shared thread state](https://github.com/zed-industries/zed/tree/main/crates/acp_thread/src)
+are useful reference boundaries for negotiation, submission receipts, cancellation,
+history, configuration, permissions, elicitation and compaction. Distinguish Zed's
+native Agent behavior from external ACP behavior, and ACP v1 from v2. Queueing,
+cancel-then-prompt and live Steering are different operations even when their UI
+labels are similar. Reference behavior does not override Farming's ownership,
+hard-stop, isolation or uncertain-delivery contracts.
+
+For compatibility acceptance, follow the [provider integration review](test/acceptance-dogfood-plan.md#provider-integration-review).
+
+Zed also implements ACP v2 receipt/state semantics, dismissible live notices and
+preview plan operations. Farming currently negotiates v1, rejects a different wire
+version, and does not advertise notices or plan mutations. Reading a plan does not
+grant edit operations. These are explicit capability differences, not permission
+to silently accept unsupported events. MCP injection is provider-gated; an adapter
+that cannot compose it with the selected runtime must reject it before launch.
+
 ## Ownership And Provider Boundary
 
 | Owner | Responsibility |
@@ -148,6 +195,17 @@ Uncertain writes never become automatic queue fallbacks. Late acknowledgements
 cannot restore busy state after completion. Provider-initiated continuation Turns
 use the same start/settlement rules as submitted Turns.
 
+Steering transport belongs to the provider boundary. The common extension and
+legacy Codex extension require their advertised capability. Antigravity's verified
+native server uses concurrent prompts: an earlier RPC may settle at handover,
+but the logical Turn stays active until its last prompt settles. An exact native
+input echo or successful response confirms the input once. Qwen's reverse input
+drain is enabled only after an owning-session request proves support; pending
+input is bounded, drained once, and withdrawn on timeout, cancellation or Turn
+settlement before delivery. Waiting for either transport must not hold the Turn
+control lock and block cancellation. Unknown delivery is never replayed as a new
+prompt, and a queueing capability alone does not imply live Steering.
+
 Provider-owned Turns have no Farming-imposed elapsed-time or output-silence
 limit, across providers and root or child Sessions. Long tool execution remains
 running until a provider outcome, explicit cancellation, or authoritative failure.
@@ -181,6 +239,30 @@ Adapters distinguish message deltas from cumulative snapshots and preserve nativ
 message boundaries. Final results reconcile with streamed text: an echo is not
 repeated, an extension contributes its suffix, and a distinct final answer remains
 visible after progress. Contradictory snapshots fail explicitly.
+
+An adapter may reconcile a native command's transformed echo only against the
+adjacent active admitted input and the exact known transformation. Preserve the
+original input and its rich content; distinct native identities, settled inputs
+and later messages must remain separate.
+
+Standard compaction updates and summary chunks share one entity per compaction
+identity and preserve its original timeline position. Summary snapshots replace,
+chunks append, omission preserves and explicit null clears. Rich summary content,
+failure details and cancellation survive checkpoints. Provider-specific compaction
+markers normalize to this contract; retry status remains visible until cleared or
+the Turn ends. Neither event is an assistant answer.
+
+Native terminal output is distinct from client-created terminals. Consume its
+declared metadata channel with the provider's append/replacement semantics, retain
+bounded output and exit evidence, and never grant process controls to display-only
+terminals. Terminal identity cannot change within a tool call. Tool detail and
+transcript projection use the same retained output.
+
+Provider child-event envelopes normalize before transcript or permission routing.
+A parent envelope does not make child output a parent answer. Validate the child
+identity and announced parent, retain the association, and route by the actual
+child Session. Observation metadata does not grant child cancellation or remote
+history access; permissions keep their original child ownership.
 
 - Checkpoints identify Agent, Provider Session, runtime epoch and revision.
   Deltas require that identity and the exact previous revision; gaps, resets and

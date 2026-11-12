@@ -63,6 +63,10 @@ if (process.argv.includes('--fake-terminal-login')) {
 }
 
 let client!: AgentContext;
+const nativeSteeringTransport = process.env.FARMING_TEST_NATIVE_STEERING
+  || (path.basename(process.cwd()).startsWith('acp-native-steer-agy') ? 'concurrent-prompt'
+    : path.basename(process.cwd()).startsWith('acp-native-steer-qwen') ? 'pull' : '');
+const nativeSteerTurns = new Map<string, { resolve: (response: PromptResponse) => void; timer?: ReturnType<typeof setTimeout> }>();
 function deterministicE2eSessionId(agentId: string | undefined): string {
   const hex = crypto.createHash('sha256').update(String(agentId || 'missing-agent-id')).digest('hex');
   return [
@@ -261,14 +265,14 @@ class FakeAgent {
     }
     return {
       protocolVersion: PROTOCOL_VERSION,
-      _meta: { steering: { supported: true } },
+      ...(nativeSteeringTransport ? {} : { _meta: { steering: { supported: true } } }),
       agentCapabilities: {
         auth: { logout: {} },
         loadSession: true,
         promptCapabilities: { image: true, audio: true, embeddedContext: true },
         sessionCapabilities: { list: {}, resume: {}, fork: {}, delete: {}, close: {} },
         _meta: {
-          codex: { steer: { method: '_codex/session/steer', version: 1 } },
+          ...(nativeSteeringTransport ? {} : { codex: { steer: { method: '_codex/session/steer', version: 1 } } }),
           sessionArchive: { method: '_session/archive', version: 1 },
         },
       },
@@ -283,7 +287,7 @@ class FakeAgent {
         type: 'terminal',
         args: ['--fake-terminal-login'],
       }],
-      agentInfo: { name: 'Farming fake ACP Agent', version: '1.0.0' },
+      agentInfo: { name: nativeSteeringTransport === 'concurrent-prompt' ? 'Antigravity ACP Server' : 'Farming fake ACP Agent', version: '1.5.5' },
     };
   }
 
@@ -571,8 +575,73 @@ class FakeAgent {
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
+    if (nativeSteeringTransport) {
+      const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      const previous = nativeSteerTurns.get(params.sessionId);
+      if (previous && nativeSteeringTransport === 'pull') throw new Error('Concurrent prompt interrupts Qwen; use the drain extension');
+      if (previous && text === 'reject native steer') throw RequestError.internalError(undefined, 'Native steer rejected before handover');
+      if (previous) previous.resolve({ stopReason: 'end_turn' });
+      let resolve!: (response: PromptResponse) => void;
+      const completion = new Promise<PromptResponse>(done => { resolve = done; });
+      const turn = { resolve, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+      nativeSteerTurns.set(params.sessionId, turn);
+      const stop = (stopReason: PromptResponse['stopReason']) => {
+        if (turn.timer) clearTimeout(turn.timer);
+        nativeSteerTurns.delete(params.sessionId);
+        cancelledSessions.delete(params.sessionId);
+        turn.resolve({ stopReason });
+      };
+      cancelledSessions.set(params.sessionId, () => stop('cancelled'));
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'user_message_chunk', content: { type: 'text', text },
+      } });
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: previous ? `Native steer accepted: ${text}` : 'Native turn running.' },
+      } });
+      if (text === 'finish native turn') stop('end_turn');
+      if (nativeSteeringTransport === 'pull') {
+        const drain = async () => {
+          if (nativeSteerTurns.get(params.sessionId) !== turn) return;
+          const response = await client.request<{ items: Array<{ displayText: string }> }>('craft/drainMidTurnQueue', { sessionId: params.sessionId });
+          for (const item of response.items) {
+            await client.notify('session/update', { sessionId: params.sessionId, update: {
+              sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Native steer accepted: ${item.displayText}` },
+            } });
+            if (item.displayText === 'finish native turn') stop('end_turn');
+          }
+          if (nativeSteerTurns.get(params.sessionId) === turn && !process.env.FARMING_TEST_NATIVE_STEERING_DRAIN_ONCE) {
+            turn.timer = setTimeout(() => { void drain(); }, 25);
+          }
+        };
+        await drain();
+      }
+      return completion;
+    }
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
+    if (promptText === 'native status integration') {
+      const update = (value: Record<string, unknown>) => client.notify('session/update', { sessionId: params.sessionId, update: value });
+      await update({ sessionUpdate: 'session_info_update', _meta: { 'opencode/retry': { attempt: 1, error: { message: 'Rate limit exceeded' } } } });
+      await update({ sessionUpdate: 'tool_call', toolCallId: 'native-command', title: 'Native command output', kind: 'execute', status: 'in_progress',
+        content: [{ type: 'terminal', terminalId: 'native-terminal' }], _meta: { terminal_info: { terminal_id: 'native-terminal' } } });
+      await update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-command', _meta: { terminal_output: { terminal_id: 'native-terminal', data: 'first line\n' } } });
+      await update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-command', _meta: { terminal_output_delta: { terminal_id: 'native-terminal', data: 'second line\n' } } });
+      await update({ sessionUpdate: 'compaction_summary_chunk', compactionId: 'native-compact', content: { type: 'text', text: 'Preserved context' } });
+      await update({ sessionUpdate: 'compaction_update', compactionId: 'native-compact', status: 'completed' });
+      await update({ sessionUpdate: 'session_info_update', _meta: { 'opencode/retry': null } });
+      await update({ sessionUpdate: 'tool_call_update', toolCallId: 'native-command', status: 'completed', _meta: { terminal_exit: { terminal_id: 'native-terminal', exit_code: 0 } } });
+      await update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Native status integration complete.' } });
+      return { stopReason: 'end_turn' };
+    }
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText === '/goal Verify native command echo') {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'user_message_chunk', content: { type: 'text', text: promptText.slice(5) },
+      } });
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Native goal accepted once.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText === 'inspect attachment echo') {
       await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Inspecting attachments.' },
