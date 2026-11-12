@@ -291,6 +291,7 @@ let pendingRuntimeSwitchAgentId = '';
 let pendingRuntimeSwitchMode = '';
 let runtimeSwitchRequestSequence = 0;
 let crtTerminalReplication: CrtTerminalReplication | null = null;
+const crtTerminalFenceReconciliationInFlight = new Set<string>();
 const globalSettingsSaveRevisions = new Map<string, number>();
 let globalSettingsSaveTail: Promise<unknown> = Promise.resolve();
 const terminalPreviewSnapshots = new Map<string, Record<string, unknown>>();
@@ -2725,6 +2726,25 @@ function queueCrtTerminalInput(input: unknown) {
   const text = String(input || '');
   if (!text) return false;
   return Boolean(getSessionClient()?.sendTerminalInput(replication.agentId, text));
+}
+
+function reconcileCrtTerminalInputFence(agentId: string) {
+  const sessionClient = getSessionClient();
+  if (!sessionClient || crtTerminalFenceReconciliationInFlight.has(agentId)) return;
+  crtTerminalFenceReconciliationInFlight.add(agentId);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS);
+  // The Server reconciles the fence on this explicit read. The response does
+  // not install a screen or share the renderer's checkpoint admission.
+  void sessionClient.requestTerminalCheckpoint(agentId, {
+    signal: controller.signal,
+    scrollbackLimit: CRT_TERMINAL_CHECKPOINT_SCROLLBACK_STEPS[0]
+  }).catch(() => {
+    // A later input error or reconnect may request another checkpoint.
+  }).finally(() => {
+    clearTimeout(timeout);
+    crtTerminalFenceReconciliationInFlight.delete(agentId);
+  });
 }
 
 function requestCrtTerminalReplay(requestedScrollback = 0) {
@@ -5426,11 +5446,12 @@ function connect(): void {
     } else if (data.type === 'error') {
       if (
         (data.reason === 'delivery-not-confirmed' || data.reason === 'uncertain-input-fence')
+        && typeof data.agentId === 'string'
         && data.agentId === focusedAgentId
         && data.agentId === crtTerminalReplication?.agentId
         && isCrtSessionOpen()
       ) {
-        requestCrtTerminalReplay();
+        reconcileCrtTerminalInputFence(data.agentId);
       }
       waitingForAgent = false;
       if (workspaceDirectoryPrompt?.kind === 'creating') {

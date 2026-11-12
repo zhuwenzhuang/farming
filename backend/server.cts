@@ -4,6 +4,7 @@ import { createAgentCommunicationExchangeRouter } from './agent-communication-ex
 import { createAgentCommunicationAdminRouter } from '../extensions/a2a/backend/a2a-grants-router.cjs';
 import { AgentCommunicationRuntime } from './agent-communication-runtime.cjs';
 import { createAgentCommunicationA2aRouter } from './agent-communication-a2a.cjs';
+import { reconcileAgentOwnedResources } from './agent-resource-lifecycle.cjs';
 import type { AgentStateRecord, ClientMessage } from '../shared/browser-protocol.js';
 import type { AuthAccessMode } from './auth.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
@@ -661,20 +662,11 @@ const reconcileAgentResourceLifecycle = () => {
       while (agentResourceReconcileRequested) {
         agentResourceReconcileRequested = false;
         await agentManager.recoveryGate.wait();
-        const agents = agentManager.getState().agents;
-        const states = Array.isArray(agents) ? agents : [];
-        const errors: string[] = [];
-        try {
-          await browserResourceManager.reconcileAgentLifecycle(states);
-        } catch (error) {
-          errors.push(`Browser: ${caughtError(error).message}`);
-        }
-        try {
-          await computerResourceManager.reconcileAgentLifecycle(states);
-        } catch (error) {
-          errors.push(`Computer: ${caughtError(error).message}`);
-        }
-        if (errors.length > 0) throw new Error(errors.join('; '));
+        await reconcileAgentOwnedResources(
+          () => agentManager.getState().agents,
+          browserResourceManager,
+          computerResourceManager,
+        );
       }
     } catch (error) {
       agentResourceReconcileRequested = false;

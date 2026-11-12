@@ -3203,7 +3203,8 @@ class BrowserResourceManager extends EventEmitter {
 
   async reconcileAgentLifecycle(agentStates: AgentLifecycleState[]): Promise<void> {
     const agents = new Map(agentStates.map(agent => [String(agent.id || ''), agent]));
-    for (const { id, ownerAgentId } of this.store.list()) {
+    const owners = this.store.list().map(({ id, ownerAgentId }) => ({ id, ownerAgentId }));
+    for (const { id, ownerAgentId } of owners) {
       const resource = this.store.get(id);
       // A live switch owns the commit. Earlier asynchronous cleanup may have
       // already allowed that commit to change this Resource's owner.

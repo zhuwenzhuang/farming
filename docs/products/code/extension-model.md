@@ -92,7 +92,9 @@ Extension, while Farming core requires:
 
 During Chat/Terminal replacement, Browser and Computer Resources keep their
 source Agent owner until the replacement or rollback runtime starts
-successfully and the switch commits the transfer. When an Agent is
+successfully and the switch commits the transfer. Each Resource manager reads
+current Agent state before reconciling, and defers Resources whose owner changed
+during earlier asynchronous cleanup to the next reconciliation. When an Agent is
 stopped or archived, its Browser and Computer Resources are deleted by exact id
 so temporary rows, profiles, and containers do not accumulate. Deleting the
 Agent removes only Resources it exactly owns.

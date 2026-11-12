@@ -1755,6 +1755,11 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
   });
   try {
     await manager.init();
+    const cleanupOwner = { id: 'agent_cleanup', status: 'running' };
+    const cleanupCandidate = manager.create({
+      projectRootId: 'wroot_shared', workspace: '/tmp/shared', ownerAgentId: cleanupOwner.id,
+      name: 'Reconcile cleanup', url: 'about:blank',
+    });
     const first = manager.create({
       projectRootId: 'wroot_shared',
       workspace: '/tmp/shared',
@@ -1791,6 +1796,7 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     manager.store.update(isolated.id, { generation: isolatedRunning.generation });
 
     await manager.reconcileAgentLifecycle([
+      cleanupOwner,
       { id: 'agent_a', status: 'stopped', lifecycleOperation: { type: 'runtime-switch' } },
       { id: 'agent_b', status: 'running' },
     ]);
@@ -1808,6 +1814,7 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
 
     manager.beginAgentOwnerReplacement('agent_a');
     await manager.reconcileAgentLifecycle([
+      cleanupOwner,
       { id: 'agent_b', status: 'running' },
       {
         id: 'agent_failed_replacement',
@@ -1818,13 +1825,14 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     ]);
     assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_a');
     assert.strictEqual(manager.get(second.id).ownerAgentId, 'agent_a');
-    await manager.reconcileAgentLifecycle([{ id: 'agent_b', status: 'running' }]);
+    await manager.reconcileAgentLifecycle([cleanupOwner, { id: 'agent_b', status: 'running' }]);
     assert.strictEqual(
       manager.get(first.id).status,
       'running',
       'a replacement hold must retain the Browser after target startup fails',
     );
     await manager.reconcileAgentLifecycle([
+      cleanupOwner,
       { id: 'agent_b', status: 'running' },
       {
         id: 'agent_replacement',
@@ -1834,7 +1842,30 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
       },
     ]);
     assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_a');
-    manager.completeAgentOwnerReplacement('agent_a', 'agent_replacement');
+    const deleteResource = manager.delete.bind(manager);
+    let resumeDeletion: () => void;
+    const deletionGate = new Promise<void>(resolve => { resumeDeletion = resolve; });
+    let deletionPaused = false;
+    manager.delete = async (id, ...args) => {
+      if (id === cleanupCandidate.id) {
+        deletionPaused = true;
+        await deletionGate;
+      }
+      return deleteResource(id, ...args);
+    };
+    const staleReconciliation = manager.reconcileAgentLifecycle([{ id: 'agent_b', status: 'running' }]);
+    try {
+      assert.strictEqual(deletionPaused, true);
+      manager.completeAgentOwnerReplacement('agent_a', 'agent_replacement');
+    } finally {
+      resumeDeletion();
+      try {
+        await staleReconciliation;
+      } finally {
+        manager.delete = deleteResource;
+      }
+    }
+    assert.throws(() => manager.get(cleanupCandidate.id), /not found/);
     assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_replacement');
     assert.strictEqual(manager.get(second.id).ownerAgentId, 'agent_replacement');
     assert.strictEqual(manager.sessions.get(first.id)?.ownerKey, 'agent:agent_replacement');

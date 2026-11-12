@@ -77,7 +77,9 @@ Resource Section 也能判断资源使用规模。
 - 只删除 Owner 能精确证明归属的 Resource 与 External Object。
 
 在 Chat/Terminal Replacement 期间，Browser 和 Computer Resource 保留原 Agent Owner，
-直到替换或回滚的 Runtime 成功启动且切换操作提交所有权转移。停止或归档 Agent 时，其
+直到替换或回滚的 Runtime 成功启动且切换操作提交所有权转移。每个 Resource Manager 在对账前
+读取当前 Agent State。此前的异步清理期间发生归属转移的 Resource 交由下一轮对账处理。
+停止或归档 Agent 时，其
 Browser 和 Computer Resource 会按精确 ID 删除，避免临时 Row、Profile 与 Container 累积。
 删除 Agent 只删除它精确拥有的 Resource。
 

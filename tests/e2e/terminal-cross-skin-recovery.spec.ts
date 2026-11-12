@@ -228,67 +228,143 @@ test('CRT reload restores one checkpoint and keeps accepting input', async ({
   }
 })
 
-test('CRT reconciles an uncertain input and sends only new input after the checkpoint', async ({
-  page,
-  workspaceRoot,
-}) => {
-  const agentId = await createBashAgent(page, workspaceRoot)
-  const uncertainInput = 'uncertain-write-fixture'
-  const recoveryFile = path.join(workspaceRoot, 'after-uncertain-write.txt')
-  const errorMessage = 'Terminal input delivery could not be confirmed. Check the terminal state and retry.'
-  let uncertainInputCount = 0
-  let recoveryRequestCount = 0
-  let fixtureFenced = false
-  await prepareBrowserPage(page)
-  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
-    const server = route.connectToServer()
-    route.onMessage(payload => {
-      const message = JSON.parse(String(payload)) as { type: string; agentId?: string; input?: string }
-      if (message.agentId === agentId && message.type === 'input') {
-        if (message.input === uncertainInput) {
-          uncertainInputCount += 1
-          fixtureFenced = true
-          route.send(JSON.stringify({ type: 'error', agentId, reason: 'delivery-not-confirmed', message: errorMessage }))
+for (const overlap of ['idle', 'checkpoint request', 'checkpoint installation'] as const) {
+  test(`CRT reconciles an uncertain input during ${overlap} without replaying the write`, async ({
+    page,
+    workspaceRoot,
+  }) => {
+    const agentId = await createBashAgent(page, workspaceRoot)
+    const uncertainInput = 'uncertain-write-fixture'
+    const recoveryFile = path.join(workspaceRoot, 'after-uncertain-write.txt')
+    const errorMessage = 'Terminal input delivery could not be confirmed. Check the terminal state and retry.'
+    const installMarker = 'CRT_CHECKPOINT_INSTALL_FIXTURE'
+    let uncertainInputCount = 0
+    let capturePriorCheckpoint = false
+    let priorRequestId: string | undefined
+    let releasePriorCheckpoint: (() => void) | undefined
+    let publishFenceError: (() => void) | undefined
+    let fenceState: 'inactive' | 'active' | 'reconciled' = 'inactive'
+    const recoveryRequests: string[] = []
+    type Frame = {
+      type: string
+      agentId?: string
+      requestId?: string
+      input?: string
+      ok?: boolean
+      session?: { runtimeEpoch?: string; renderedScrollback?: number; renderOutput?: string }
+    }
+    let expectedEpoch: string | undefined
+
+    await prepareBrowserPage(page)
+    await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
+      const server = route.connectToServer()
+      route.onMessage(payload => {
+        const frame = JSON.parse(String(payload)) as Frame
+        if (frame.agentId === agentId && frame.type === 'input') {
+          if (frame.input === uncertainInput) {
+            uncertainInputCount += 1
+            publishFenceError = () => {
+              fenceState = 'active'
+              route.send(JSON.stringify({ type: 'error', agentId, reason: 'delivery-not-confirmed', message: errorMessage }))
+            }
+            return
+          }
+          if (fenceState === 'active') return
+        }
+        if (frame.agentId === agentId && frame.type === 'terminal-checkpoint-request' && frame.requestId) {
+          if (capturePriorCheckpoint && !priorRequestId) priorRequestId = frame.requestId
+          else if (fenceState !== 'inactive') recoveryRequests.push(frame.requestId)
+        }
+        server.send(payload)
+      })
+      server.onMessage(payload => {
+        const frame = JSON.parse(String(payload)) as Frame
+        if (frame.type !== 'terminal-checkpoint-result' || frame.agentId !== agentId || !frame.ok) {
+          route.send(payload)
           return
         }
-        if (fixtureFenced) return
-      }
-      if (message.agentId === agentId && message.type === 'terminal-checkpoint-request' && uncertainInputCount > 0) {
-        recoveryRequestCount += 1
-      }
-      server.send(payload)
+        if (frame.requestId && frame.requestId === priorRequestId) {
+          // The real Server already sampled this checkpoint before the input
+          // fence existed. Withhold delivery to reproduce the overlap.
+          releasePriorCheckpoint = () => {
+            if (overlap === 'checkpoint installation' && frame.session) {
+              frame.session.renderedScrollback = (frame.session.renderedScrollback || 0) + 1_000
+              frame.session.renderOutput += `\r\n${installMarker}\r\n`
+              route.send(JSON.stringify(frame))
+            } else route.send(payload)
+          }
+          return
+        }
+        if (frame.requestId && recoveryRequests.includes(frame.requestId) && frame.session?.runtimeEpoch === expectedEpoch) {
+          fenceState = 'reconciled'
+        }
+        route.send(payload)
+      })
     })
-    server.onMessage(payload => {
-      const message = JSON.parse(String(payload)) as { type: string; agentId?: string; ok?: boolean }
-      if (message.type === 'terminal-checkpoint-result' && message.agentId === agentId && message.ok) {
-        fixtureFenced = false
-      }
-      route.send(payload)
+
+    await openCrtTerminal(page, agentId)
+    const waitForCheckpoint = () => page.waitForFunction(() => {
+      const state = window.__farmingCrtTerminalTest?.getState()
+      return Boolean(state?.runtimeEpoch && !state.replaying && !state.checkpointInFlight && !state.checkpointInstallInProgress)
     })
-  })
+    await waitForCheckpoint()
+    expectedEpoch = await page.evaluate(() => window.__farmingCrtTerminalTest?.getState()?.runtimeEpoch)
+    expect(expectedEpoch).toBeTruthy()
+    await page.locator('#terminal-output .xterm-helper-textarea').focus()
 
-  await openCrtTerminal(page, agentId)
-  const waitForCheckpoint = () => page.waitForFunction(() => {
-    const state = window.__farmingCrtTerminalTest?.getState()
-    return Boolean(state?.runtimeEpoch && !state.replaying && !state.checkpointInFlight)
-  })
-  await waitForCheckpoint()
-  await page.locator('#terminal-output .xterm-helper-textarea').focus()
-  const visibleError = page.waitForEvent('dialog').then(async dialog => {
-    const message = dialog.message()
-    await dialog.dismiss()
-    return message
-  })
-  await page.keyboard.insertText(uncertainInput)
-  expect(await visibleError).toContain(errorMessage)
+    if (overlap !== 'idle') {
+      capturePriorCheckpoint = true
+      await page.evaluate(() => {
+        const crt = window as typeof window & { requestCrtTerminalReplay(): void }
+        crt.requestCrtTerminalReplay()
+      })
+      await expect.poll(() => Boolean(releasePriorCheckpoint)).toBe(true)
+      await expect.poll(() => page.evaluate(() => window.__farmingCrtTerminalTest?.getState()?.checkpointInFlight)).toBe(true)
+    }
+    await page.keyboard.insertText(uncertainInput)
+    await expect.poll(() => uncertainInputCount).toBe(1)
 
-  await expect.poll(() => recoveryRequestCount).toBe(1)
-  await waitForCheckpoint()
-  await sendCrtCommand(page, "printf 'input-recovered\\n' > after-uncertain-write.txt")
-  await expectFileText(recoveryFile, 'input-recovered\n')
-  expect(uncertainInputCount).toBe(1)
-  expect(recoveryRequestCount).toBe(1)
-})
+    if (overlap === 'checkpoint installation') {
+      await page.evaluate(marker => {
+        type Write = (data: string | Uint8Array, callback?: () => void) => void
+        const xterm = (window as typeof window & { Terminal: { prototype: { write: Write } } }).Terminal
+        const originalWrite = xterm.prototype.write
+        xterm.prototype.write = function (data, callback) {
+          if (typeof data === 'string' && data.includes(marker) && callback) {
+            xterm.prototype.write = originalWrite
+            const rendered = new Promise<void>(resolve => originalWrite.call(this, data, resolve))
+            window.addEventListener('farming-test-release-checkpoint', () => void rendered.then(callback), { once: true })
+            return
+          }
+          originalWrite.call(this, data, callback)
+        }
+      }, installMarker)
+      releasePriorCheckpoint?.()
+      await expect.poll(() => page.evaluate(() => window.__farmingCrtTerminalTest?.getState()?.checkpointInstallInProgress)).toBe(true)
+    }
+
+    const visibleError = page.waitForEvent('dialog').then(async dialog => {
+      const message = dialog.message()
+      await dialog.dismiss()
+      return message
+    })
+    publishFenceError?.()
+    expect(await visibleError).toContain(errorMessage)
+
+    // Reconcile before the prior request/renderer operation is allowed to finish.
+    await expect.poll(() => recoveryRequests.length, { timeout: 2_000 }).toBe(1)
+    await expect.poll(() => fenceState).toBe('reconciled')
+    if (overlap === 'checkpoint request') releasePriorCheckpoint?.()
+    if (overlap === 'checkpoint installation') {
+      await page.evaluate(() => window.dispatchEvent(new Event('farming-test-release-checkpoint')))
+    }
+    await waitForCheckpoint()
+    await sendCrtCommand(page, "printf 'input-recovered\\n' > after-uncertain-write.txt")
+    await expectFileText(recoveryFile, 'input-recovered\n')
+    expect(uncertainInputCount).toBe(1)
+    expect(recoveryRequests).toHaveLength(1)
+  })
+}
 
 test('CRT hidden-page disconnect resumes from one authoritative latest checkpoint', async ({
   page,

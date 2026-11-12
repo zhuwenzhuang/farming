@@ -94,7 +94,8 @@ export function selectBrowserScreen(files) {
     if (['frontend/skins/crt/app.ts', 'frontend/skins/crt/app.js', 'frontend/skins/crt/app.types.d.ts',
       'frontend/skins/crt/index.html', 'src/crt-markdown-renderer.tsx',
       'tests/e2e/crt-markdown.spec.ts', 'tests/e2e/skin-switching.spec.ts',
-      'tests/e2e/workspace-directory-creation.spec.ts'].includes(filename)) select(['crt-markdown']);
+      'tests/e2e/workspace-directory-creation.spec.ts',
+      'tests/e2e/terminal-cross-skin-recovery.spec.ts'].includes(filename)) select(['crt-markdown']);
     if (['tests/e2e/additional-user-scenarios.spec.ts', 'tests/e2e/dark-mode-skin.spec.ts',
       'tests/e2e/mobile-human-story.spec.ts'].includes(filename)) select(['ui-contract-oracles']);
     if (['shared/appearance-themes.json', 'src/styles/tokens.css', 'src/components/code/CodeOverlays.tsx',

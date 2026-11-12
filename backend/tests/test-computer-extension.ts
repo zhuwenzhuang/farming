@@ -20,6 +20,7 @@ const {
   COMPUTER_TOOL_REQUEST_TIMEOUT_MS,
 } = require('../../extensions/computer/backend/computer-constants.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
+const { reconcileAgentOwnedResources } = require('../agent-resource-lifecycle.cjs');
 const storageLayout = require('../storage-layout.cjs');
 const { importTsModule } = require('./helpers/import-ts-module');
 const {
@@ -1656,6 +1657,10 @@ async function run() {
     assert.strictEqual(rejectedMissing.containerId, CONTAINER_ID);
     assert.match(rejectedMissing.error, /No such object/);
 
+    const cleanupOwner = { id: 'agent_cleanup', status: 'running' };
+    const cleanupCandidate = manager.create({
+      ownerAgentId: cleanupOwner.id, projectRootId: 'root_project', workspace, name: 'Reconcile cleanup',
+    });
     const lifecycleCandidate = manager.create({
       ownerAgentId: 'agent_other',
       projectRootId: 'root_project',
@@ -1664,6 +1669,7 @@ async function run() {
     });
     await manager.start(lifecycleCandidate.id);
     await manager.reconcileAgentLifecycle([
+      cleanupOwner,
       { id: 'agent_owner', status: 'running' },
       {
         id: 'agent_other',
@@ -1679,6 +1685,7 @@ async function run() {
     const retainedContainerId = manager.get(lifecycleCandidate.id).containerId;
     manager.beginAgentOwnerReplacement('agent_other');
     await manager.reconcileAgentLifecycle([
+      cleanupOwner,
       { id: 'agent_owner', status: 'running' },
       {
         id: 'agent_failed_replacement',
@@ -1688,13 +1695,14 @@ async function run() {
       },
     ]);
     assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_other');
-    await manager.reconcileAgentLifecycle([{ id: 'agent_owner', status: 'running' }]);
+    await manager.reconcileAgentLifecycle([cleanupOwner, { id: 'agent_owner', status: 'running' }]);
     assert.strictEqual(
       manager.get(lifecycleCandidate.id).containerId,
       retainedContainerId,
       'a replacement hold must retain the Computer after target startup fails',
     );
     await manager.reconcileAgentLifecycle([
+      cleanupOwner,
       { id: 'agent_owner', status: 'running' },
       {
         id: 'agent_replacement',
@@ -1704,13 +1712,64 @@ async function run() {
       },
     ]);
     assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_other');
-    manager.completeAgentOwnerReplacement('agent_other', 'agent_replacement');
+    const deleteResource = manager.delete.bind(manager);
+    let resumeDeletion: () => void;
+    const deletionGate = new Promise<void>(resolve => { resumeDeletion = resolve; });
+    let deletionPaused = false;
+    manager.delete = async (id, ...args) => {
+      if (id === cleanupCandidate.id) {
+        deletionPaused = true;
+        await deletionGate;
+      }
+      return deleteResource(id, ...args);
+    };
+    const otherOwner = { id: 'agent_owner', status: 'running' };
+    const staleReconciliation = manager.reconcileAgentLifecycle([otherOwner]);
+    try {
+      assert.strictEqual(deletionPaused, true);
+      manager.completeAgentOwnerReplacement('agent_other', 'agent_replacement');
+    } finally {
+      resumeDeletion();
+      try {
+        await staleReconciliation;
+      } finally {
+        manager.delete = deleteResource;
+      }
+    }
+    assert.throws(() => manager.get(cleanupCandidate.id), { code: 'COMPUTER_NOT_FOUND' });
     assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_replacement');
     assert.strictEqual(manager.get(lifecycleCandidate.id).containerId, retainedContainerId);
     await manager.inspectOwnedContainer(manager.privateResource(lifecycleCandidate.id));
+
+    const previousAgents = [otherOwner, { id: 'agent_replacement', status: 'running' }];
+    let currentAgents = previousAgents;
+    let finishBrowserCleanup: () => void;
+    const browserCleanupGate = new Promise<void>(resolve => { finishBrowserCleanup = resolve; });
+    manager.beginAgentOwnerReplacement('agent_replacement');
+    const crossManagerReconciliation = reconcileAgentOwnedResources(
+      () => currentAgents,
+      {
+        async reconcileAgentLifecycle(agents: typeof previousAgents) {
+          assert.deepStrictEqual(agents, previousAgents);
+          await browserCleanupGate;
+        },
+      },
+      manager,
+    );
+    try {
+      manager.completeAgentOwnerReplacement('agent_replacement', 'agent_final');
+      currentAgents = [otherOwner, { id: 'agent_final', status: 'running' }];
+    } finally {
+      finishBrowserCleanup();
+      await crossManagerReconciliation;
+    }
+    assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_final');
+    assert.strictEqual(manager.get(lifecycleCandidate.id).containerId, retainedContainerId);
+    await manager.inspectOwnedContainer(manager.privateResource(lifecycleCandidate.id));
+
     await manager.reconcileAgentLifecycle([
-      { id: 'agent_owner', status: 'running' },
-      { id: 'agent_replacement', status: 'stopped' },
+      otherOwner,
+      { id: 'agent_final', status: 'stopped' },
     ]);
     assert.throws(
       () => manager.get(lifecycleCandidate.id),

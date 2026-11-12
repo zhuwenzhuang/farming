@@ -174,7 +174,8 @@ the old fence; input admitted under the replaced runtime is rejected by its
 captured epoch. A rejected raw WebSocket input is surfaced to the writing
 client through a validated visible error instead of being dropped silently.
 Code and CRT request a checkpoint after an unconfirmed write or active-fence
-error for the attached Terminal.
+error for the attached Terminal. This bounded reconciliation is independent
+of any screen checkpoint already in flight or being installed.
 
 IME composition completes in the terminal input surface before committed text
 is sent. Fallback handling must not duplicate ordinary ASCII input.
