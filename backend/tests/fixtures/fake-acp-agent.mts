@@ -622,6 +622,14 @@ class FakeAgent {
         turn.resolve({ stopReason });
       };
       cancelledSessions.set(params.sessionId, () => stop('cancelled'));
+      if (previous && text === 'delay native steer echo') {
+        fs.appendFileSync(path.join(process.cwd(), 'delayed-steer-received'), 'received\n');
+        while (!fs.existsSync(path.join(process.cwd(), 'release-steer-echo'))
+          && nativeSteerTurns.get(params.sessionId) === turn) {
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+        if (nativeSteerTurns.get(params.sessionId) !== turn) return completion;
+      }
       for (const content of params.prompt) {
         if (text.startsWith('sparse native echo') && content.type !== 'text') continue;
         await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'user_message_chunk', content } });

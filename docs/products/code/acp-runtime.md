@@ -202,7 +202,9 @@ but the logical Turn stays active until outstanding prompts settle. A protocol
 rejection before acceptance fails only that input; an internal failure may own
 the Turn even before the first echo. Ordered echo blocks or a non-cancelled
 response confirm the input once. A cancelled response without acceptance does
-not replace the owner's result. The previous echo must close before another
+not replace the owner's result. After dispatch, the admission deadline reports
+unknown while retaining the original receipt for late confirmation; it must not
+restore the input as a retryable draft. The previous echo must close before another
 input can be sent. Qwen's reverse input
 drain is enabled only after an owning-session request proves support; pending
 input is bounded, drained once, and withdrawn on timeout, cancellation or Turn

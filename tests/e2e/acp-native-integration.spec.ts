@@ -76,6 +76,60 @@ test('native retry compaction and terminal output remain visible across appearan
   }
 })
 
+test('late native Steer acceptance never restores a sent input or loses a newer draft', async ({ page, workspaceRoot }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const workspace = path.join(workspaceRoot, 'acp-native-steer-agy-delayed')
+  fs.mkdirSync(workspace, { recursive: true })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'agy', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await row.click()
+    const input = page.getByTestId('code-acp-composer-input')
+    const send = page.getByTestId('code-acp-composer-send')
+    await input.fill('native steering hold')
+    await send.click()
+    await expect(page.getByText('Native turn running.', { exact: true })).toBeVisible()
+    await input.fill('delay native steer echo')
+    await send.click()
+    await page.getByTestId('code-acp-pending-followup-steer').click()
+    const submission = page.getByTestId('code-acp-submission')
+    await expect(submission).toHaveAttribute('data-status', 'submitting')
+    await expect.poll(() => fs.existsSync(path.join(workspace, 'delayed-steer-received'))).toBeTruthy()
+    // Cross the real admission deadline while the native provider has the input.
+    await expect(submission).toHaveAttribute('data-status', 'unknown', { timeout: 40_000 })
+    await expect(input).toHaveText('')
+    await expect(page.getByTestId('code-acp-submission-discard')).toHaveCount(0)
+    await input.fill('Preserve this newer draft')
+    fs.writeFileSync(path.join(workspace, 'release-steer-echo'), 'ready')
+    await expect(page.getByTestId('code-agent-transcript-steer').filter({ hasText: 'delay native steer echo' })).toHaveCount(1)
+    await expect(submission).toHaveCount(0)
+    await expect(input).toHaveText('Preserve this newer draft')
+    expect(fs.readFileSync(path.join(workspace, 'delayed-steer-received'), 'utf8')).toBe('received\n')
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => {
+        document.body.dataset.appearance = value
+        document.documentElement.dataset.appearance = value
+      }, appearance)
+      const capture = await page.screenshot({ path: testInfo.outputPath(`late-steer-${appearance}.png`), animations: 'disabled' })
+      expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([1440, 900])
+    }
+    await page.reload()
+    await row.click()
+    await expect(submission).toHaveCount(0)
+    await expect(input).toHaveText('Preserve this newer draft')
+    await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(1)
+  } finally {
+    const removed = await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+    expect(removed.ok()).toBeTruthy()
+  }
+})
+
 for (const provider of ['agy', 'qwen']) {
   test(`${provider} native steering keeps the active Turn across appearances and reload`, async ({ page, workspaceRoot }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 })

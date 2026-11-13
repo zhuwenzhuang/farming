@@ -3902,7 +3902,10 @@ class AcpRuntime extends EventEmitter {
     });
     // Do not hold the Turn control lock while waiting for an echo/completion:
     // cancellation must still reach the Agent during a long native tool call.
-    return withTimeout(receipt, this.steerAdmissionRemaining(options), 'ACP steer acceptance (delivery uncertain)');
+    // Admission already bounds the caller's wait as unknown. After dispatch,
+    // retain this receipt until provider evidence or Turn termination settles it;
+    // rejecting it on that deadline loses late acceptance and falsely permits replay.
+    return receipt;
   }
 
   async steer(agentId: string, prompt: PromptBlock[], options: PrepareAgentOptions = {}) {

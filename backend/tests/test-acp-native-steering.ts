@@ -66,6 +66,27 @@ async function run() {
       assert.equal(projectAcpTranscript(binding.sessionState.snapshot()).turns.length, 2);
 
       if (provider === 'agy') {
+        const delayedTurn = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void delayedTurn.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        let acceptedCount = 0;
+        let admissionSettled = false;
+        const delayedSteer = runtime.submitMessage('native', [{ type: 'text', text: 'delay native steer echo' }], {
+          delivery: 'steer', admissionDeadline: Date.now() + 100,
+          onSubmitted: () => { acceptedCount += 1; },
+        }).then(value => { admissionSettled = true; return { value }; }, error => { admissionSettled = true; return { error }; });
+        await until(() => fs.existsSync(path.join(root, 'delayed-steer-received')));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        assert.equal(admissionSettled, false, 'an observation deadline cannot reject input already dispatched to the provider');
+        fs.writeFileSync(path.join(root, 'release-steer-echo'), 'ready');
+        assert.equal('error' in await delayedSteer, false);
+        assert.equal(acceptedCount, 1, 'late acceptance must still reach the submission owner');
+        assert.equal(fs.readFileSync(path.join(root, 'delayed-steer-received'), 'utf8'), 'received\n', 'delivery must not replay');
+        assert.equal(binding.sessionState.entries.filter(entry => entry._meta?.farming?.steer === true
+          && entry.content?.some(block => block.text === 'delay native steer echo')).length, 1);
+        await runtime.cancel('native');
+        assert.equal((await delayedTurn).stopReason, 'cancelled');
+
         const partial = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
         void partial.catch(() => {});
         await until(() => runtime.canSteer('native'));
