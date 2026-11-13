@@ -122,13 +122,12 @@ applyMessage(goalState, 'agy-goal', 'assistant', 'Working');
 const restoredGoal = AcpSessionState.fromCheckpoint(goalState.exportCheckpoint());
 assert.strictEqual(restoredGoal.entries.filter(entry => entry.role === 'user').length, 1);
 
-for (const scenario of ['other-provider', 'different-text', 'native-id', 'settled', 'output-between', 'steer', 'other-command', 'history']) {
+for (const scenario of ['other-provider', 'different-text', 'native-id', 'settled', 'steer', 'other-command', 'history']) {
   const state = new AcpSessionState({ provider: scenario === 'other-provider' ? 'codex' : 'agy', sessionId: scenario });
   const original = scenario === 'other-command' ? '/goals Resolve the issue' : goalText;
   if (scenario === 'history') applyMessage(state, scenario, 'user', original);
   else state.beginPrompt([{ type: 'text', text: original }]);
   if (scenario === 'settled') state.entries[0].turnCompletedAt = Date.now();
-  if (scenario === 'output-between') applyMessage(state, scenario, 'assistant', 'Working');
   applyMessage(state, scenario, 'user', scenario === 'different-text' ? 'A different request' : original.slice(5), {
     ...(scenario === 'native-id' ? { messageId: 'distinct-input' } : {}),
     ...(scenario === 'steer' ? { _meta: { farming: { steer: true } } } : {}),

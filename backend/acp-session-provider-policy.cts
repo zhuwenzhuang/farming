@@ -22,6 +22,7 @@ interface AcpSessionProviderPolicy {
     role: string,
     type: string,
   ): boolean;
+  isTransformedPromptEcho(existing: AcpEntry, update: AcpUpdate): boolean;
   isMirroredAssistantMessage(
     existing: AcpEntry | null | undefined,
     update: AcpUpdate,
@@ -170,16 +171,10 @@ function isCodexMirroredUserMessage(
   }) === '';
 }
 
-function isAgyMirroredUserMessage(
-  existing: AcpEntry | null | undefined,
-  update: AcpUpdate,
-  role: string,
-  type: string,
-): boolean {
+function isAgyTransformedPromptEcho(existing: AcpEntry, update: AcpUpdate): boolean {
   // Native /goal echoes its argument, including the separator whitespace,
-  // without a message id. Only the adjacent, active admitted input owns it.
-  if (role !== 'user' || type !== 'message'
-    || existing?.type !== 'message' || existing.role !== 'user'
+  // without a message id. The reducer owns live admission and once-only matching.
+  if (existing.type !== 'message' || existing.role !== 'user'
     || existing.optimistic !== true || existing.messageId || update.messageId
     || existing.turnStartedAt == null || existing.turnCompletedAt != null
     || isSteerMessage(existing) || update._meta?.farming?.steer === true
@@ -400,6 +395,7 @@ const DEFAULT_ACP_SESSION_PROVIDER_POLICY: AcpSessionProviderPolicy = {
   contextCompactionText: () => false,
   isInternalEntry: () => false,
   isMirroredUserMessage: () => false,
+  isTransformedPromptEcho: () => false,
   isMirroredAssistantMessage: () => false,
   messagePhase: () => '',
   normalizeUpdate: update => update,
@@ -439,13 +435,14 @@ function normalizeOpenCodeUpdate(update: AcpUpdate): AcpUpdate {
 
 const ACP_SESSION_PROVIDER_POLICIES: Readonly<Record<string, AcpSessionProviderPolicy>> = {
   opencode: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, normalizeUpdate: normalizeOpenCodeUpdate },
-  agy: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, isMirroredUserMessage: isAgyMirroredUserMessage },
+  agy: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, isTransformedPromptEcho: isAgyTransformedPromptEcho },
   claude: { ...DEFAULT_ACP_SESSION_PROVIDER_POLICY, normalizeUpdate: normalizeAirUpdate, terminalOutputReplaces: true },
   codex: {
     terminalOutputReplaces: false,
     contextCompactionText: content => isCodexContextCompactionMessage(contentText(content)),
     isInternalEntry: isCodexInternalEntry,
     isMirroredUserMessage: isCodexMirroredUserMessage,
+    isTransformedPromptEcho: () => false,
     isMirroredAssistantMessage: isCodexMirroredAssistantMessage,
     messagePhase: codexMessagePhase,
     normalizeUpdate: normalizeCodexUpdate,

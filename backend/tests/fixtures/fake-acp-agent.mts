@@ -575,6 +575,15 @@ class FakeAgent {
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
+    if (params.prompt.length === 1 && params.prompt[0].type === 'text'
+      && params.prompt[0].text === 'Inspect delayed prompt echo') {
+      const update = (value: Record<string, unknown>) => client.notify('session/update', { sessionId: params.sessionId, update: value });
+      await update({ sessionUpdate: 'tool_call', toolCallId: `scheduled-${crypto.randomUUID()}`, title: 'Scheduled work', status: 'completed' });
+      await update({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Checking the pending scheduled work.' } });
+      await update({ sessionUpdate: 'user_message_chunk', content: params.prompt[0] });
+      await update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Delayed prompt echo verified.' } });
+      return { stopReason: 'end_turn' };
+    }
     if (nativeSteeringTransport) {
       const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
       const previous = nativeSteerTurns.get(params.sessionId);
@@ -712,8 +721,9 @@ class FakeAgent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.endsWith('Please review the input validation and return your conclusion.')) {
+      const messageId = `peer-appearance-${++peerIntegrationSequence}`;
       for (const content of params.prompt || []) await client.notify('session/update', { sessionId: params.sessionId,
-        update: { sessionUpdate: 'user_message_chunk', messageId: `peer-appearance-${++peerIntegrationSequence}`, content } });
+        update: { sessionUpdate: 'user_message_chunk', messageId, content } });
       await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'The input validation is consistent with the API contract. Required fields and invalid values are handled explicitly.' },
       } });

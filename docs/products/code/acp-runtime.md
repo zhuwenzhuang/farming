@@ -244,10 +244,13 @@ message boundaries. Final results reconcile with streamed text: an echo is not
 repeated, an extension contributes its suffix, and a distinct final answer remains
 visible after progress. Contradictory snapshots fail explicitly.
 
-An adapter may reconcile a native command's transformed echo only against the
-adjacent active admitted input and the exact known transformation. Preserve the
-original input and its rich content; distinct native identities, settled inputs
-and later messages must remain separate.
+The reducer reconciles first input echoes against the latest ordinary user input
+only while it is a live, unsettled admission without a native message identity.
+Intervening output or Steering does not break matching. Expected wire blocks are
+consumed in order once; adapters may recognize exact known command transformations.
+Preserve the original rich input. Bound identities reconcile subsequent chunks;
+distinct identities, exhausted echoes and settled inputs remain separate.
+Checkpoint restoration does not rearm content-based first-echo matching.
 
 Standard compaction updates and summary chunks share one entity per compaction
 identity and preserve its original timeline position. Summary snapshots replace,

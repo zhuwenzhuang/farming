@@ -1,6 +1,6 @@
 import { composerDocumentFromContent } from '../shared/composer-document.js';
 import { acpNativeTerminalToolFields, applyAcpNativeTerminal } from '../shared/acp-native-terminal.js';
-import { isAcpPeerPromptEcho, isAcpPeerPromptHistory, sameAcpInputContent } from './acp-peer-prompt.cjs';
+import { acpPeerPrompt, isAcpPeerPromptHistory, sameAcpInputContent } from './acp-peer-prompt.cjs';
 import { normalizeAgentGoal, sameAgentGoal, type AgentGoal } from '../shared/agent-goal.js';
 import { normalizeAcpPeerMessage, type AcpPeerMessage } from '../shared/acp-peer-message.js';
 import { normalizeAgentHandoffContext, type AgentHandoffContext } from '../shared/agent-handoff-context.js';
@@ -323,6 +323,8 @@ type HistoryAnchor = { status: 'ready' | 'unavailable'; afterEntryId: string };
 class AcpSessionState {
   private entryIds = new Set<string>();
   private trustedInputPrefixes: AcpEntry[][] = [];
+  // Only live admissions own content-based echo matching; checkpoints cannot rearm it.
+  private promptEchoBlocks = new WeakMap<AcpEntry, number>();
   provider: string;
   sessionId: string;
   cwd: string;
@@ -702,7 +704,7 @@ class AcpSessionState {
     this.activePlanEntry = null;
     this.plan = null;
     const startedAt = Date.now();
-    return this.pushEntry({
+    const entry = this.pushEntry({
       id: this.nextEntryId('user'),
       type: 'message',
       role: 'user',
@@ -717,6 +719,8 @@ class AcpSessionState {
       turnCompletedAt: null,
       turnDurationMs: null,
     });
+    this.promptEchoBlocks.set(entry, 0);
+    return entry;
   }
 
   recordAcceptedSteer(prompt: unknown, options: AcceptedSteerOptions = {}): boolean {
@@ -964,33 +968,27 @@ class AcpSessionState {
       return;
     }
 
-    // Farming inserts the local prompt optimistically. ACP Agents may echo the
-    // same prompt during live updates; attach its protocol id without rendering
-    // the user message twice.
-    const matchingOptimisticUser = role === 'user' && messageId
-      ? this.entries.findLast(entry => (
-          entry?.type === 'message'
-          && entry.role === 'user'
-          && entry.optimistic
-          && entry.messageId === messageId
-        ))
-      : null;
-    const optimisticUser = matchingOptimisticUser || (
-      role === 'user'
-      && last?.type === 'message'
-      && last.role === 'user'
-      && last.optimistic
-      ? last
-      : null
-    );
-    if (
-      optimisticUser
-      && ((optimisticUser.content || []).some(content => sameAcpInputContent([content], update.content ? [update.content] : []))
-        || isAcpPeerPromptEcho(optimisticUser.content || [], optimisticUser._meta?.peerMessage, update.content))
-    ) {
-      if (!optimisticUser.messageId) optimisticUser.messageId = messageId;
-      this.touchEntry(optimisticUser);
-      return;
+    // First echoes may follow tools, thoughts or Steer. Only the latest ordinary
+    // user input may claim them, in wire-block order and once per live admission.
+    const latestUser = role === 'user' && update._meta?.farming?.steer !== true && update._meta?.codex?.steer !== true
+      ? this.entries.findLast(entry => entry.type === 'message' && entry.role === 'user'
+        && entry._meta?.farming?.steer !== true && entry._meta?.codex?.steer !== true)
+      : undefined;
+    const cursor = latestUser && this.promptEchoBlocks.get(latestUser);
+    if (latestUser?.optimistic === true && !latestUser.messageId
+      && latestUser.turnStartedAt != null && latestUser.turnCompletedAt == null && cursor != null) {
+      const remaining = acpPeerPrompt(latestUser.content || [], latestUser._meta?.peerMessage).slice(cursor);
+      const exactBlock = remaining.length > 0 && update.content && sameAcpInputContent([remaining[0]], [update.content]);
+      const joinedText = remaining.length > 1 && update.content?.type === 'text'
+        && remaining.every(block => block.type === 'text')
+        && ['', '\n', '\n\n'].some(separator => remaining.map(block => block.text).join(separator) === update.content?.text);
+      const transformed = cursor === 0 && remaining.length === 1 && providerPolicy.isTransformedPromptEcho(latestUser, update);
+      if (exactBlock || joinedText || transformed) {
+        this.promptEchoBlocks.set(latestUser, cursor + (exactBlock ? 1 : remaining.length));
+        latestUser.messageId = messageId;
+        this.touchEntry(latestUser);
+        return;
+      }
     }
 
     if (

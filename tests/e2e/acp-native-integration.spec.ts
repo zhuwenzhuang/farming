@@ -2,6 +2,46 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+test('delayed native prompt echo stays in one Turn across appearances, reload and repeated sends', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'agy', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await row.click()
+    const users = page.locator('.code-agent-transcript-turn > .code-agent-transcript-user')
+    const results = page.getByText('Delayed prompt echo verified.', { exact: true })
+    for (let turn = 1; turn <= 2; turn += 1) {
+      await page.getByTestId('code-acp-composer-input').fill('Inspect delayed prompt echo')
+      await page.getByTestId('code-acp-composer-send').click()
+      await expect(results).toHaveCount(turn)
+      await expect(users).toHaveCount(turn)
+      await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'disabled')
+      await expect(page.getByText(/本轮执行未产生最终回复|This turn did not produce a final reply/)).toHaveCount(0)
+    }
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => {
+        document.body.dataset.appearance = value
+        document.documentElement.dataset.appearance = value
+      }, appearance)
+      const capture = await page.screenshot({ path: testInfo.outputPath(`delayed-echo-${appearance}.png`), animations: 'disabled' })
+      expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([1440, 900])
+    }
+    await page.reload()
+    await row.click()
+    await expect(results).toHaveCount(2)
+    await expect(users).toHaveCount(2)
+    await expect(page.getByText(/本轮执行未产生最终回复|This turn did not produce a final reply/)).toHaveCount(0)
+  } finally {
+    const removed = await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+    expect(removed.ok()).toBeTruthy()
+  }
+})
+
 test('native retry compaction and terminal output remain visible across appearances', async ({ page, workspaceRoot }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   const response = await page.request.post('/farming/api/control/agents', {
