@@ -9,14 +9,23 @@ const props = withDefaults(defineProps<{
 })
 
 const { lang } = useData()
+const sectionRef = ref<HTMLElement | null>(null)
 const iframeRef = ref<HTMLIFrameElement | null>(null)
 const currentTheme = ref<'paper' | 'dark' | 'light'>(props.defaultTheme)
+const iframeLoaded = ref(false)
+const hasBecomeVisible = ref(false)
+let visibilityObserver: IntersectionObserver | undefined
 
 const isZh = computed(() => !lang.value || lang.value.startsWith('zh') || lang.value.startsWith('cn'))
 
 const demoSrc = computed(() => {
   const l = isZh.value ? 'zh' : 'en'
-  return withBase(`/interactive-demo/index.html?lang=${l}&theme=${props.defaultTheme}`)
+  return withBase(`/interactive-demo/index.html?lang=${l}&theme=${props.defaultTheme}&waitVisible=1`)
+})
+
+const fullscreenSrc = computed(() => {
+  const l = isZh.value ? 'zh' : 'en'
+  return withBase(`/interactive-demo/index.html?lang=${l}&theme=${currentTheme.value}`)
 })
 
 function syncAppearanceFromDoc() {
@@ -31,17 +40,55 @@ function syncAppearanceFromDoc() {
   }
 }
 
+function notifyDemoVisibleIfReady() {
+  if (iframeLoaded.value && hasBecomeVisible.value) {
+    iframeRef.value?.contentWindow?.postMessage({ type: 'farming-demo-visible' }, '*')
+  }
+}
+
+function onIframeLoad() {
+  iframeLoaded.value = true
+  syncAppearanceFromDoc()
+  notifyDemoVisibleIfReady()
+}
+
+function onWindowMessage(event: MessageEvent) {
+  if (!event.data || event.data.type !== 'farming-demo-theme') return
+  const theme = event.data.theme
+  if (theme === 'paper' || theme === 'dark' || theme === 'light') {
+    currentTheme.value = theme
+  }
+}
+
 onMounted(() => {
+  syncAppearanceFromDoc()
   window.addEventListener('farming-docs-appearance-change', syncAppearanceFromDoc)
+  window.addEventListener('message', onWindowMessage)
+  if (typeof IntersectionObserver !== 'undefined' && sectionRef.value) {
+    visibilityObserver = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        hasBecomeVisible.value = true
+        notifyDemoVisibleIfReady()
+        visibilityObserver?.disconnect()
+        visibilityObserver = undefined
+      }
+    }, { threshold: 0.2 })
+    visibilityObserver.observe(sectionRef.value)
+  } else {
+    hasBecomeVisible.value = true
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('farming-docs-appearance-change', syncAppearanceFromDoc)
+  window.removeEventListener('message', onWindowMessage)
+  visibilityObserver?.disconnect()
+  visibilityObserver = undefined
 })
 </script>
 
 <template>
-  <section id="interactive-demo" class="farming-interactive-showcase">
+  <section id="interactive-demo" ref="sectionRef" class="farming-interactive-showcase">
     <div class="farming-interactive-showcase-header">
       <div class="farming-interactive-showcase-copy">
         <span class="farming-interactive-showcase-badge">
@@ -53,14 +100,14 @@ onBeforeUnmount(() => {
         <p>
           {{
             isZh
-              ? '左侧为桌面浏览器（文件树、HTML 实时预览与并排对话），右侧为手机浏览器。你可以直接点击演示按钮，或在任意一端输入框打字发送，体验真实的跨端协同与代码演进。'
-              : 'Left: Desktop browser with Files, live HTML preview, and side-by-side Chat. Right: iPhone browser connected to the same Agent. Click Play Demo or type directly in either Composer.'
+              ? '左侧可试玩实时渲染的 HTML 游戏与 Git Diff 视图，右侧为手机端。页面自动演示手机发指令、桌面实时同步、运行中 Steer 与代码热更新，也支持你随时在任意一端直接输入或手动操控。'
+              : 'Left: Desktop with a playable live HTML game preview, Files, and Git Diff. Right: iPhone on the same Agent. Watch the live Phone ↔ Desktop sync, mid-turn Steer, and hot-reload in action, or play and type directly in either Composer.'
           }}
         </p>
       </div>
       <a
         class="farming-interactive-showcase-open"
-        :href="demoSrc"
+        :href="fullscreenSrc"
         target="_blank"
         rel="noopener"
       >
@@ -75,6 +122,7 @@ onBeforeUnmount(() => {
         :src="demoSrc"
         :title="isZh ? 'Farming 桌面端与手机端交互式示例' : 'Farming Desktop & Mobile Interactive Demo'"
         loading="lazy"
+        @load="onIframeLoad"
       />
     </div>
   </section>
@@ -156,7 +204,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--vp-c-divider);
-  background: #efede7;
+  background: var(--vp-c-bg-soft);
 }
 
 .farming-interactive-showcase-iframe {

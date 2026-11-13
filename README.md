@@ -104,10 +104,6 @@ security guidance.
 
 [![Farming Code desktop and phone live sync](./docs/products/code/assets/20-code-desktop-mobile-sync.webp)](https://zhuwenzhuang.github.io/farming/en/#interactive-demo)
 
-<p align="center">
-  <a href="./docs/products/code/assets/05-mobile-agent-chat.png"><img src="./docs/products/code/assets/05-mobile-agent-chat.webp" alt="Farming Code on a phone browser" width="360"></a>
-</p>
-
 ## Farming CRT
 
 Farming CRT is an optional keyboard-first, retro control-room interface for scanning many Agents, opening their Chat or Terminal sessions, searching history, and viewing usage telemetry.

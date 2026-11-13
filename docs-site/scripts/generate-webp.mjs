@@ -1,4 +1,4 @@
-import { copyFile, readdir, stat } from 'node:fs/promises'
+import { copyFile, open, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
 
@@ -37,8 +37,28 @@ async function isCurrent(source, output) {
   }
 }
 
+async function isAnimatedWebp(file) {
+  try {
+    const handle = await open(file, 'r')
+    try {
+      const buffer = Buffer.alloc(64)
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+      if (bytesRead < 16) return false
+      return buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+        && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+        && buffer.subarray(0, bytesRead).includes('ANIM')
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT') return false
+    throw error
+  }
+}
+
 async function generate(source) {
   const output = source.replace(/\.png$/, '.webp')
+  if (!process.argv.includes('--force-static') && await isAnimatedWebp(output)) return false
   if (await isCurrent(source, output)) return false
   await sharp(source).webp({ quality: 95, effort: 6, smartSubsample: true }).toFile(output)
   return true

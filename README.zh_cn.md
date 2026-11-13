@@ -96,10 +96,6 @@ Farming 让人和 Agent 使用同一个 Project Browser。详见 [Farming Browse
 
 [![Farming Code 桌面与手机端实时协同演示](./docs/products/code/assets/20-code-desktop-mobile-sync.webp)](https://zhuwenzhuang.github.io/farming/cn/#interactive-demo)
 
-<p align="center">
-  <a href="./docs/products/code/assets/05-mobile-agent-chat.png"><img src="./docs/products/code/assets/05-mobile-agent-chat.webp" alt="手机浏览器中的 Farming Code" width="360"></a>
-</p>
-
 ## Farming CRT
 
 Farming CRT 是可选的键盘优先复古控制室，用来扫视多个 Agent、打开它们的 Chat 或 Terminal、搜索 History，以及查看用量遥测。
