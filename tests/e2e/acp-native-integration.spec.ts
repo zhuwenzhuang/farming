@@ -111,6 +111,7 @@ test('late native Steer acceptance never restores a sent input or loses a newer 
     await expect(submission).toHaveCount(0)
     await expect(input).toHaveText('Preserve this newer draft')
     expect(fs.readFileSync(path.join(workspace, 'delayed-steer-received'), 'utf8')).toBe('received\n')
+    await expect(page.getByTestId('app-toast')).toHaveCount(0)
     for (const appearance of ['light', 'dark', 'paper']) {
       await page.evaluate(value => {
         document.body.dataset.appearance = value
