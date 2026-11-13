@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>" />
-<title>Farming Code — Interactive Live Sandbox</title>
+<title>Farming Code — Interactive Demo</title>
 <style>
 body[data-appearance="light"] {
   color-scheme: light;
@@ -679,45 +679,6 @@ body[data-appearance="paper"] {
     opacity: 0.22;
   }
 
-  .studio-toolbar {
-    gap: 7px;
-    padding: 0 10px;
-    max-width: calc(100vw - 20px);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .studio-toolbar::-webkit-scrollbar { display: none; }
-  .studio-live-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 24px;
-    padding: 0 9px;
-    border-radius: 999px;
-    background: var(--code-success-soft);
-    color: var(--code-success);
-    font-size: 11px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-  .studio-live-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--code-success);
-    box-shadow: 0 0 0 0 rgba(58, 110, 74, 0.5);
-    animation: studioPulse 1.8s ease-out infinite;
-  }
-  @keyframes studioPulse {
-    0% { box-shadow: 0 0 0 0 rgba(58, 110, 74, 0.55); }
-    70% { box-shadow: 0 0 0 6px rgba(58, 110, 74, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(58, 110, 74, 0); }
-  }
-  .studio-btn.accent-outline {
-    background: var(--code-accent-soft);
-    color: var(--code-accent);
-    border-color: transparent;
-  }
   body[data-chrome="0"] .studio-toolbar {
     display: none;
   }
@@ -740,15 +701,9 @@ body[data-appearance="paper"] {
         <span class="swatch swatch-light"></span>Light
       </button>
     </div>
-    <span class="studio-live-pill" id="live-pill">
-      <span class="studio-live-dot" aria-hidden="true"></span>
-      <span id="live-pill-text"></span>
-    </span>
     <button id="btn-play" class="studio-btn primary" type="button" onclick="replayLiveSyncDemo()"></button>
-    <button id="btn-steer" class="studio-btn accent-outline" type="button" onclick="triggerSteerDemo()"></button>
-    <button id="btn-code" class="studio-btn" type="button" onclick="toggleDiffInspect()"></button>
+    <button id="btn-steer" class="studio-btn" type="button" onclick="triggerSteerDemo()"></button>
     <button id="btn-reset" class="studio-btn" type="button" onclick="resetDemo(false)"></button>
-    <span id="studio-status" class="studio-status"></span>
   </header>
 
   <main class="stage-viewport" id="viewport">
@@ -760,7 +715,7 @@ body[data-appearance="paper"] {
             <span class="mac-dot y"></span>
             <span class="mac-dot g"></span>
           </div>
-          <div class="mac-title">Farming Code — Pixel Breakout (Desktop · 1380×840)</div>
+          <div class="mac-title">Farming Code</div>
           <div style="width: 42px"></div>
         </div>
         <iframe id="desktop-frame" title="Farming Desktop"></iframe>
@@ -823,44 +778,28 @@ body[data-appearance="paper"] {
 
     const COPY = {
       zh: {
-        livePill: '实时同步 · 2 端在线',
-        play: '▶ 重播跨端协同',
-        playing: '⏳ 对话同步中…',
-        steerBtn: '⚡ 试试中途 Steer',
-        steerSendBtn: '⚡ 立即 Steer 当前轮',
-        diffInspect: '📝 查看 Git Diff',
-        previewInspect: '🎮 返回实时游戏',
-        reset: '↺ 重置',
-        ready: '就绪 · 右侧手机随时发指令，或直接移动鼠标玩左侧游戏',
-        draftMobile: '① 手机端本地草稿输入（未发送前仅保存在手机端）…',
-        runningTurn: '② WebSocket 实时双端同步 · Agent 正在读取与编辑文件…',
-        steerAuto: '③ 运行中从桌面端发 Steer · 不中断任务直接追加彗星尾迹…',
-        turnDone: '④ 已热更新到左侧游戏 · 可继续发问、中途 Steer 或点开 Diff 查看',
-        steerHint: '当前正在执行 · 现在发送将作为 Steer 实时注入本轮',
-        customDone: '已实时同步并热更新 · 你可以继续输入或触发 Steer',
+        play: '重播',
+        playing: '执行中…',
+        steerBtn: 'Steer',
+        steerSendBtn: 'Steer',
+        diffInspect: 'Git Diff',
+        previewInspect: '返回预览',
+        reset: '重置',
+        steerHint: '当前正在执行 · 发送将作为 Steer 注入本轮',
         sendTooltipIdle: 'Send',
         sendTooltipSteer: 'Steer running turn',
-        agentSwitched: (title) => `已切换 Agent：${title}（桌面与手机同步切换）`,
       },
       en: {
-        livePill: 'Live Sync · 2 clients',
-        play: '▶ Replay Live Sync',
-        playing: '⏳ Syncing Turn…',
-        steerBtn: '⚡ Try Mid-Turn Steer',
-        steerSendBtn: '⚡ Steer Active Turn',
-        diffInspect: '📝 Inspect Git Diff',
-        previewInspect: '🎮 Back to Live Game',
-        reset: '↺ Reset',
-        ready: 'Ready · Type on Phone or Desktop, or move mouse over the game to play',
-        draftMobile: '① Typing on iPhone (unsent draft stays local to the phone)…',
-        runningTurn: '② Synced over WebSocket · Agent streaming reads & edits live…',
-        steerAuto: '③ Live Mid-Turn Steer from Desktop · Injecting comet trail without cancelling…',
-        turnDone: '④ Live hot-reloaded! Keep prompting, steer mid-turn, or inspect Git Diff',
+        play: 'Replay',
+        playing: 'Running…',
+        steerBtn: 'Steer',
+        steerSendBtn: 'Steer',
+        diffInspect: 'Git Diff',
+        previewInspect: 'Back to preview',
+        reset: 'Reset',
         steerHint: 'Turn active · Sending now delivers a live mid-turn Steer',
-        customDone: 'Synced & live-patched · Send another prompt or steer mid-turn',
         sendTooltipIdle: 'Send',
         sendTooltipSteer: 'Steer running turn',
-        agentSwitched: (title) => `Switched Agent: ${title} (synced across Desktop & Mobile)`,
       },
     }[lang];
 
@@ -873,12 +812,12 @@ body[data-appearance="paper"] {
             prompt: 'Verify paddle edge bounce angles and prevent ball tunneling at high speed.',
             time: '2:18 AM',
             duration: 'Worked for 4s',
-            progress: 'Audited swept AABB reflection in src/game.ts and clamped max bounce angle to 68°.',
+            progress: 'Checked sub-stepping in src/game.ts for fast bounces.',
             tools: [
-              { type: 'tool', label: 'Read src/game.ts', detail: 'Checked stepBall() sub-stepping at 2× speed: 4 sub-steps/frame prevents brick tunneling.' },
-              { type: 'tool', label: 'Run physics check', detail: '18/18 boundary reflection checks passed across corner and paddle-tip hits.' },
+              { type: 'tool', label: 'Read src/game.ts', detail: 'Reviewed step() ball collision loop.' },
+              { type: 'patch', label: 'Edit src/game.ts', detail: 'Added 2-substep position integration and clamped paddle hit offsets.' },
             ],
-            answerHtml: '<h3>Collision physics verified</h3><p>Paddle edge hits smoothly map offset <code>[-1, 1]</code> to <code>[-68°, +68°]</code> while keeping vertical momentum bounded.</p>',
+            answerHtml: '<p>Added 2-substep ball integration and clamped paddle bounce angles in <code>src/game.ts</code>.</p>',
             diffSummary: null,
           },
         ],
@@ -892,9 +831,9 @@ body[data-appearance="paper"] {
             duration: 'Worked for 3s',
             progress: 'Tuned palette tokens for Paper, Dark, and Light appearances in index.html.',
             tools: [
-              { type: 'patch', label: 'Edit index.html', detail: 'Mapped 5 brick row accents to each Farming theme palette and added smooth wave respawn.' },
+              { type: 'patch', label: 'Edit index.html', detail: 'Mapped 5 brick row accents to each Farming theme palette.' },
             ],
-            answerHtml: '<h3>Level palette balanced</h3><p>Each brick row now adapts to <strong>Paper</strong>, <strong>Dark</strong>, and <strong>Light</strong> themes without harsh contrast jumps.</p>',
+            answerHtml: '<p>Mapped the 5 brick row colors to Paper, Dark, and Light palette tokens in <code>index.html</code>.</p>',
             diffSummary: { files: 1, added: 18, removed: 6 },
           },
         ],
@@ -931,16 +870,15 @@ body[data-appearance="paper"] {
     window.addEventListener('resize', fitStage);
     fitStage();
 
-    function setStatus(text) {
-      document.getElementById('studio-status').textContent = text;
-    }
+    function setStatus(_text) {}
 
     function updateButtons() {
-      document.getElementById('live-pill-text').textContent = COPY.livePill;
-      document.getElementById('btn-play').textContent = isTurnRunning ? COPY.playing : COPY.play;
-      document.getElementById('btn-steer').textContent = isTurnRunning ? COPY.steerSendBtn : COPY.steerBtn;
-      document.getElementById('btn-code').textContent = activeViewMode === 'preview' ? COPY.diffInspect : COPY.previewInspect;
-      document.getElementById('btn-reset').textContent = COPY.reset;
+      const playBtn = document.getElementById('btn-play');
+      const steerBtn = document.getElementById('btn-steer');
+      const resetBtn = document.getElementById('btn-reset');
+      if (playBtn) playBtn.textContent = isTurnRunning ? COPY.playing : COPY.play;
+      if (steerBtn) steerBtn.textContent = isTurnRunning ? COPY.steerSendBtn : COPY.steerBtn;
+      if (resetBtn) resetBtn.textContent = COPY.reset;
     }
 
     function buildBreakoutSrcdoc() {
@@ -994,27 +932,6 @@ body[data-appearance="paper"] {
     background: var(--accent);
     flex-shrink: 0;
   }
-  .hud-mode {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 500;
-    background: var(--pill-bg);
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .hud-mode.manual {
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .hud-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
   .hud-combo {
     padding: 2px 8px;
     border-radius: 999px;
@@ -1038,46 +955,6 @@ body[data-appearance="paper"] {
     height: 100%;
     display: block;
   }
-  .hmr-toast {
-    position: absolute;
-    left: 12px;
-    bottom: 12px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 600;
-    background: var(--hud-bg);
-    border: 1px solid var(--hud-border);
-    color: var(--accent);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
-    opacity: 0;
-    transform: translateY(6px);
-    transition: opacity 180ms ease, transform 180ms ease;
-    pointer-events: none;
-  }
-  .hmr-toast.show {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  .feature-chips {
-    position: absolute;
-    right: 12px;
-    bottom: 12px;
-    display: flex;
-    gap: 6px;
-    pointer-events: none;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-  .feature-chip {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 10.5px;
-    font-weight: 600;
-    background: var(--pill-bg);
-    color: var(--muted);
-    border: 1px solid var(--hud-border);
-  }
 </style>
 </head>
 <body>
@@ -1086,17 +963,14 @@ body[data-appearance="paper"] {
       <div class="hud-left">
         <span class="hud-dot"></span>
         <span>Pixel Breakout</span>
-        <span class="hud-mode" id="hud-mode"></span>
       </div>
       <div class="hud-right">
-        <span class="hud-combo" id="hud-combo">Combo ×1</span>
+        <span class="hud-combo" id="hud-combo" hidden>2x</span>
         <span id="hud-score">Score 520</span>
       </div>
     </header>
-    <div class="stage-box" id="stage-box">
+    <div class="stage-box" id="stage-box" data-manual="false">
       <canvas id="game-canvas"></canvas>
-      <div class="hmr-toast" id="hmr-toast"></div>
-      <div class="feature-chips" id="feature-chips"></div>
     </div>
   </div>
 <script>
@@ -1164,11 +1038,8 @@ body[data-appearance="paper"] {
   const canvas = document.getElementById('game-canvas');
   const ctx = canvas.getContext('2d');
   const stageBox = document.getElementById('stage-box');
-  const hudMode = document.getElementById('hud-mode');
   const hudCombo = document.getElementById('hud-combo');
   const hudScore = document.getElementById('hud-score');
-  const hmrToast = document.getElementById('hmr-toast');
-  const chipsEl = document.getElementById('feature-chips');
 
   const W = 520;
   const H = 400;
@@ -1186,7 +1057,6 @@ body[data-appearance="paper"] {
   let lasers = [];
   let shakeTime = 0;
   let laserCooldown = 0;
-  let toastTimer = null;
 
   function applyThemeVars() {
     palette = PALETTES[cfg.theme] || PALETTES.paper;
@@ -1208,22 +1078,13 @@ body[data-appearance="paper"] {
     }
   }
 
-  function renderChips() {
-    const items = [];
-    if (cfg.features.particles) items.push('Particles');
-    if (cfg.features.combos) items.push('Combo');
-    if (cfg.features.trail) items.push('Comet Trail');
-    if (cfg.features.multiball) items.push('Twin Ball');
-    if (cfg.features.laser) items.push('Laser');
-    if (cfg.features.rainbow) items.push('Rainbow');
-    chipsEl.innerHTML = items.map(name => '<span class="feature-chip">' + name + '</span>').join('');
-  }
-
-  function showHmrToast(text) {
-    hmrToast.textContent = text;
-    hmrToast.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => hmrToast.classList.remove('show'), 2200);
+  function updateHudCombo() {
+    if (combo >= 2) {
+      hudCombo.hidden = false;
+      hudCombo.textContent = combo + 'x';
+    } else {
+      hudCombo.hidden = true;
+    }
   }
 
   function initBricks() {
@@ -1261,7 +1122,7 @@ body[data-appearance="paper"] {
     const pts = 100 * combo;
     score += pts;
     hudScore.textContent = 'Score ' + score.toLocaleString();
-    hudCombo.textContent = 'Combo ×' + combo;
+    updateHudCombo();
 
     if (cfg.features.particles) {
       shakeTime = 5;
@@ -1348,20 +1209,15 @@ body[data-appearance="paper"] {
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
     if (msg.type === 'breakout-config') {
-      const prevFeatures = JSON.stringify(cfg.features);
       if (msg.theme) cfg.theme = msg.theme;
       if (msg.features) cfg.features = Object.assign({}, cfg.features, msg.features);
       applyThemeVars();
-      renderChips();
       syncBallCount();
-      if (msg.hmrLabel && JSON.stringify(cfg.features) !== prevFeatures) {
-        showHmrToast(msg.hmrLabel);
-      }
       if (msg.resetGame) {
         score = 520;
         combo = 1;
         hudScore.textContent = 'Score 520';
-        hudCombo.textContent = 'Combo ×1';
+        updateHudCombo();
         balls = [{ x: W * 0.45, y: H * 0.56, vx: 3.1, vy: -3.5, r: 6.5, trail: [] }];
         particles = [];
         shockwaves = [];
@@ -1375,10 +1231,7 @@ body[data-appearance="paper"] {
   function step() {
     const now = performance.now();
     const isManual = now < manualUntil;
-    hudMode.classList.toggle('manual', isManual);
-    hudMode.textContent = isManual
-      ? (cfg.lang === 'en' ? 'Interactive · Playing' : '手动操控中')
-      : (cfg.lang === 'en' ? 'Auto-play · Move mouse to play' : '自动试玩 · 移入鼠标可接管');
+    stageBox.dataset.manual = isManual ? 'true' : 'false';
 
     paddle.w = cfg.features.laser ? 104 : 84;
     if (isManual) {
@@ -1453,7 +1306,7 @@ body[data-appearance="paper"] {
           b.vy = -Math.cos(angle) * speed;
           b.y = paddle.y - b.r - 0.5;
           combo = 1;
-          hudCombo.textContent = 'Combo ×1';
+          updateHudCombo();
         }
 
         // Brick collision
@@ -1483,7 +1336,7 @@ body[data-appearance="paper"] {
         b.vy = -3.6;
         b.trail = [];
         combo = 1;
-        hudCombo.textContent = 'Combo ×1';
+        updateHudCombo();
       }
     }
 
@@ -1636,7 +1489,7 @@ body[data-appearance="paper"] {
 
   applyThemeVars();
   initBricks();
-  renderChips();
+  updateHudCombo();
   resizeCanvas();
   requestAnimationFrame(loop);
 <\/script>
@@ -2042,7 +1895,6 @@ body[data-appearance="paper"] {
         if (info) {
           if (titleEl) titleEl.textContent = info.title;
           renderTranscriptToBoth(info.turns);
-          setStatus(COPY.agentSwitched(info.title));
         }
       }
       setMobileDrawer(false);
@@ -2115,6 +1967,18 @@ body[data-appearance="paper"] {
             if (id) switchAgent(id);
           });
         });
+        doc.querySelector('.code-file-editor-tab')?.addEventListener('click', () => {
+          if (activeViewMode !== 'preview') openFileInDesktop('index.html');
+        });
+        doc.querySelector('[data-testid="code-sidebar-toggle"]')?.addEventListener('click', () => {
+          const ws = doc.querySelector('[data-testid="code-workspace"]');
+          const aside = doc.querySelector('[data-testid="code-sidebar"]');
+          if (ws && aside) {
+            const willCollapse = !aside.classList.contains('collapsed');
+            ws.classList.toggle('sidebar-collapsed', willCollapse);
+            aside.classList.toggle('collapsed', willCollapse);
+          }
+        });
       } else {
         const menuBtn = doc.querySelector('[data-testid="code-mobile-menu"]');
         const backdrop = doc.querySelector('[data-testid="code-mobile-sidebar-backdrop"]');
@@ -2182,15 +2046,15 @@ body[data-appearance="paper"] {
       modifiedFiles.add(patchFile);
       turn.tools.push({
         type: 'patch',
-        label: `Steer → Edit ${patchFile}`,
+        label: `Edit ${patchFile}`,
         status: 'running',
-        detail: `Mid-turn steer received: "${steerText}". Hot-patching ${unlocked.join(', ') || 'physics'}…`,
+        detail: `Mid-turn steer received: "${steerText}". Updating ${unlocked.join(', ') || 'physics'}…`,
       });
       activeTurnCtx.steeredFeatures.push(...unlocked);
       renderTranscriptToBoth(primaryTurns);
       updateFileTreeStatus();
-      pushBreakoutConfig(`⚡ HMR · Steer: ${unlocked.join(' + ') || 'Live update'}`);
-      setStatus(COPY.steerAuto);
+      pushBreakoutConfig('');
+      setStatus('');
     }
 
     async function startLiveTurn(sourceDoc, promptText, options = {}) {
@@ -2206,7 +2070,6 @@ body[data-appearance="paper"] {
       updateButtons();
       updateSendButtonsState();
       setComposerDraft(sourceDoc, '');
-      setStatus(COPY.runningTurn);
 
       const turn = {
         id: 'turn-' + Date.now(),
@@ -2240,7 +2103,7 @@ body[data-appearance="paper"] {
       try {
         await wait(260);
         if (options.runId && demoRunId !== myRun) return;
-        turn.progress = 'Updating game physics and rendering pipeline live in src/particles.ts and index.html.';
+        turn.progress = 'Updating brick collision and trail rendering in src/particles.ts.';
         turn.tools.push({
           type: 'tool',
           label: 'Read src/game.ts',
@@ -2261,7 +2124,7 @@ body[data-appearance="paper"] {
         });
         updateFileTreeStatus();
         renderTranscriptToBoth(primaryTurns);
-        pushBreakoutConfig(`⚡ HMR · ${baseUnlocked.join(' + ') || 'Updated'}`);
+        pushBreakoutConfig('');
 
         // Optional scripted mid-turn Steer from Desktop
         if (options.scriptedSteer) {
@@ -2296,15 +2159,13 @@ body[data-appearance="paper"] {
         const totalSec = Math.max(2, Math.round((performance.now() - startTs) / 1000));
         turn.duration = `Worked for ${totalSec}s`;
         const allUnlocked = [...new Set([...baseUnlocked, ...ctxObj.steeredFeatures])];
-        turn.answerHtml = `<h3>${escapeHtml(allUnlocked.join(' & ') || 'Live update')} active</h3>`
-          + `<p>Hot-reloaded live in <strong>Pixel Breakout</strong> across Desktop &amp; Phone`
-          + (turn.steers.length ? ` with mid-turn <strong>Steer</strong>.` : `.`)
-          + `</p>`;
+        const desc = (allUnlocked.join(', ') || 'canvas updates').toLowerCase();
+        turn.answerHtml = `<p>Updated <code>src/particles.ts</code> and <code>index.html</code> with ${escapeHtml(desc)}.</p>`;
         turn.diffSummary = { files: modifiedFiles.size, added: 34, removed: 5 };
         updateFileTreeStatus();
         renderTranscriptToBoth(primaryTurns);
         if (activeViewMode !== 'preview') renderDiffOrFilePanel();
-        setStatus(options.scriptedSteer ? COPY.turnDone : COPY.customDone);
+        setStatus('');
       } finally {
         clearInterval(timerInterval);
         if (activeTurnCtx === ctxObj) {
@@ -2331,7 +2192,6 @@ body[data-appearance="paper"] {
 
       const { mDoc } = getFrames();
       const prompt = 'Add particle bursts and 2x combo popups when a brick breaks.';
-      setStatus(COPY.draftMobile);
       for (let i = 3; i <= prompt.length; i += 4) {
         if (demoRunId !== myRun) return;
         setComposerDraft(mDoc, prompt.slice(0, i));
@@ -2395,7 +2255,6 @@ body[data-appearance="paper"] {
         toggleSrcFolder(true);
         renderDiffOrFilePanel();
         pushBreakoutConfig('', true);
-        if (!silent) setStatus(COPY.ready);
         return;
       }
 
@@ -2415,7 +2274,6 @@ body[data-appearance="paper"] {
       updateSendButtonsState();
       updateFileTreeStatus();
       pushBreakoutConfig('', true);
-      setStatus(COPY.ready);
     }
 
     function switchTheme(theme, notifyParent = false) {
@@ -2459,6 +2317,10 @@ body[data-appearance="paper"] {
         switchTheme(event.data.theme, false);
       } else if (event.data.type === 'farming-demo-visible') {
         maybeTriggerInitialAutoplay();
+      } else if (event.data.type === 'farming-demo-action') {
+        if (event.data.action === 'replay') replayLiveSyncDemo();
+        else if (event.data.action === 'steer') triggerSteerDemo();
+        else if (event.data.action === 'reset') resetDemo(false);
       }
     });
 

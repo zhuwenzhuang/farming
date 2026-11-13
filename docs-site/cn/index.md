@@ -13,7 +13,7 @@ hero:
       text: 快速开始
       link: /cn/get-started/quickstart
     - theme: alt
-      text: 在线交互体验
+      text: 交互演示
       link: '#interactive-demo'
 ---
 
