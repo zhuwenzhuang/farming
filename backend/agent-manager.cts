@@ -7426,6 +7426,12 @@ class AgentManager extends EventEmitter {
     return { ...Object.fromEntries(Object.entries(session).filter(([key]) => key !== 'transcriptProjectionVersion')), parentRuntimeEpoch: epoch };
   }
 
+  dismissAcpNotice(agentId: AgentId, sessionId: string, noticeId: string) {
+    this.assertAgentOperationAdmission();
+    this.getAcpSession(agentId);
+    return this.acpRuntime.dismissNotice(agentId, sessionId, noticeId);
+  }
+
   cancelAcpSubagent(agentId: AgentId, sessionId: string, expectedEpoch = '') {
     if (expectedEpoch && this.acpRuntime.bindingEpoch(agentId) !== expectedEpoch) throw new Error('Subagent belongs to an earlier parent runtime');
     this.assertAgentOperationAdmission();

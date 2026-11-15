@@ -1,3 +1,5 @@
+import type { AcpNotice } from '../../../../shared/acp-notice'
+
 export interface AcpAvailableCommand {
   name: string
   description: string
@@ -86,6 +88,7 @@ export interface AcpSessionSnapshot {
     version?: string
   } | null
   sessionId: string
+  notices?: AcpNotice[]
   state: string
   error: string
   stopReason: string

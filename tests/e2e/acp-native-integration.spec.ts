@@ -2,6 +2,110 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+test('repeated native replies use lossless disclosures across appearances and reload', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'agy', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await row.click()
+    for (let turn = 1; turn <= 2; turn += 1) {
+      await page.getByTestId('code-acp-composer-input').fill('Inspect repeated native replies')
+      await page.getByTestId('code-acp-composer-send').click()
+      await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'disabled')
+      await expect(page.getByText('Native verification complete.', { exact: true })).toHaveCount(turn)
+    }
+    const turns = page.locator('.code-agent-transcript-turn')
+    await expect(turns).toHaveCount(2)
+    const last = turns.last()
+    await last.getByTestId('code-agent-transcript-process-summary').click()
+    const repeated = last.locator('[data-repeats-final-response="true"]')
+    await expect(repeated).toHaveCount(2)
+    await expect(repeated.filter({ hasText: /Thought|思考/ })).toHaveCount(1)
+    await expect(repeated.filter({ hasText: /Earlier reply|较早回复/ })).toHaveCount(1)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => {
+        document.body.dataset.appearance = value
+        document.documentElement.dataset.appearance = value
+      }, appearance)
+      await expect(page.getByText('Native verification complete.', { exact: true })).toHaveCount(2)
+      const capture = await page.screenshot({ path: testInfo.outputPath(`repeated-reply-${appearance}.png`), animations: 'disabled' })
+      expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([1440, 900])
+    }
+    for (const item of await repeated.all()) {
+      const toggle = item.getByTestId('code-agent-transcript-process-item-toggle')
+      await toggle.focus()
+      await page.keyboard.press('Enter')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      await expect(item.getByText('Native verification complete.', { exact: true })).toBeVisible()
+      await expect(item.getByRole('button', { name: /Copy details|复制详情/ })).toBeVisible()
+      await page.keyboard.press('Enter')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    }
+    // The authoritative stream still contains two replies per input.
+    const snapshot = await page.request.get(`/farming/api/agents/${agentId}/acp-session?includeEntries=1`)
+    const { session } = await snapshot.json() as { session: { entries: Array<{ role?: string; type?: string }> } }
+    expect(session.entries.filter(entry => entry.type === 'message' && entry.role === 'assistant')).toHaveLength(4)
+    await page.reload()
+    await row.click()
+    await expect(page.getByText('Native verification complete.', { exact: true })).toHaveCount(2)
+    await turns.last().getByTestId('code-agent-transcript-process-summary').click()
+    await expect(turns.last().locator('[data-repeats-final-response="true"]')).toHaveCount(2)
+  } finally {
+    const removed = await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+    expect(removed.ok()).toBeTruthy()
+  }
+})
+
+test('related session previews preserve repeated reply disclosures', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'agy', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await page.route(`**/api/agents/${agentId}/acp-subagents/*/transcript?*`, async route => {
+      const original = await route.fetch()
+      const payload = await original.json()
+      const content = [{ type: 'text', text: 'Child verification complete.' }]
+      await route.fulfill({ response: original, json: { ...payload, state: 'idle', entries: [
+        { id: 'input', type: 'message', role: 'user', content: [{ type: 'text', text: 'Verify the child command' }] },
+        { id: 'earlier', type: 'message', role: 'assistant', content },
+        { id: 'thought', type: 'thought', role: 'assistant', content },
+        { id: 'final', type: 'message', role: 'assistant', content },
+      ] } })
+    })
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await page.getByTestId('code-acp-composer-input').fill('agy registry children')
+    await page.getByTestId('code-acp-composer-send').click()
+    await page.getByRole('button', { name: 'DeepCoder', exact: true }).click()
+    const panel = page.getByTestId('code-related-session-panel')
+    await expect(panel.getByText('Child verification complete.', { exact: true })).toHaveCount(1)
+    await panel.getByTestId('code-agent-transcript-process-summary').click()
+    const repeated = panel.locator('[data-repeats-final-response="true"]')
+    await expect(repeated).toHaveCount(2)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => {
+        document.body.dataset.appearance = value
+        document.documentElement.dataset.appearance = value
+      }, appearance)
+      const capture = await page.screenshot({ path: testInfo.outputPath(`repeated-child-${appearance}.png`), animations: 'disabled' })
+      expect([capture.readUInt32BE(16), capture.readUInt32BE(20)]).toEqual([1440, 900])
+    }
+    await repeated.first().getByTestId('code-agent-transcript-process-item-toggle').click()
+    await expect(repeated.first().getByText('Child verification complete.', { exact: true })).toBeVisible()
+  } finally {
+    const removed = await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+    expect(removed.ok()).toBeTruthy()
+  }
+})
+
 test('delayed native prompt echo stays in one Turn across appearances, reload and repeated sends', async ({ page, workspaceRoot }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   const response = await page.request.post('/farming/api/control/agents', {

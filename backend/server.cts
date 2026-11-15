@@ -1573,6 +1573,14 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/tran
   }
 });
 
+app.delete(routePath(BASE_PATH, '/api/agents/:agentId/acp-notices/:sessionId/:noticeId'), async (req, res) => {
+  try {
+    res.json(await agentManager.dismissAcpNotice(req.params.agentId, req.params.sessionId, req.params.noticeId));
+  } catch (caught) {
+    res.status(409).json({ error: caughtError(caught).message || 'Failed to dismiss ACP notice' });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/cancel'), async (req, res) => {
   try {
     res.json(await agentManager.cancelAcpSubagent(req.params.agentId, req.params.sessionId, typeof req.query.runtimeEpoch === 'string' ? req.query.runtimeEpoch : ''));

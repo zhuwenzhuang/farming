@@ -259,6 +259,7 @@ class FakeAgent {
       || !params.clientCapabilities?._meta?.jetbrains?.air?.capabilities?.includes('nativeSubagentSessions')
       || !params.clientCapabilities?.elicitation?.form
       || !params.clientCapabilities?.elicitation?.url
+      || !params.clientCapabilities?.session?.notices
       || params.clientCapabilities?.plan != null
     ) {
       throw new Error('Farming did not advertise the expected ACP client capabilities');
@@ -326,6 +327,11 @@ class FakeAgent {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
     bindSessionEnvironment(sessionId, params);
+    if (process.env.FARMING_TEST_ACP_LOAD_NOTICE === '1') {
+      await client.notify('session/update', { sessionId, update: {
+        sessionUpdate: 'notice', severity: 'info', title: 'Current advisory after load',
+      } });
+    }
     const failOnceFile = process.env.FARMING_TEST_ACP_FAIL_LOAD_ONCE_FILE;
     if (failOnceFile && !fs.existsSync(failOnceFile)) {
       fs.writeFileSync(failOnceFile, sessionId);
@@ -674,6 +680,42 @@ class FakeAgent {
       return completion;
     }
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
+    if (promptText === '检查项目配置，看看有没有遗漏。') {
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'notice', severity: 'warning', title: '暂时无法连接文档服务',
+        description: '本次检查将仅使用项目文件，不包含在线文档。',
+      } });
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已检查项目配置，发现示例环境文件中缺少日志级别设置。可以补上 LOG_LEVEL=info，方便本地排查问题。' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText === 'Inspect session notices') {
+      for (const severity of ['info', 'warning', 'error', '_custom']) {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
+          sessionUpdate: 'notice', severity, title: `Session advisory: ${severity}`,
+          description: '**Plain text**, not Markdown.\n<em>Work continues.</em>',
+          _meta: { source: 'test' },
+        } });
+      }
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Work completed with advisories.' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText === 'Inspect repeated native replies') {
+      // Recorded native shape: answer, background-completion thought, answer.
+      // No message IDs or snapshot metadata authorize deleting either reply.
+      for (const [sessionUpdate, text] of [
+        ['agent_thought_chunk', 'Native verification complete.'],
+        ['agent_message_chunk', 'Native verification complete.'],
+        ['agent_thought_chunk', 'The background command finished.'],
+        ['agent_message_chunk', 'Native verification complete.'],
+      ]) await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate, content: { type: 'text', text },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText === 'native status integration') {
       const update = (value: Record<string, unknown>) => client.notify('session/update', { sessionId: params.sessionId, update: value });
       await update({ sessionUpdate: 'session_info_update', _meta: { 'opencode/retry': { attempt: 1, error: { message: 'Rate limit exceeded' } } } });

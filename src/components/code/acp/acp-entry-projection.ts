@@ -69,6 +69,8 @@ export interface AgentTranscriptProcessItem {
   createdAt?: number
   lastActivityAt?: number
   detail?: string
+  /** Presentation only: the original entry remains readable at its timeline position. */
+  repeatsFinalResponse?: boolean
   images?: AgentTranscriptUserImage[]
   audios?: AgentTranscriptAudio[]
   files?: AgentTranscriptUserFile[]
@@ -203,6 +205,7 @@ export interface AgentTranscript {
 
 interface MutableTurn extends AgentTranscriptTurn {
   internal: boolean
+  completeTextResponseIds: Set<string>
   assistantMessages: Array<{ text: string; processItemId: string; phase: string }>
   userImages: AgentTranscriptUserImage[]
   userFiles: AgentTranscriptUserFile[]
@@ -306,7 +309,9 @@ function continuousAssistantEntries(values: unknown[]): AcpRecord[] {
       } else {
         content.push(...continuation)
       }
-      entries[messageIndex] = { ...previous, content }
+      entries[messageIndex] = { ...previous, content,
+        ...(entry.transcriptContentTruncated === true ? { transcriptContentTruncated: true } : {}),
+      }
       continue
     }
     messageIndex = assistant ? entries.length : -1
@@ -802,6 +807,7 @@ function isDefaultVisibleMediaTool(entry: AcpRecord) {
 function emptyTurn(id: string, internal: boolean): MutableTurn {
   return {
     id, internal, userMessage: '', userImages: [], userFiles: [], userAudios: [],
+    completeTextResponseIds: new Set(),
     resultImages: [], resultFiles: [], resultAudios: [], finalMessage: '',
     startedAt: null, completedAt: null, durationMs: null, status: 'completed', processItems: [], assistantMessages: [],
   }
@@ -863,8 +869,23 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean, parti
   } else if (turn.processItems.some(item => item.type !== 'peer-receipt')) {
     turn.status = 'missingFinalReply'
   }
-  if (['cancelled', 'canceled', 'stopped', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
-  const { internal, assistantMessages: _assistantMessages, ...finished } = turn
+  if (['cancelled', 'canceled', 'stopped', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'failed', 'cancel_error'].includes(turn.stopReason || '')) turn.status = 'interrupted'
+  if (!keepTailAsProgress && !partial && turn.status === 'completed' && turn.finalMessage
+    && turn.completeTextResponseIds.has(turn.finalMessageId || '')
+    && !turn.resultImages.length && !turn.resultAudios.length && !turn.resultFiles.length) {
+    // Native background completion may produce a second, independent reply.
+    // Never deduplicate the event stream or mistake a growing delta for a replay.
+    // Only offer a lossless disclosure after a complete final response is known.
+    for (let index = turn.processItems.length - 1; index >= 0; index -= 1) {
+      const item = turn.processItems[index]!
+      if (['user-steer', 'peer-message', 'peer-receipt', 'question'].includes(item.type)) break
+      if (turn.completeTextResponseIds.has(item.id) && item.detail === turn.finalMessage
+        && !item.detailTruncated && !item.images?.length && !item.audios?.length && !item.files?.length) {
+        item.repeatsFinalResponse = true
+      }
+    }
+  }
+  const { internal, assistantMessages: _assistantMessages, completeTextResponseIds: _completeTextResponseIds, ...finished } = turn
   if (internal) finished.processItems = []
   return finished.userSource || finished.userMessage || finished.finalMessage || finished.userImages.length > 0
     || finished.userAudios.length > 0 || finished.userFiles.length > 0
@@ -962,7 +983,10 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       const images = contentImages(entry.content, prefix)
       const audios = contentAudios(entry.content, prefix)
       const files = contentFiles(entry.content, prefix)
+      const completeText = entry.transcriptContentTruncated !== true
+        && list(entry.content).length > 0 && list(entry.content).every(block => record(block).type === 'text')
       if (phase === 'final_answer' && (text || images.length > 0 || audios.length > 0 || files.length > 0)) {
+        if (completeText) current.completeTextResponseIds.add(`acp-answer-${prefix}`)
         current.processItems.push({
           id: `acp-answer-${prefix}`, type: 'answer', title: 'Earlier answer', detail: text, status: 'completed',
           ...(images.length > 0 ? { images } : {}), ...(audios.length > 0 ? { audios } : {}), ...(files.length > 0 ? { files } : {}),
@@ -970,6 +994,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
         continue
       }
       const processItemId = text ? `acp-progress-${prefix}` : ''
+      if (completeText) current.completeTextResponseIds.add(processItemId)
       current.assistantMessages.push({ text, processItemId, phase })
       if (!current.internal && (text || images.length > 0 || audios.length > 0 || files.length > 0)) {
         current.processItems.push({
@@ -989,6 +1014,10 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     }
     if (entry.type === 'plan') continue
     const process = processEntry(entry)
+    if (process?.type === 'thought' && entry.transcriptContentTruncated !== true
+      && list(entry.content).length > 0 && list(entry.content).every(block => record(block).type === 'text')) {
+      current.completeTextResponseIds.add(process.id)
+    }
     if (process && isDefaultVisibleMediaTool(entry)) {
       current.resultImages = uniqueByUrl([...current.resultImages, ...(process.images || [])])
       current.resultAudios = uniqueByUrl([...current.resultAudios, ...(process.audios || [])])
@@ -1000,6 +1029,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   }
   // A page boundary is not a Turn boundary. Keep all stage answers in place
   // until the covered range actually includes this Turn's end.
+  if (current && includesLatest && !activeSession) current.stopReason ||= stringValue(session.stopReason)
   flush(activeSession || !includesLatest, !includesLatest)
 
   const lastTurn: AgentTranscriptTurn | undefined = turns[turns.length - 1]

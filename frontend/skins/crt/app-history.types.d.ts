@@ -132,6 +132,8 @@ interface CrtStructuredSelectConfig extends CrtStructuredConfigBase {
 type CrtStructuredConfig = CrtStructuredBooleanConfig | CrtStructuredSelectConfig;
 
 interface CrtStructuredSessionSnapshot extends CrtHistoryOpenRecord {
+  sessionId: string;
+  notices?: import('../../../shared/acp-notice').AcpNotice[];
   updatedAt?: string | number;
   availableCommands: CrtStructuredCommand[];
   currentModeId?: string;

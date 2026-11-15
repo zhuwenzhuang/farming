@@ -661,6 +661,10 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     return this.client.request('cancelSubagent', { agentId, sessionId });
   }
 
+  dismissNotice(agentId: string, sessionId: string, noticeId: string): Promise<unknown> {
+    return this.client.request('dismissNotice', { agentId, sessionId, noticeId });
+  }
+
   decidePatch(
     agentId: string,
     toolCallId: string,

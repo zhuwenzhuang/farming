@@ -1092,7 +1092,8 @@ function AgentTranscriptTerminals({
   )
 }
 
-function AgentTranscriptSubagentAction({ item }: { item: AgentTranscriptProcessItem }) {
+function AgentTranscriptSubagentAction({ item, copy }: { item: AgentTranscriptProcessItem; copy: CodeCopy }) {
+  if (item.repeatsFinalResponse) return <AgentTranscriptRepeatedResponse item={item} copy={copy} />
   const detail = String(item.detail || '').trim()
   if (isAcpProgressUpdate(item) || isAcpAnswerSegment(item)) return (
     <div className="code-agent-transcript-subagent-action">
@@ -1170,7 +1171,7 @@ export function AgentTranscriptSubagentPreview({
             <AgentTranscriptUserMessage turn={turn} copy={copy} />
           </div> : turn.userSource || turn.userMessage ? <AgentTranscriptIncomingMessage copy={copy} turn={turn} continued={continuesPeerMessageGroup(transcript.turns[index - 1], turn)} hasNext={continuesPeerMessageGroup(turn, transcript.turns[index + 1])}><div className="user">{turn.userSource?.bodyUnavailable ? copy.agentTranscriptPeerBodyUnavailable : <AgentTranscriptUserMessage turn={turn} copy={copy} />}</div></AgentTranscriptIncomingMessage> : null}
           {turn.processItems.length > 0 ? (
-            <><AgentTranscriptPeerReceipts items={turn.processItems.filter(item => item.type === 'peer-receipt')} copy={copy} /><div className="actions">{turn.processItems.filter(item => item.type !== 'peer-receipt').map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div></>
+            <><AgentTranscriptPeerReceipts items={turn.processItems.filter(item => item.type === 'peer-receipt')} copy={copy} /><div className="actions">{turn.processItems.filter(item => item.type !== 'peer-receipt').map(item => <AgentTranscriptSubagentAction item={item} copy={copy} key={item.id} />)}</div></>
           ) : null}
           <AgentTranscriptResultImages images={turn.resultImages || []} />
           {turn.finalMessage ? <div className="assistant">{plainTextBlock(turn.finalMessage)}</div> : null}
@@ -1319,7 +1320,7 @@ function transcriptDetailLineLabel(value: string) {
 }
 
 function detailWithoutRepeatedTitle(item: AgentTranscriptProcessItem, detail: string) {
-  if (item.type !== 'thought' || !detail) return detail
+  if (item.repeatsFinalResponse || item.type !== 'thought' || !detail) return detail
   const lines = detail.split(/\r?\n/)
   const firstContentIndex = lines.findIndex(line => line.trim())
   if (firstContentIndex < 0) return ''
@@ -1857,7 +1858,7 @@ function AgentTranscriptProcessItemView({
   const locations = item.locations || []
   const terminals = item.terminals || []
   const copyableDetail = item.detail && (
-    item.type === 'thought' || item.detail.trim() !== item.title.trim()
+    item.repeatsFinalResponse || item.type === 'thought' || item.detail.trim() !== item.title.trim()
   ) ? item.detail : ''
   const detail = copyableDetail && detailDuplicatesTerminalOutcome(copyableDetail, terminals)
     ? ''
@@ -1868,10 +1869,12 @@ function AgentTranscriptProcessItemView({
     : displayDetail
   const hasCopyableDetail = !!copyableDetail || locations.length > 0
   const hasDetail = !!visibleDetail
-  const markdownDetail = ['thought', 'reasoning'].includes(item.type)
+  const markdownDetail = item.repeatsFinalResponse || ['thought', 'reasoning'].includes(item.type)
   const planItems = item.type === 'plan' && visibleDetail ? planDetailItems(visibleDetail) : null
   const expandable = hasExpandableProcessItemContent(item, visibleDetail, planItems)
-  const displayTitle = title || item.title
+  const displayTitle = item.repeatsFinalResponse
+    ? item.type === 'thought' ? copy.agentTranscriptRepeatedThought : copy.agentTranscriptRepeatedResponse
+    : title || item.title
   const details = (
     <>
       {planItems ? (
@@ -1934,6 +1937,7 @@ function AgentTranscriptProcessItemView({
       data-testid="code-agent-transcript-process-item"
       data-process-item-id={item.id}
       data-type={item.type}
+      data-repeats-final-response={item.repeatsFinalResponse || undefined}
       data-status={item.status || ''}
     >
       <div className="code-agent-transcript-process-title">
@@ -2177,6 +2181,14 @@ function PerformanceObservedTranscriptMarkdown({
   )
 }
 
+function AgentTranscriptRepeatedResponse({ item, copy }: { item: AgentTranscriptProcessItem; copy: CodeCopy }) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  return <SafeAgentTranscriptProcessItemView item={item} copy={copy} copied={copied}
+    showStatus={false} detailOpen={open} onToggle={() => setOpen(value => !value)}
+    onCopy={() => { void writeClipboardText(item.detail || '').then(setCopied) }} />
+}
+
 function AgentTranscriptProgressUpdate({
   item,
   turn,
@@ -2188,6 +2200,7 @@ function AgentTranscriptProgressUpdate({
   markdownComponents: Components
   copy: CodeCopy
 }) {
+  if (item.repeatsFinalResponse) return <AgentTranscriptRepeatedResponse item={item} copy={copy} />
   const progressText = String(item.detail || '').trim()
   const answerSegment = isAcpAnswerSegment(item)
   const images = item.images || []

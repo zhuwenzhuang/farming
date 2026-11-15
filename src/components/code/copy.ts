@@ -99,6 +99,8 @@ export interface CodeCopy {
   agentTranscriptWorking: string
   agentTranscriptLastActivity: (title: string) => string
   agentTranscriptThinking: string
+  agentTranscriptRepeatedResponse: string
+  agentTranscriptRepeatedThought: string
   agentTranscriptRunning: string
   agentTranscriptReading: string
   agentTranscriptSearching: string
@@ -719,6 +721,7 @@ export interface CodeCopy {
   noLineChanges: string
   closeLineChanges: string
   close: string
+  sessionNoticeDismissFailed: string
   closeFile: (path: string) => string
   closeOthers: string
   closeToRight: string
@@ -878,6 +881,8 @@ const EN_COPY: CodeCopy = {
   agentTranscriptWorking: 'Processing',
   agentTranscriptLastActivity: title => `Last activity: ${title}`,
   agentTranscriptThinking: 'Thinking',
+  agentTranscriptRepeatedResponse: 'Earlier reply · same as final reply',
+  agentTranscriptRepeatedThought: 'Thought · same text as final reply',
   agentTranscriptRunning: 'Running',
   agentTranscriptReading: 'Reading',
   agentTranscriptSearching: 'Searching',
@@ -1535,6 +1540,7 @@ const EN_COPY: CodeCopy = {
   noLineChanges: 'No line changes for this line.',
   closeLineChanges: 'Close line changes',
   close: 'Close',
+  sessionNoticeDismissFailed: 'Could not close this notice. Try again.',
   closeFile: path => `Close ${path}`,
   closeOthers: 'Close Others',
   closeToRight: 'Close to the Right',
@@ -1694,6 +1700,8 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptWorking: '处理中',
   agentTranscriptLastActivity: title => `最近活动：${title}`,
   agentTranscriptThinking: '思考中',
+  agentTranscriptRepeatedResponse: '较早回复 · 与最终回复相同',
+  agentTranscriptRepeatedThought: '思考 · 正文与最终回复相同',
   agentTranscriptRunning: '运行命令中',
   agentTranscriptReading: '读取文件中',
   agentTranscriptSearching: '搜索中',
@@ -2386,6 +2394,7 @@ const ZH_COPY: CodeCopy = {
   noLineChanges: '这一行没有可显示的变化。',
   closeLineChanges: '关闭行变化',
   close: '关闭',
+  sessionNoticeDismissFailed: '未能关闭此提示，请重试。',
   closeFile: path => `关闭 ${path}`,
   closeOthers: '关闭其他',
   closeToRight: '关闭右侧',

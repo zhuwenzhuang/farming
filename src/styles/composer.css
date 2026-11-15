@@ -365,6 +365,27 @@
   color: var(--code-danger);
 }
 
+.code-acp-feedback.warning {
+  background: var(--code-warning-soft);
+  color: var(--code-warning);
+}
+
+.code-acp-notices {
+  flex: 0 1 auto;
+  max-height: 192px;
+  overflow-y: auto;
+}
+
+.code-acp-notice {
+  align-items: flex-start;
+}
+
+.code-acp-notice-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .code-acp-feedback.error::before {
   background: var(--code-danger-soft);
 }

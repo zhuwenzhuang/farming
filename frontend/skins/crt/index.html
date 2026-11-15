@@ -742,6 +742,7 @@
             display: grid;
         }
 
+        .crt-structured-session-notices,
         .crt-structured-composer-notices,
         .crt-structured-composer-menu,
         .crt-structured-attachments,
@@ -749,6 +750,7 @@
             grid-column: 1 / -1;
         }
 
+        .crt-structured-session-notices:empty,
         .crt-structured-composer-notices:empty,
         .crt-structured-attachments:empty,
         .crt-structured-composer-menu[hidden] {
@@ -761,6 +763,16 @@
             border: 1px solid rgba(0, 255, 0, 0.5);
             background: rgba(0, 18, 7, 0.96);
         }
+
+        .crt-structured-session-notices {
+            max-height: 192px;
+            overflow-y: auto;
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+        }
+
+        .crt-session-notice.warning { border-color: #ffcc00; }
+        .crt-session-notice.error { border-color: #ff7777; }
 
         .crt-structured-menu-title,
         .crt-structured-permission-title {
@@ -1916,6 +1928,7 @@
             </div>
             <div class="terminal" id="terminal-output"></div>
             <form class="crt-structured-composer" id="crt-structured-composer">
+                <div class="crt-structured-session-notices" id="crt-structured-session-notices"></div>
                 <div class="crt-structured-composer-notices" id="crt-structured-composer-notices"></div>
                 <div class="crt-structured-attachments" id="crt-structured-attachments"></div>
                 <label class="crt-structured-input-field" for="crt-structured-input">

@@ -760,6 +760,8 @@ class AcpRuntimeHostProcess {
           Number(params.cols),
           Number(params.rows),
         );
+      case 'dismissNotice':
+        return this.runtime.dismissNotice(String(params.agentId || ''), String(params.sessionId || ''), String(params.noticeId || ''));
       case 'cancelSubagent':
         return this.runtime.cancelSubagent(String(params.agentId || ''), String(params.sessionId || ''));
       case 'decidePatch':

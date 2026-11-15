@@ -8,6 +8,8 @@ import type { RelatedSessionTarget } from './related-session-navigation'
 import { codeCopyForLanguage } from './copy'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { TranscriptAgentLinks } from './TranscriptAgentLinks'
+import { AcpSessionNotices } from './acp/AcpSessionNotices'
+import type { AcpNotice } from '../../../shared/acp-notice'
 
 export function RelatedSessionPanel({ target, active, refreshSignal, onClose, language, onQuoteInParent }: {
   target: RelatedSessionTarget
@@ -19,6 +21,7 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
 }) {
   useAcpRevisionInterest(target.parentAgentId, active)
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null)
+  const [notices, setNotices] = useState<AcpNotice[]>([])
   const [error, setError] = useState('')
   const [cursors, setCursors] = useState<string[]>([''])
   const cursor = cursors[cursors.length - 1] || ''
@@ -38,6 +41,7 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
       return
     }
     setTranscript(null)
+    setNotices([])
     setError('')
     let current = true
     let pending = false
@@ -64,7 +68,7 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
             maxTurns: Array.isArray(payload.entries) ? Math.max(limit, payload.entries.length) : limit,
           })
           if (next.sessionId !== target.sessionId) throw new Error('Subagent identity changed during read')
-          if (current) { setTranscript(next); setError('') }
+          if (current) { setTranscript(next); setNotices(payload.notices || []); setError('') }
         } catch (caught) {
           if (current) setError(request.signal.aborted
             ? (chinese ? '读取超时，请重试。' : 'Read timed out. Try again.')
@@ -101,6 +105,9 @@ export function RelatedSessionPanel({ target, active, refreshSignal, onClose, la
         </button>
       </header>
       <div className="code-related-session-content" aria-busy={loading}>
+        {active && transcript?.sessionId === target.sessionId && !error ? <AcpSessionNotices notices={notices} agentId={target.parentAgentId}
+          sessionId={target.sessionId} copy={codeCopyForLanguage(chinese ? 'zh' : 'en')}
+          onKeyboardDismiss={() => closeRef.current?.focus({ preventScroll: true })} /> : null}
         <div className="code-related-session-source">{codeCopyForLanguage(chinese ? 'zh' : 'en').nativeChildDescription}</div>
         {error ? <div className="code-agent-transcript-state code-agent-transcript-load-error inline" role="alert">
           <span>{chinese ? '会话记录读取失败：' : 'Transcript read failed: '}{error}</span>

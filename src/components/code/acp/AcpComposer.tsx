@@ -45,6 +45,7 @@ import {
 } from './AcpSessionControls'
 import { acpContextUsage } from './acp-usage'
 import { useAcpSession } from './useAcpSession'
+import { AcpSessionNotices } from './AcpSessionNotices'
 
 function findAcpCommandTrigger(draft: string, selectionStart: number) {
   const trigger = findComposerCommandTrigger(draft, selectionStart)
@@ -604,6 +605,9 @@ export function AcpComposer({
           ))}
         </div>
       ) : null}
+      {active && sessionAuthoritative && session ? <AcpSessionNotices
+        notices={session.notices} agentId={agentId} sessionId={session.sessionId} copy={copy}
+        onKeyboardDismiss={() => textareaRef.current?.focus({ preventScroll: true })} /> : null}
       {configDeferred ? (
         <section className="code-acp-feedback" data-testid="code-acp-config-deferred" role="status">
           <p>{modeDeferred && configOptionsDeferred

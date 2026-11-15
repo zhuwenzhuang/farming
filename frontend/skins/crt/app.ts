@@ -6325,6 +6325,7 @@ function isCurrentStructuredSession(agentId: string|null, generation: number) {
 
 function resetStructuredSessionControls() {
   structuredSessionSnapshot = null;
+  renderStructuredSessionNotices();
   structuredSessionControlsLoading = false;
   structuredSessionControlsRevision = '';
   structuredComposerMenu = '';
@@ -6594,6 +6595,7 @@ function renderStructuredComposerMenu() {
 }
 
 function renderStructuredSessionControls() {
+  renderStructuredSessionNotices();
   const session = structuredSessionSnapshot;
   const commandButton = document.getElementById('crt-structured-command');
   const modeButton = document.getElementById('crt-structured-mode');
@@ -6611,6 +6613,54 @@ function renderStructuredSessionControls() {
   configButton.textContent = `[${currentStructuredConfigLabel(session)}]`;
   updateStructuredUsageDisplay(usage, session);
   renderStructuredComposerMenu();
+}
+
+function renderStructuredSessionNotices() {
+  const container = document.getElementById('crt-structured-session-notices');
+  if (!container) return;
+  const session = structuredSessionSnapshot;
+  container.replaceChildren();
+  const agentId = focusedAgentId;
+  const generation = structuredSessionGeneration;
+  if (!session || !agentId) return;
+  for (const notice of session.notices || []) {
+    const panel = document.createElement('section');
+    const severity = ['warning', 'error'].includes(notice.severity) ? notice.severity : 'info';
+    panel.className = `crt-structured-permission crt-session-notice ${severity}`;
+    panel.setAttribute('role', severity === 'info' ? 'status' : 'alert');
+    const title = document.createElement('strong');
+    title.className = 'crt-structured-permission-title';
+    title.textContent = notice.title;
+    const detail = document.createElement('p');
+    detail.textContent = notice.description || '';
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.textContent = '[CLOSE]';
+    dismiss.setAttribute('aria-label', `Close: ${notice.title}`);
+    dismiss.onclick = async event => {
+      if (event.detail === 0) document.getElementById('crt-structured-input')?.focus({ preventScroll: true });
+      dismiss.disabled = true;
+      try {
+        const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-notices/${encodeURIComponent(session.sessionId)}/${encodeURIComponent(notice.id)}`), {
+          method: 'DELETE', signal: window.AbortSignal.timeout(15000),
+        });
+        if (!isCurrentStructuredSession(agentId, generation)) return;
+        if (!response.ok) throw new Error('Could not close this notice. Try again.');
+        session.notices = session.notices?.filter(item => item.id !== notice.id);
+        panel.remove();
+        await refreshStructuredSessionControls(agentId, true, generation);
+      } catch (error) {
+        if (isCurrentStructuredSession(agentId, generation)) showStructuredComposerError(error);
+      } finally {
+        dismiss.disabled = false;
+      }
+    };
+    const actions = document.createElement('div');
+    actions.className = 'crt-structured-permission-actions';
+    actions.appendChild(dismiss);
+    panel.append(title, detail, actions);
+    container.appendChild(panel);
+  }
 }
 
 async function refreshStructuredSessionControls(

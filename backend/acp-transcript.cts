@@ -586,6 +586,7 @@ function transcriptEntryForClient(entry: DataRecord, options: TranscriptOptions 
   });
   if (truncation.truncated) content.push({ type: 'text', text: '[Message truncated to fit transcript response]' });
   return { ...projected, content,
+    ...(truncation.truncated ? { transcriptContentTruncated: true } : {}),
     ...(entry.type === 'compaction' ? { summary: content.filter(isDataRecord)
       .filter(block => block.type === 'text').map(block => String(block.text || '')).join('') } : {}),
   };

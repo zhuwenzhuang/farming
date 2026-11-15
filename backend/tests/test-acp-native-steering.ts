@@ -29,7 +29,11 @@ async function run() {
       const prompt = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]).then(value => { settled = true; return value; });
       void prompt.catch(() => {});
       await until(() => runtime.canSteer('native'));
+      binding.sessionState.apply({ sessionId: binding.sessionId, update: {
+        sessionUpdate: 'notice', severity: 'warning', title: 'Advisory before Steer',
+      } });
       await runtime.submitMessage('native', [{ type: 'text', text: 'first change' }], { delivery: 'steer' });
+      assert.deepEqual(binding.sessionState.notices, [], 'accepted native Steer clears earlier notices');
       assert.equal(settled, false, 'handover must not complete the logical Turn');
       assert.equal(binding.state, 'working');
       assert(runtime.canSteer('native'), 'a handed-over Turn remains steerable');

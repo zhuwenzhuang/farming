@@ -1469,7 +1469,7 @@ class AcpRuntime extends EventEmitter {
           terminal: true,
           subagents: {},
           auth: { terminal: true },
-          session: { configOptions: { boolean: {} }, compaction: {} },
+          session: { configOptions: { boolean: {} }, compaction: {}, notices: {} },
           elicitation: { form: {}, url: {} },
           // SDK peers that predate the typed capability negotiate the same
           // native session events through their existing AIR extension.
@@ -3172,6 +3172,8 @@ class AcpRuntime extends EventEmitter {
             if (child && native.title) child.title = String(native.title);
           }
         const notificationSessionId = String(notification?.sessionId || '');
+        if (native?.sessionUpdate === 'notice' && notificationSessionId !== binding.sessionId
+          && !binding.subagentStates.has(notificationSessionId)) return;
         const isPrimarySession = !binding.sessionId || !notificationSessionId || notificationSessionId === binding.sessionId;
         if (isPrimarySession) this.applyNativeTurn(binding, native);
         let targetState = isPrimarySession ? binding.sessionState : binding.subagentStates.get(notificationSessionId);
@@ -3219,6 +3221,7 @@ class AcpRuntime extends EventEmitter {
         if (targetState?.apply(notification, {
           receivedAt: binding.historyReplayActive ? null : Date.now(),
         })) {
+          if (!isPrimarySession && native?.sessionUpdate === 'notice') binding.sessionState.revision += 1;
           const update = notification.update as TranscriptEntry | undefined;
           if (update) this.updateSubagentControlFromParent(binding, update);
           const previousPermissionMode = binding.configOptions.find(option => option.category === 'mode')?.currentValue;
@@ -3257,7 +3260,7 @@ class AcpRuntime extends EventEmitter {
             if (parentTool) binding.sessionState.touchEntry(parentTool);
           }
           binding.updatedAt = new Date().toISOString();
-          if (isPrimarySession && !binding.historyReplayActive && !binding.activeTurn) {
+          if (isPrimarySession && update?.sessionUpdate !== 'notice' && !binding.historyReplayActive && !binding.activeTurn) {
             this.scheduleCheckpoint(binding, { exact: true });
           }
           // A loaded history can contain hundreds of ordered updates. Applying
@@ -3628,7 +3631,8 @@ class AcpRuntime extends EventEmitter {
       if (Object.keys(metadata).length) content[0]._meta = metadata;
       else delete content[0]._meta;
     }
-    const inputEntry = this.requireSessionState(binding).beginPrompt(content, handoffContext, options.peerMessage);
+    const inputState = this.requireSessionState(binding);
+    const inputEntry = inputState.beginPrompt(content, handoffContext, options.peerMessage);
     turn.phase = 'running';
     binding.chatTurn = {
       turnId: `${binding.capabilityRuntimeEpoch}:${turn.id}`,
@@ -3654,7 +3658,11 @@ class AcpRuntime extends EventEmitter {
         // Submission is already owned by the provider; admission callbacks cannot roll it back.
       }
       let outcome = await responsePromise.then<AcpPromptOutcome, AcpPromptOutcome>(
-        response => ({ ok: true, response }), error => ({ ok: false, error }),
+        response => {
+          if (response.stopReason !== 'cancelled' && this.isOpenBinding(binding)
+            && inputState.confirmPromptInput(inputEntry)) this.emitSession(binding);
+          return { ok: true, response };
+        }, error => ({ ok: false, error }),
       );
       // Concurrent-prompt agents can complete the original RPC at handover,
       // while the same logical Turn continues under the later prompt RPC.
@@ -3798,7 +3806,7 @@ class AcpRuntime extends EventEmitter {
     });
   }
 
-  async queueMidTurnInput(binding: AcpBinding, turn: AcpTurn, content: PromptBlock[], clientMessageId: string, options: PrepareAgentOptions) {
+  async queueMidTurnInput(binding: AcpBinding, turn: AcpTurn, content: PromptBlock[], clientMessageId: string, options: PrepareAgentOptions, noticeIds: string[]) {
     let accept!: (value: { sessionId: string; clientMessageId: string; turnId: string }) => void;
     let reject!: (error: Error) => void;
     const receipt = new Promise<{ sessionId: string; clientMessageId: string; turnId: string }>((resolve, fail) => {
@@ -3831,7 +3839,7 @@ class AcpRuntime extends EventEmitter {
             this.submissionPhase(binding, options, 'dispatching');
             const state = this.requireSessionState(binding);
             const turnId = String(turn.id);
-            state.recordAcceptedSteer(content, { messageId: clientMessageId, turnId, peerMessage: options.peerMessage });
+            state.recordAcceptedSteer(content, { messageId: clientMessageId, turnId, peerMessage: options.peerMessage, noticeIds });
             this.emitSession(binding);
             clearTimeout(timer);
             accept({ sessionId: binding.sessionId, clientMessageId, turnId });
@@ -3847,7 +3855,7 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  async steerConcurrentPrompt(binding: AcpBinding, turn: AcpTurn, content: PromptBlock[], clientMessageId: string, options: PrepareAgentOptions) {
+  async steerConcurrentPrompt(binding: AcpBinding, turn: AcpTurn, content: PromptBlock[], clientMessageId: string, options: PrepareAgentOptions, noticeIds: string[]) {
     const { RequestError } = await loadAcpSdk();
     let resolveReceipt!: (value: { sessionId: string; clientMessageId: string; turnId: string }) => void;
     let rejectReceipt!: (error: unknown) => void;
@@ -3877,7 +3885,7 @@ class AcpRuntime extends EventEmitter {
           if (pending.accepted || !this.isCurrentTurn(binding, turn)) return;
           pending.accepted = true;
           const turnId = String(turn.id);
-          state.recordAcceptedSteer(content, { messageId: clientMessageId, turnId, insertionIndex, peerMessage: options.peerMessage });
+          state.recordAcceptedSteer(content, { messageId: clientMessageId, turnId, insertionIndex, peerMessage: options.peerMessage, noticeIds });
           this.emitSession(binding);
           resolveReceipt({ sessionId: binding.sessionId, clientMessageId, turnId });
         },
@@ -3923,11 +3931,12 @@ class AcpRuntime extends EventEmitter {
     const turn = binding.activeTurn;
     this.requireCurrentTurn(binding, turn, ['running']);
     const clientMessageId = `farming-steer-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const noticeIds = binding.sessionState.notices.map(notice => notice.id);
     if (!method && native?.kind === 'pull') {
-      return this.queueMidTurnInput(binding, turn, content, clientMessageId, options);
+      return this.queueMidTurnInput(binding, turn, content, clientMessageId, options, noticeIds);
     }
     if (method === 'session/prompt') {
-      return this.steerConcurrentPrompt(binding, turn, content, clientMessageId, options);
+      return this.steerConcurrentPrompt(binding, turn, content, clientMessageId, options, noticeIds);
     }
     const operation = async () => {
       if (options.admissionDeadline !== undefined) this.admissionRemaining(options);
@@ -3956,6 +3965,7 @@ class AcpRuntime extends EventEmitter {
       this.requireCurrentTurn(binding, turn, ['running']);
       const turnId = String((response as UnknownRecord | null)?.turnId || '');
       if (sessionState.recordAcceptedSteer(content, {
+        noticeIds,
         messageId: clientMessageId,
         peerMessage: options.peerMessage,
         turnId,
@@ -5257,6 +5267,19 @@ class AcpRuntime extends EventEmitter {
     return option;
   }
 
+  dismissNotice(agentId: string, sessionId: string, noticeId: string) {
+    const binding = this.requireBinding(agentId);
+    const state = sessionId === binding.sessionId ? binding.sessionState : binding.subagentStates.get(sessionId);
+    if (!state) throw new Error('ACP notice session does not match an active Session');
+    if (state.dismissNotice(noticeId)) {
+      // Child feedback must invalidate the parent's revision-driven readers too.
+      if (state !== binding.sessionState) binding.sessionState.revision += 1;
+      binding.updatedAt = new Date().toISOString();
+      this.emitSession(binding);
+    }
+    return { dismissed: true };
+  }
+
   getSession(
     agentId: string,
     options: SnapshotOptions = {},
@@ -5653,6 +5676,7 @@ class AcpRuntime extends EventEmitter {
       stopReason: association ? association.state?.stopReason || ''
         : controlFailed || failed ? 'error' : cancelled ? 'cancelled' : stateName === 'idle' ? 'end_turn' : '',
       ...state.transcriptSlice(options),
+      notices: state.snapshot({}, { includeEntries: false }).notices,
       ...this.nativeChatReferences(binding),
     };
   }
@@ -5690,7 +5714,9 @@ class AcpRuntime extends EventEmitter {
     }
     // A read projects a private snapshot, never overwriting the live reducer.
     const snapshot = new AcpSessionState({ provider: binding.provider, sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
-    for (const update of response.updates) snapshot.apply({ sessionId, update });
+    for (const update of response.updates) {
+      if (recordValue(update).sessionUpdate !== 'notice') snapshot.apply({ sessionId, update });
+    }
     const status = typeof response.status === 'string' ? response.status : 'unknown';
     const failed = ['systemError', 'error', 'failed', 'errored'].includes(status);
     const cancelled = ['cancelled', 'canceled', 'interrupted'].includes(status);
@@ -5704,6 +5730,7 @@ class AcpRuntime extends EventEmitter {
       // The adapter owns this bounded page and its continuation. Peer messages
       // can create extra display turns; trimming again would skip them forever.
       ...snapshot.transcriptSlice({ ...options, cursor: undefined, maxTurns: response.updates.length || 1 }),
+      notices: binding.subagentStates.get(sessionId)?.snapshot({}, { includeEntries: false }).notices || [],
       ...this.nativeChatReferences(binding),
       includesLatest: !options.cursor,
       nextCursor: typeof response.nextCursor === 'string' ? response.nextCursor : null,

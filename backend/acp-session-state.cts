@@ -10,7 +10,8 @@ const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
 const NATIVE_TERMINAL_METADATA_FIELDS = ['terminal_info', 'terminal_output', 'terminal_output_delta', 'terminal_exit'];
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import type { AcpNotice } from '../shared/acp-notice.js';
 import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
 import type { NativeSubagentAssociation } from './acp-native-subagents.cjs';
 
@@ -120,6 +121,7 @@ interface AcpSessionStateOptions {
 }
 
 interface AcceptedSteerOptions {
+  noticeIds?: string[];
   peerMessage?: AcpPeerMessage;
   messageId?: unknown;
   turnId?: unknown;
@@ -325,6 +327,7 @@ class AcpSessionState {
   private trustedInputPrefixes: AcpEntry[][] = [];
   // Only live admissions own content-based echo matching; checkpoints cannot rearm it.
   private promptEchoBlocks = new WeakMap<AcpEntry, number>();
+  private promptNoticeIds = new WeakMap<AcpEntry, string[]>();
   provider: string;
   sessionId: string;
   cwd: string;
@@ -350,6 +353,8 @@ class AcpSessionState {
   revision: number;
   resetBeforeRevision: number;
   modelChanges: ModelChange[] = [];
+  // Live feedback is deliberately absent from entries, update replay and checkpoints.
+  notices: AcpNotice[] = [];
   private modelChangeAnchors = new Map<string, HistoryAnchor>();
   forkOrigin: ForkOrigin | null = null;
   forkOriginAnchor: HistoryAnchor | null = null;
@@ -720,12 +725,14 @@ class AcpSessionState {
       turnDurationMs: null,
     });
     this.promptEchoBlocks.set(entry, 0);
+    if (!peerMessage) this.promptNoticeIds.set(entry, this.notices.map(notice => notice.id));
     return entry;
   }
 
   recordAcceptedSteer(prompt: unknown, options: AcceptedSteerOptions = {}): boolean {
     const messageId = String(options.messageId || '');
     if (!messageId) return false;
+    if (!options.peerMessage) this.dismissNotices(options.noticeIds || []);
     const existing = this.entries.find(entry => (
       entry?.type === 'message'
       && entry.role === 'user'
@@ -796,6 +803,10 @@ class AcpSessionState {
     // existing entry so delta readers can refresh that turn without inventing
     // a protocol entry boundary.
     const userEntry = this.entries[start];
+    if (userEntry) {
+      if (!interrupted) this.confirmPromptInput(userEntry);
+      this.promptNoticeIds.delete(userEntry);
+    }
     if (userEntry && !userEntry.turnCompletedAt) {
       userEntry.turnStopReason = stopReason;
       userEntry.turnCompletedAt = Date.now();
@@ -831,6 +842,21 @@ class AcpSessionState {
     const rawUpdate = notification.update as AcpUpdate;
     if (!rawUpdate || typeof rawUpdate !== 'object') return false;
     const update = acpSessionProviderPolicy(this.provider).normalizeUpdate(rawUpdate);
+    if (update.sessionUpdate === 'notice') {
+      if (typeof update.title !== 'string' || !update.title.length || typeof update.severity !== 'string') return false;
+      this.notices.push({
+        id: randomUUID(),
+        severity: update.severity,
+        title: update.title,
+        ...(typeof update.description === 'string' ? { description: update.description } : {}),
+        ...(update._meta && typeof update._meta === 'object' && !Array.isArray(update._meta)
+          ? { _meta: clone(update._meta) } : {}),
+      });
+      // Bound ephemeral feedback without truncating the conversation or its history.
+      if (this.notices.length > 64) this.notices.shift();
+      this.revision += 1;
+      return true;
+    }
     this.updates.push({
       sequence: this.updates.length + 1,
       at: new Date().toISOString(),
@@ -897,6 +923,27 @@ class AcpSessionState {
     return true;
   }
 
+  dismissNotice(id: string): boolean {
+    return this.dismissNotices([id]);
+  }
+
+  dismissNotices(ids: readonly string[]): boolean {
+    if (!ids.length) return false;
+    const selected = new Set(ids);
+    const remaining = this.notices.filter(notice => !selected.has(notice.id));
+    if (remaining.length === this.notices.length) return false;
+    this.notices = remaining;
+    this.revision += 1;
+    return true;
+  }
+
+  confirmPromptInput(entry: AcpEntry): boolean {
+    const ids = this.promptNoticeIds.get(entry);
+    if (!ids) return false;
+    this.promptNoticeIds.delete(entry);
+    return this.dismissNotices(ids);
+  }
+
   private recordCompletedGoal(goal: AgentGoal | null): void {
     if (goal?.status !== 'complete') return;
     // Provider metadata can repeat after reconnect or report final usage later.
@@ -953,6 +1000,7 @@ class AcpSessionState {
     }
 
     if (providerPolicy.isMirroredUserMessage(last, update, role, type)) {
+      if (last) this.confirmPromptInput(last);
       this.touchEntry(last);
       return;
     }
@@ -964,6 +1012,7 @@ class AcpSessionState {
       entry.type === 'message' && entry.role === 'user' && entry.messageId === messageId
       && (entry.optimistic || entry._meta?.farming?.messageRole === 'user'));
     if (snapshot) {
+      this.confirmPromptInput(snapshot);
       this.touchEntry(snapshot);
       return;
     }
@@ -984,6 +1033,7 @@ class AcpSessionState {
         && ['', '\n', '\n\n'].some(separator => remaining.map(block => block.text).join(separator) === update.content?.text);
       const transformed = cursor === 0 && remaining.length === 1 && providerPolicy.isTransformedPromptEcho(latestUser, update);
       if (exactBlock || joinedText || transformed) {
+        this.confirmPromptInput(latestUser);
         this.promptEchoBlocks.set(latestUser, cursor + (exactBlock ? 1 : remaining.length));
         latestUser.messageId = messageId;
         this.touchEntry(latestUser);
@@ -1414,6 +1464,7 @@ class AcpSessionState {
       goal: clone(this.goal),
       codexSubagents: clone(this.codexSubagents),
       nativeSubagent: clone(this.nativeSubagent),
+      notices: clone(this.notices),
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);
     return snapshot;

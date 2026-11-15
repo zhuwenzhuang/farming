@@ -46,12 +46,36 @@ hard-stop, isolation or uncertain-delivery contracts.
 
 For compatibility acceptance, follow the [provider integration review](test/acceptance-dogfood-plan.md#provider-integration-review).
 
-Zed also implements ACP v2 receipt/state semantics, dismissible live notices and
-preview plan operations. Farming currently negotiates v1, rejects a different wire
-version, and does not advertise notices or plan mutations. Reading a plan does not
-grant edit operations. These are explicit capability differences, not permission
-to silently accept unsupported events. MCP injection is provider-gated; an adapter
-that cannot compose it with the selected runtime must reject it before launch.
+Zed's reference includes ACP v2 receipt/state work; verify the selected connection
+path before treating that implementation as active support. Farming currently
+negotiates v1, rejects a different wire version, and advertises session notices.
+Reading a plan does not grant edit operations. MCP injection is provider-gated;
+an adapter that cannot compose it with the selected runtime must reject it before launch.
+
+### Live Session Notices
+
+Notices are provider-neutral, fire-and-forget feedback scoped to an exact live
+Session. The Runtime Host retains at most the latest 64 notices, with unique
+client-owned identities. Code and CRT show plain-text titles and optional details;
+unknown severities receive neutral presentation. Severity never changes Turn,
+permission or failure state. Notices are not chat entries, replay logs or durable
+checkpoints. Fresh notices emitted during session/load remain visible; historical
+related-session reads cannot resurrect notices.
+
+Dismissal removes only the named notice from its owning Session and is idempotent.
+Browsers reconcile the Host's state, including across reconnects and multiple views.
+Failed or timed-out dismissal remains visible with an explicit error. A new runtime
+starts without prior notices; stale dismissal IDs cannot affect new feedback.
+Keyboard dismissal returns focus to the Composer or related-session controls while
+preserving the draft. Delayed confirmation must not move focus again.
+
+The next accepted user input automatically clears notices that existed when that
+input was submitted. Prompt echoes or a successful non-cancelled response confirm
+ordinary input; Steer uses its existing acceptance receipt. New notices arriving
+after submission remain visible, including on late acknowledgement. Draft edits,
+queued inputs, rejected or unconfirmed delivery, and agent-to-agent messages do
+not clear notices. This presentation cleanup does not assert that a reported
+condition has recovered.
 
 ## Ownership And Provider Boundary
 
@@ -245,6 +269,16 @@ Adapters distinguish message deltas from cumulative snapshots and preserve nativ
 message boundaries. Final results reconcile with streamed text: an echo is not
 repeated, an extension contributes its suffix, and a distinct final answer remains
 visible after progress. Contradictory snapshots fail explicitly.
+
+Independent native replies remain distinct even when their text is identical.
+After a complete Turn settles, an earlier text-only reply or thought exactly
+matching its text-only final reply uses a collapsed, labelled disclosure in Chat.
+It keeps its original position, identity, full body and copy action; thought and
+reply labels remain distinct. This presentation applies across Providers and
+related-session previews, without changing native history or backend events.
+Live output, truncated bodies, incomplete history pages, media and input/Steer
+boundaries cannot establish a repeated response. Expanding the disclosure reveals
+the original.
 
 The reducer reconciles first input echoes against the latest ordinary user input
 only while it is a live, unsettled admission without a native message identity.
