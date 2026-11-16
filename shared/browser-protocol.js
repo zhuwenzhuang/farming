@@ -11,8 +11,8 @@ const composer_submission_js_1 = require("./composer-submission.js");
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
 const chat_turn_state_js_1 = require("./chat-turn-state.js");
-exports.PROTOCOL_VERSION = 22;
-exports.MIN_PROTOCOL_VERSION = 22;
+exports.PROTOCOL_VERSION = 23;
+exports.MIN_PROTOCOL_VERSION = 23;
 exports.MAX_ACP_TRANSCRIPT_INTEREST = 20;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
@@ -119,6 +119,7 @@ function workspaceRequest(value) {
                 && Array.isArray(value.entryPaths)
                 && value.entryPaths.length <= 4096
                 && value.entryPaths.every(entryPath => typeof entryPath === 'string' && entryPath.length <= 4096);
+        case 'resolve-path':
         case 'read-file':
             return rootPath() && optionalBooleanField(value, 'exactExternal');
         case 'create-preview':
@@ -509,6 +510,8 @@ function validateClientMessage(value) {
             break;
         case 'workspace-request':
             valid = stringField(value, 'requestId')
+                && (value.budgetMs === undefined || (Number.isInteger(value.budgetMs) && Number(value.budgetMs) > 0 && Number(value.budgetMs) <= 300_000))
+                && (value.priority === undefined || value.priority === 'interactive' || value.priority === 'background')
                 && workspaceRequest(value.request)
                 && serializedMessageWithinWorkspaceLimit(value);
             break;
@@ -517,6 +520,7 @@ function validateClientMessage(value) {
             break;
         case 'language-server-request':
             valid = stringField(value, 'requestId')
+                && (value.budgetMs === undefined || (Number.isInteger(value.budgetMs) && Number(value.budgetMs) > 0 && Number(value.budgetMs) <= 300_000))
                 && languageServerRequest(value.request)
                 && serializedMessageWithinWorkspaceLimit(value);
             break;

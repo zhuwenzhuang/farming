@@ -4,6 +4,9 @@ import {
 } from './terminal-link-parsing'
 
 export interface TerminalPathOpenTarget {
+  resolved?: boolean
+  cwd?: string
+  signal?: AbortSignal
   path: string
   lineNumber?: number
   column?: number

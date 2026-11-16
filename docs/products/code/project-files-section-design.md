@@ -141,14 +141,16 @@ the returned canonical path, including Project roots and trailing slashes. Each 
 navigation invalidates older pending results; failures cannot activate stale targets.
 It never requests browser-local files. Missing or inaccessible explicit links produce
 visible failure without repository search or substitution of a same-named file.
-Only Terminal shorthand retains its bounded search fallback. A directory in another
+Terminal paths use the cwd recorded for their output line and a metadata-only
+exact check; neither hovering nor opening a path starts repository search.
+Unknown historical cwd stays unknown. Explicit word search is a separate action. A directory in another
 mounted Project uses that Project; directory navigation does not mount new Projects
 or broaden filesystem access.
 External URLs retain normal safe Markdown handling.
 
 Inferred inline-code paths remain authored code until a bounded backend check
 confirms the exact file is readable. The transcript owner deduplicates by root
-and path, batches checks on the Workspace background lane, and retains bounded
+and path, batches checks on the Workspace metadata lane, and retains bounded
 confirmation evidence for its lifetime, including while inactive. Confirmation
 only establishes a reference; it does not grant access or cache file contents.
 There is no periodic refresh or demotion of confirmed references. Initial missing,
@@ -170,6 +172,11 @@ Replacement or close releases old work and rejects late results. Show formatted
 values and missing formula-cache warnings without recalculation, macros or external
 link refresh. Hidden sheets/rows/columns stay discoverable. Copy and Chat quotes
 use the displayed selection with original sheet, coordinates and file version.
+
+Directory/open-editor refresh and Git refresh have independent completion and error
+states. Successful content stays usable while another area is pending or fails.
+Repeated refresh joins in-flight work; retry after a failed refresh targets the
+failed area. Git failures expose a local retry without reloading the directory.
 
 ## Git And Review
 

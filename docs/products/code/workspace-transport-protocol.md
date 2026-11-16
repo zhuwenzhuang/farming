@@ -99,7 +99,7 @@ compatibility input only while persisted clients are upgraded.
 | Workspace root inventory | Existing authoritative state snapshot/delta | No Files endpoint |
 | Directory structure and ordinary file metadata/read | Request/result | Oversized or binary body only |
 | Directory Git/ignored decoration | Bounded `tree-decorations` request/result | None |
-| Chat file-link validation | Bounded `file-link-access` metadata/access batches on the background lane | None |
+| Chat and Terminal file-link validation | Exact `resolve-path` and bounded `file-link-access` metadata/access batches on the metadata lane | None |
 | Save, create, rename, move, delete | Request/result when payload is inline | Oversized upload body only |
 | Search | Request/result with bounded matches | None |
 | Changes, branch inventory, worktrees, History, blame, line changes | Request/result with paging or truncation | None |
@@ -237,21 +237,27 @@ latest file-open intent.
 ## Request Admission And Server Scheduling
 
 The browser broker bounds delivery before requests reach the socket. It shares
-the server's operation classification and admits at most four interactive and
+the server's operation classification and admits at most two metadata, four interactive and
 two background Workspace requests, plus one interactive and one background
 Language Server request at a time. Language Server work never occupies a Workspace slot.
 Restoring many expanded directories queues their reads locally; it must not
 flood the server queue or let Git decoration block directory navigation.
-Every result, cancellation, and timeout releases admission for the next owned
-request. Cancelled server-queued work immediately releases queue capacity.
+Cancellation and timeout reject the consumer immediately, but sent work retains its
+execution admission until the backend acknowledges actual completion. Queued work
+can acknowledge cancellation immediately. Shared Git reads cancel their subprocess
+only when the last consumer leaves; all consumers retain admission until it exits.
 
 The browser retains at most 512 pending Workspace requests, with 64 reserved for interactive
 Workspace work. Each Language Server lane separately allows 32 pending requests.
 The server's 64-entry Workspace queue reserves 16 for interactive work; each
 Language Server lane has its own eight-entry queue, outside that Workspace quota. Semantic requests cannot exhaust either file lane
 or the shared queue, even if an underlying server ignores cancellation.
-Overflow is explicitly rejected before delivery or execution. A request's default 60-second deadline includes local queue
-time and delivery; operation-specific bounded deadlines may override it.
+Overflow is explicitly rejected before delivery or execution. One shared operation
+policy sets the total request budget, including local/server queue time, execution,
+and reconnect. The browser sends only the remaining budget; the server aborts on
+expiry. Components own feedback timing, not competing request timers. Subprocess
+caps remain execution safeguards inside that total budget. Only a proven stale
+read snapshot receives one automatic retry within the original deadline.
 Cancellation or timeout before delivery cannot have an uncertain mutation
 outcome. Reconnection applies the same admission limits to replayable reads;
 it never replays a sent mutation or retries a `BUSY` result automatically.
@@ -262,7 +268,9 @@ message. Each in-flight request owns an `AbortController`, deadline, operation
 classification, and bounded result budget. Connection close aborts all
 cancel-safe work and disposes its watch registrations.
 
-Workspace and semantic work use four scheduling lanes:
+Workspace and semantic work use five scheduling lanes:
+
+- **metadata**: exact Terminal paths and bounded Chat file-reference checks;
 
 - **interactive**: directory `tree`, file resolve, explicit reload, save and
   entry mutations;
@@ -273,7 +281,10 @@ Workspace and semantic work use four scheduling lanes:
   inlay hints, symbols, highlights, and diagnostics.
 
 Background and Language Server work have independent concurrency limits and cannot occupy every
-Workspace execution slot. At least one interactive slot remains available.
+Workspace execution slot. Navigation admission stays independent of those lanes.
+Within each lane, explicit user work precedes queued background work and equal-priority
+requests rotate across Project owners. Repeated refresh joins the current read and
+promotes queued automatic work rather than cancelling and restarting it.
 Limits apply per connection and globally so one browser cannot create
 unbounded server work. Same-resource reads are coalesced by the Workspace File
 model; the transport scheduler does not create a second cache.

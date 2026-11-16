@@ -1,3 +1,4 @@
+import { terminalCwdSequence } from '../../shared/terminal-cwd'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, fileEditorPosition, openFarming, terminalRows, test, writeTerminalFixture } from './fixtures'
@@ -58,7 +59,7 @@ test('terminal path affordance clears on same-line blank cells', async ({ page, 
   const agentId = await createControlAgent(page, 'bash', projectDir)
   await openFarming(page)
   await selectAgent(page, agentId)
-  await writeTerminalFixture(page, agentId, 'README.md:3:1 failed\r\n')
+  await writeTerminalFixture(page, agentId, terminalCwdSequence(projectDir) + 'README.md:3:1 failed\r\n')
 
   const pathCell = await cellForText(page, agentId, 'README.md', 2)
   await page.mouse.move(pathCell.x, pathCell.y)
@@ -231,7 +232,7 @@ test('terminal multiline diagnostics bind numeric results to the preceding file'
   const agentId = await createControlAgent(page, 'bash', projectDir)
   await openFarming(page)
   await selectAgent(page, agentId)
-  await writeTerminalFixture(page, agentId, `${fileName}\r\n  2:3  error Unexpected token\r\n`)
+  await writeTerminalFixture(page, agentId, terminalCwdSequence(projectDir) + `${fileName}\r\n  2:3  error Unexpected token\r\n`)
 
   const diagnosticCell = await cellForText(page, agentId, '2:3', 1)
   await expect.poll(async () => page.evaluate(({ id, col, row }) => {
@@ -241,6 +242,7 @@ test('terminal multiline diagnostics bind numeric results to the preceding file'
     col: diagnosticCell.col,
     row: diagnosticCell.row,
   })).toEqual({
+    cwd: projectDir,
     path: fileName,
     lineNumber: 2,
     column: 3,
@@ -251,3 +253,65 @@ test('terminal multiline diagnostics bind numeric results to the preceding file'
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText(fileName)
   await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 3 })
 })
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`bash file links preserve output cwd after reload in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, `cwd-links-${appearance}`)
+    const nested = path.join(workspace, 'tools/skills')
+    const leaf = 'references/analysis.md'
+    fs.mkdirSync(path.join(nested, 'references'), { recursive: true })
+    fs.mkdirSync(path.join(workspace, 'references'), { recursive: true })
+    fs.writeFileSync(path.join(nested, leaf), '# Correct nested file\n')
+    fs.writeFileSync(path.join(workspace, leaf), '# Wrong project-root file\n')
+    const operations: Array<{ operation: string; path?: string }> = []
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      try {
+        const frame = JSON.parse(String(payload))
+        if (frame.type === 'workspace-request') operations.push(frame.request)
+      } catch { /* Non-JSON transport frames are unrelated. */ }
+    }))
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    const agentId = await createControlAgent(page, 'bash', workspace)
+    try {
+      await openFarming(page)
+      await selectAgent(page, agentId)
+      const send = async (input: string) => {
+        expect((await page.request.post(`/farming/api/control/agents/${agentId}/input`, { data: { input } })).ok()).toBeTruthy()
+      }
+      await send("cd tools/skills\r")
+      await expect.poll(async () => {
+        const checkpoint = await page.evaluate(id => window.__farmingTerminalTest?.requestCheckpoint(id), agentId)
+        return decodeURIComponent(checkpoint?.output || '')
+      }).toContain(nested)
+      // A real shell emits the cwd marker at its prompt before this command.
+      // Split the filename in the command so the matching row is output, not echo.
+      await send("printf 'create mode 100644 references/%s.md\\n' analysis\r")
+      await expect.poll(async () => (await terminalRows(page, agentId, 40)).join('\n')).toContain(`create mode 100644 ${leaf}`)
+      await send('cd ../..\r')
+      await expect.poll(async () => {
+        const checkpoint = await page.evaluate(id => window.__farmingTerminalTest?.requestCheckpoint(id), agentId)
+        const marker = /FarmingCwdSnapshot=([^\x07]*)/.exec(checkpoint?.output || '')
+        return marker ? (JSON.parse(decodeURIComponent(marker[1])) as Array<[number, string]>).at(-1)?.[1] : null
+      }).toBe(workspace)
+      await page.reload()
+      await selectAgent(page, agentId)
+      await expect.poll(async () => (await terminalRows(page, agentId, 40)).join('\n')).toContain(`create mode 100644 ${leaf}`)
+      operations.length = 0
+      const cell = await cellForText(page, agentId, leaf, 5)
+      await page.mouse.move(cell.x, cell.y)
+      await expect.poll(() => terminalOpenTargetState(page, agentId)).toEqual(expect.objectContaining({ target: 'path' }))
+      await page.mouse.click(cell.x, cell.y)
+      await expect(page.getByTestId('code-file-editor')).toBeVisible()
+      await expect(page.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Correct nested file' })).toBeVisible()
+      expect(operations.some(request => request.operation === 'resolve-path' && request.path === `tools/skills/${leaf}`)).toBeTruthy()
+      expect(operations.filter(request => request.operation === 'search')).toEqual([])
+      const screenshot = await page.screenshot({ path: testInfo.outputPath(`terminal-cwd-${appearance}.png`) })
+      expect(screenshot.readUInt32BE(16)).toBe(page.viewportSize()!.width)
+      expect(screenshot.readUInt32BE(20)).toBe(page.viewportSize()!.height)
+      await testInfo.attach(`terminal-cwd-${appearance}`, { body: screenshot, contentType: 'image/png' })
+    } finally {
+      await page.request.delete(`/farming/api/control/agents/${agentId}`)
+      fs.rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+}

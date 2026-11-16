@@ -245,3 +245,59 @@ test('background LSP saturation leaves an immediate interactive semantic slot', 
     setWorkspaceRequestTransport(null)
   }
 })
+
+test('Files cancellation retains physical admission and exact metadata bypasses expensive work', { timeout: 5_000 }, async t => {
+  const releases: Array<() => void> = []
+  const client = { readyState: 1, send(raw: string) { queueMicrotask(() => settleWorkspaceRequest(JSON.parse(raw))) } }
+  const handlers = createWebSocketWorkspaceRequestHandlers({
+    openState: 1, maxMessageBytes: 1024 * 1024,
+    executeWorkspace: async request => {
+      if (request.operation === 'resolve-path') return { path: 'nested/file.md', kind: 'file' }
+      await new Promise<void>(resolve => releases.push(resolve))
+      return { items: [] }
+    },
+    executeLanguageServer: async () => ({ result: null }),
+    error: () => ({ code: 'FAILED', message: 'failed' }),
+  })
+  t.after(() => { handlers.close(client); setWorkspaceRequestTransport(null); releases.forEach(resolve => resolve()) })
+  setWorkspaceRequestTransport(message => {
+    if (message.type === 'workspace-request') handlers.workspaceRequest(client, message)
+    else if (message.type === 'workspace-cancel') handlers.cancel(client, message)
+    return true
+  })
+  setWorkspaceRequestTransportReady(true)
+  for (let index = 0; index < 30; index++) {
+    const controller = new AbortController()
+    const pending = requestWorkspace({ operation: 'changes', rootId: 'root' }, { signal: controller.signal })
+    controller.abort()
+    await assert.rejects(pending, { name: 'AbortError' })
+  }
+  assert.equal(releases.length, 2, 'cancelled work cannot create a hidden server backlog')
+  const result = await requestWorkspace({ operation: 'resolve-path', rootId: 'root', path: 'nested/file.md' })
+  assert.deepEqual(result, { path: 'nested/file.md', kind: 'file' })
+  const live = requestWorkspace({ operation: 'changes', rootId: 'root' })
+  releases[0]()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(releases.length, 3)
+  releases[2]()
+  await live
+})
+
+test('snapshot retry shares the original budget and mutations never replay', async t => {
+  const sent: WorkspaceRequestMessage[] = []
+  t.after(() => setWorkspaceRequestTransport(null))
+  setWorkspaceRequestTransport(message => { if (message.type === 'workspace-request') sent.push({ ...message }); return true })
+  setWorkspaceRequestTransportReady(true)
+  const read = requestWorkspace({ operation: 'changes', rootId: 'root', inventory: true }, { timeoutMs: 1000 })
+  const error = { code: 'CONFLICT', status: 409, message: 'stale', details: { reason: 'snapshot-stale' } }
+  settleWorkspaceRequest({ type: 'workspace-result', requestId: sent[0].requestId, ok: false, error })
+  assert.equal(sent.length, 2)
+  assert((sent[1].budgetMs ?? 0) <= (sent[0].budgetMs ?? 0))
+  settleWorkspaceRequest({ type: 'workspace-result', requestId: sent[1].requestId, ok: false, error })
+  await assert.rejects(read)
+  assert.equal(sent.length, 2)
+  const mutation = requestWorkspace({ operation: 'save-file', rootId: 'root', path: 'a', content: 'text', baseSha1: 'base' }, { mutation: true })
+  settleWorkspaceRequest({ type: 'workspace-result', requestId: sent[2].requestId, ok: false, error })
+  await assert.rejects(mutation)
+  assert.equal(sent.length, 3)
+})

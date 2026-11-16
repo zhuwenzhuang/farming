@@ -1,3 +1,4 @@
+import { terminalCwdSequence } from '../../shared/terminal-cwd'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, fileEditorPosition, interceptTerminalCheckpoints, openFarming, requestTerminalCheckpoint, terminalCheckpointOutput, terminalHostDiagnostics, terminalRows, terminalViewport, test, writeTerminalFixture, writeTerminalRaw } from './fixtures'
@@ -1404,7 +1405,7 @@ async function runDesktopTerminalMatrix(
     })
 
     await scenario('hovering a terminal path:line exposes a direct file open affordance', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'README.md:3:1 failed\r\n')
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(projectDir) + 'README.md:3:1 failed\r\n')
       const cell = await cellForText(page, bashAgentId, 'README.md', 2)
       await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
@@ -1459,7 +1460,7 @@ async function runDesktopTerminalMatrix(
     })
 
     await scenario('plain-clicking a Python-style terminal file location opens README in the file editor', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'File "README.md", line 3, column 1\r\n')
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(projectDir) + 'File "README.md", line 3, column 1\r\n')
       const cell = await cellForText(page, bashAgentId, 'README.md', 2)
       await page.mouse.click(cell.x, cell.y)
       await expect(page.getByTestId('code-file-editor')).toBeVisible()
@@ -1498,12 +1499,12 @@ async function runDesktopTerminalMatrix(
       }
     })
 
-    await scenario('plain-clicking a unique terminal filename opens the workspace file', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'unique-only.log unique terminal filename\r\n')
+    await scenario('plain-clicking a terminal filename opens the file in its output cwd', async () => {
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(path.join(projectDir, 'src/long/single/path')) + 'unique-only.log unique terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'unique-only.log', 2)
       await expect.poll(async () => page.evaluate(({ id, col, row }) => (
         window.__farmingTerminalTest?.getPathAtCell(id, col, row) ?? null
-      ), { id: bashAgentId, col: cell.col, row: cell.row })).toEqual({ path: 'unique-only.log' })
+      ), { id: bashAgentId, col: cell.col, row: cell.row })).toEqual({ path: 'unique-only.log', cwd: path.join(projectDir, 'src/long/single/path') })
       await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
@@ -1526,7 +1527,7 @@ async function runDesktopTerminalMatrix(
     })
 
     await scenario('direct-clicking a unique terminal filename opens without waiting for hover resolution', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'instant-only.log instant terminal filename\r\n')
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(path.join(projectDir, 'src/long/single/path')) + 'instant-only.log instant terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'instant-only.log', 2)
       await page.mouse.click(cell.x, cell.y)
       await expect(page.getByTestId('code-file-editor')).toBeVisible()
@@ -1536,7 +1537,7 @@ async function runDesktopTerminalMatrix(
     })
 
     await scenario('hovering a missing terminal filename does not expose a file affordance', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'missing-file.txt missing terminal filename\r\n')
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(projectDir) + 'missing-file.txt missing terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'missing-file.txt', 2)
       await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
@@ -1556,8 +1557,8 @@ async function runDesktopTerminalMatrix(
       await expect(page.getByTestId('code-file-editor')).toBeHidden()
     })
 
-    await scenario('hovering an ambiguous terminal filename does not expose a file affordance', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'duplicate.txt ambiguous terminal filename\r\n')
+    await scenario('hovering a filename absent from cwd never searches other directories', async () => {
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(projectDir) + 'duplicate.txt ambiguous terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'duplicate.txt', 2)
       await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
@@ -1578,7 +1579,7 @@ async function runDesktopTerminalMatrix(
     })
 
     await scenario('drag-selecting a terminal path does not open the file editor', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'README.md:2:1 selectable terminal path\r\n')
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(projectDir) + 'README.md:2:1 selectable terminal path\r\n')
       const cell = await cellForText(page, bashAgentId, 'README.md', 2)
       await page.mouse.move(cell.x, cell.y)
       await page.mouse.down()
@@ -1591,7 +1592,7 @@ async function runDesktopTerminalMatrix(
     })
 
     await scenario('right-clicking a terminal path copies the exact path link text', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'README.md:4:1 copyable terminal path\r\n')
+      await writeTerminalFixture(page, bashAgentId, terminalCwdSequence(projectDir) + 'README.md:4:1 copyable terminal path\r\n')
       const cell = await cellForText(page, bashAgentId, 'README.md', 2)
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
       const menu = page.getByTestId('code-terminal-context-menu')

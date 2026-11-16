@@ -59,6 +59,7 @@ test('survives seeded cold and warm human Project Files interactions', {
   const reads = new Map<string, number>()
   const failedResponses: string[] = []
   const forbiddenControlHttp: string[] = []
+  const cancelledRequests = new Set<string>()
   const workspaceRequestPaths = new Map<string, string>()
   const observeWorkspaceSocket = (socket: PlaywrightWebSocket) => {
     socket.on('framesent', ({ payload }) => {
@@ -68,6 +69,7 @@ test('survives seeded cold and warm human Project Files interactions', {
           requestId?: string
           request?: { operation?: string; path?: string }
         }
+        if (message.type === 'workspace-cancel' && message.requestId) cancelledRequests.add(message.requestId)
         if (message.type !== 'workspace-request' || message.request?.operation !== 'read-file') return
         const filePath = message.request.path
         if (!message.requestId || !filePath) return
@@ -79,8 +81,9 @@ test('survives seeded cold and warm human Project Files interactions', {
     })
     socket.on('framereceived', ({ payload }) => {
       try {
-        const message = JSON.parse(String(payload)) as { type?: string; requestId?: string; ok?: boolean; error?: unknown }
+        const message = JSON.parse(String(payload)) as { type?: string; requestId?: string; ok?: boolean; error?: { code?: string } }
         if (message.type !== 'workspace-result' || message.ok !== false || !message.requestId) return
+        if (message.error?.code === 'CANCELLED' && cancelledRequests.delete(message.requestId)) return
         const filePath = workspaceRequestPaths.get(message.requestId)
         failedResponses.push(`workspace-result ${filePath || message.requestId}: ${JSON.stringify(message.error)}`)
       } catch {

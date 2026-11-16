@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { terminalCwdSequence } from '../shared/terminal-cwd.js';
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -919,7 +920,7 @@ class NativePtyHost {
     const replayText = reviveEvent?.data || '';
     const restoredOutput = reviveState
       ? `${replayText}${TERMINAL_HISTORY_RESTORED_MESSAGE}`
-      : '';
+      : terminalCwdSequence(normalized.cwd || process.cwd());
     let restoredScreenState: ScreenState | null = null;
     if (restoredOutput) {
       try {
@@ -1136,7 +1137,7 @@ class NativePtyHost {
       return;
     }
 
-    const busyState = parseShellBusyMarkers(rawData, current.terminalBusy, current.shellBusyMarkerPending);
+    const busyState = parseShellBusyMarkers(rawData, current.terminalBusy, current.shellBusyMarkerPending, true);
     current.shellBusyMarkerPending = busyState.pending;
     if (busyState.markerSeen) {
       const markerAt = Date.now();

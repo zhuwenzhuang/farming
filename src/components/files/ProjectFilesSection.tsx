@@ -210,6 +210,7 @@ export function ProjectFilesSection({
   const fileSearchTriggerRef = useRef<HTMLButtonElement | null>(null)
   const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)
   const lastAutoRevealedActivePathRef = useRef<string | null>(null)
+  const failedRefreshAreasRef = useRef<Set<number> | null>(null)
   const filesRefreshInFlightRef = useRef(false)
   const filesRefreshRequestRef = useRef(0)
   const filesRefreshResetTimerRef = useRef<number | null>(null)
@@ -324,15 +325,16 @@ export function ProjectFilesSection({
       window.setTimeout(resolve, FILES_REFRESH_MINIMUM_PENDING_MS)
     })
     void (async () => {
+      const retryAreas = failedRefreshAreasRef.current
+      if (!retryAreas) void refreshFileChanges()
       const results = await Promise.allSettled([
-        refreshFileChanges(),
-        refreshDirectories(loadedDirectoryPaths),
-        agentId && onRefreshOpenFiles
+        !retryAreas || retryAreas.has(0) ? refreshDirectories(loadedDirectoryPaths) : Promise.resolve(true),
+        (!retryAreas || retryAreas.has(1)) && agentId && onRefreshOpenFiles
           ? onRefreshOpenFiles(agentId, projectWorkspace)
           : Promise.resolve(true),
       ])
       await minimumPending
-      const areas = [copy.changes, copy.files, copy.openEditors]
+      const areas = [copy.files, copy.openEditors]
       const failures = results.flatMap((result, index) => result.status === 'rejected'
         ? [`${areas[index]}: ${result.reason instanceof Error ? result.reason.message : copy.filesRefreshFailed}`]
         : result.value ? [] : [areas[index]!])
@@ -340,6 +342,7 @@ export function ProjectFilesSection({
 
       if (filesRefreshRequestRef.current !== requestId) return
       filesRefreshInFlightRef.current = false
+      failedRefreshAreasRef.current = refreshed ? null : new Set(results.flatMap((result, index) => result.status === 'rejected' || !result.value ? [index] : []))
       setFilesRefreshError(refreshed ? null : failures.join('; '))
       setFilesRefreshStatus(
         refreshed
@@ -355,7 +358,7 @@ export function ProjectFilesSection({
       }, FILES_REFRESH_SUCCESS_VISIBLE_MS)
     })()
     return true
-  }, [agentId, copy.changes, copy.files, copy.filesRefreshFailed, copy.openEditors, onRefreshOpenFiles, openDirectoryPaths, projectWorkspace, refreshDirectories, refreshFileChanges, setOpenFileError])
+  }, [agentId, copy.files, copy.filesRefreshFailed, copy.openEditors, onRefreshOpenFiles, openDirectoryPaths, projectWorkspace, refreshDirectories, refreshFileChanges, setOpenFileError])
 
   const externalRefreshTokenRef = useRef(0)
   useEffect(() => {
@@ -367,6 +370,7 @@ export function ProjectFilesSection({
   useEffect(() => {
     filesRefreshRequestRef.current += 1
     filesRefreshInFlightRef.current = false
+    failedRefreshAreasRef.current = null
     if (filesRefreshResetTimerRef.current !== null) {
       window.clearTimeout(filesRefreshResetTimerRef.current)
       filesRefreshResetTimerRef.current = null
@@ -715,7 +719,6 @@ export function ProjectFilesSection({
           refreshStatus={filesRefreshStatus}
           refreshError={filesRefreshStatus === 'error' ? [
             filesRefreshError,
-            fileChanges.error,
             ...Object.entries(directories).flatMap(([path, directory]) => directory.error ? [`${path || '/'}: ${directory.error}`] : []),
           ].filter(Boolean).join('\n') : undefined}
           onRefreshFiles={refreshProjectFiles}
@@ -730,7 +733,7 @@ export function ProjectFilesSection({
                 collapsed={changesCollapsed}
                 copy={copy}
                 projectId={projectId}
-                refreshing={filesRefreshStatus === 'refreshing'}
+                refreshing={fileChanges.loading}
                 onOpenChange={openFileChange}
                 onToggleCollapsed={toggleChangesCollapsed}
               />

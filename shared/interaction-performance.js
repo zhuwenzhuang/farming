@@ -21,7 +21,7 @@ exports.PERFORMANCE_METRICS = [
 ];
 const REQUEST_KINDS = [
     'read-file', 'save-file', 'tree', 'search', 'tree-decorations',
-    'file-link-access', 'diff', 'changes', 'branch', 'branches', 'switch-branch',
+    'resolve-path', 'file-link-access', 'diff', 'changes', 'branch', 'branches', 'switch-branch',
     'worktrees', 'history', 'history-changes', 'line-changes', 'blame', 'blame-capability',
     'create-preview', 'renew-preview', 'delete-preview', 'context-paths',
     'move-entry', 'create-entry', 'rename-entry', 'delete-entry',

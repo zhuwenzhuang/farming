@@ -5,8 +5,8 @@ import { isAgentStateWire } from './agent-state-wire.js'
 import { isChatTurnState, type ChatTurnState } from './chat-turn-state.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 22
-export const MIN_PROTOCOL_VERSION = 22
+export const PROTOCOL_VERSION = 23
+export const MIN_PROTOCOL_VERSION = 23
 export const MAX_ACP_TRANSCRIPT_INTEREST = 20
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
@@ -149,6 +149,7 @@ export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
 }
 
 export type WorkspaceRequest =
+  | { operation: 'resolve-path'; rootId: string; path: string; exactExternal?: boolean }
   | { operation: 'file-link-access'; rootId: string; paths: string[] }
   | { operation: 'context-paths'; rootId: string; entries: Array<{ path: string; kind: 'file' | 'directory' }> }
   | { operation: 'tree'; rootId: string; path?: string; cursor?: string; release?: boolean }
@@ -177,6 +178,8 @@ export type WorkspaceRequest =
 
 export interface WorkspaceRequestMessage extends ExtensibleMessage {
   type: 'workspace-request'
+  budgetMs?: number
+  priority?: 'interactive' | 'background'
   requestId: string
   request: WorkspaceRequest
 }
@@ -201,6 +204,7 @@ export interface LanguageServerRequestPayload extends ObjectMessage {
 
 export interface LanguageServerRequestMessage extends ExtensibleMessage {
   type: 'language-server-request'
+  budgetMs?: number
   requestId: string
   request: LanguageServerRequestPayload
 }
@@ -683,6 +687,7 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && Array.isArray(value.entryPaths)
         && value.entryPaths.length <= 4096
         && value.entryPaths.every(entryPath => typeof entryPath === 'string' && entryPath.length <= 4096)
+    case 'resolve-path':
     case 'read-file':
       return rootPath() && optionalBooleanField(value, 'exactExternal')
     case 'create-preview':
@@ -1080,6 +1085,8 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
       break
     case 'workspace-request':
       valid = stringField(value, 'requestId')
+        && (value.budgetMs === undefined || (Number.isInteger(value.budgetMs) && Number(value.budgetMs) > 0 && Number(value.budgetMs) <= 300_000))
+        && (value.priority === undefined || value.priority === 'interactive' || value.priority === 'background')
         && workspaceRequest(value.request)
         && serializedMessageWithinWorkspaceLimit(value)
       break
@@ -1088,6 +1095,7 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
       break
     case 'language-server-request':
       valid = stringField(value, 'requestId')
+        && (value.budgetMs === undefined || (Number.isInteger(value.budgetMs) && Number(value.budgetMs) > 0 && Number(value.budgetMs) <= 300_000))
         && languageServerRequest(value.request)
         && serializedMessageWithinWorkspaceLimit(value)
       break

@@ -1,5 +1,5 @@
+import { prioritizeWorkspaceRequest } from '@/lib/workspace-request-client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
   shouldRefreshWorkspaceChangesAfterDirtyStateChange,
   workspaceOpenFileDirtyState,
@@ -11,7 +11,6 @@ import {
   type WorkspaceFileChanges,
 } from '@/lib/workspace-files'
 
-const WORKSPACE_CHANGES_TIMEOUT_MS = 15_000
 
 interface WorkspaceFileChangesState {
   owner: string | null
@@ -47,11 +46,11 @@ export function useWorkspaceFileChanges(
   openFiles: readonly WorkspaceOpenFileDirtySnapshot[]
 ): WorkspaceFileChangesController {
   const [state, setState] = useState<WorkspaceFileChangesState>(EMPTY_CHANGES_STATE)
+  const inFlightRef = useRef<{ owner: string; promise: Promise<boolean> } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const requestIdRef = useRef(0)
   const dirtyStateRef = useRef<ReadonlyMap<string, boolean>>(new Map())
   const openFilesRef = useRef(openFiles)
-  const retryAfterReconnectRef = useRef(false)
 
   const automaticRefreshUsed = useRef(new Set<string>())
   const refreshChanges = useCallback((automatic?: string) => {
@@ -65,13 +64,12 @@ export function useWorkspaceFileChanges(
       return Promise.resolve(true)
     }
 
+    if (inFlightRef.current?.owner === agentId) {
+      if (!automatic) prioritizeWorkspaceRequest(agentId, 'changes')
+      return inFlightRef.current.promise
+    }
     abortRef.current?.abort()
     const abortController = new AbortController()
-    let timedOut = false
-    const timeoutId = window.setTimeout(() => {
-      timedOut = true
-      abortController.abort()
-    }, WORKSPACE_CHANGES_TIMEOUT_MS)
     abortRef.current = abortController
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
@@ -82,8 +80,9 @@ export function useWorkspaceFileChanges(
       loading: true,
     }))
 
-    return fetchWorkspaceChanges(agentId, {
+    const promise = fetchWorkspaceChanges(agentId, {
       inventory: true,
+      priority: automatic ? 'background' : 'interactive',
       signal: abortController.signal,
     }).then(changes => {
       if (requestIdRef.current !== requestId) return false
@@ -100,21 +99,19 @@ export function useWorkspaceFileChanges(
       })
       return true
     }).catch(error => {
-      if ((!timedOut && abortController.signal.aborted) || requestIdRef.current !== requestId) return false
-      const recovering = !getBackendConnectionSnapshot().connected
-      if (recovering) retryAfterReconnectRef.current = true
+      if (abortController.signal.aborted || requestIdRef.current !== requestId) return false
       setState(current => ({
         ...current,
-        error: recovering
-          ? null
-          : timedOut
-            ? 'File refresh timed out'
-            : error instanceof Error ? error.message : 'Failed to refresh changes',
+        error: error instanceof Error ? error.message : 'Failed to refresh changes',
         loaded: true,
-        loading: recovering,
+        loading: false,
       }))
       return false
-    }).finally(() => window.clearTimeout(timeoutId))
+    }).finally(() => {
+      if (inFlightRef.current?.promise === promise) inFlightRef.current = null
+    })
+    inFlightRef.current = { owner: agentId, promise }
+    return promise
   }, [agentId])
 
   useEffect(() => {
@@ -122,9 +119,9 @@ export function useWorkspaceFileChanges(
   }, [openFiles])
 
   useEffect(() => {
-    retryAfterReconnectRef.current = false
+    automaticRefreshUsed.current.clear()
     dirtyStateRef.current = workspaceOpenFileDirtyState(openFilesRef.current)
-    void refreshChanges()
+    void refreshChanges('initial')
   }, [agentId, refreshChanges])
 
   useEffect(() => {
@@ -136,19 +133,8 @@ export function useWorkspaceFileChanges(
     }
   }, [agentId, openFiles, refreshChanges])
 
-  useEffect(() => {
-    const retryRecoverableLoad = () => {
-      if (!retryAfterReconnectRef.current) return
-      retryAfterReconnectRef.current = false
-      void refreshChanges()
-    }
-    window.addEventListener('farming:backend-connected', retryRecoverableLoad)
-    return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
-  }, [refreshChanges])
-
   useEffect(() => () => {
     abortRef.current?.abort()
-    retryAfterReconnectRef.current = false
   }, [])
 
   const completePageRecovery = useCallback((key: string) => { automaticRefreshUsed.current.delete(key) }, [])

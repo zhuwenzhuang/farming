@@ -368,12 +368,12 @@ function RepositoryFileChangesSection({
         <FileChangeTreeRows activeFilePath={activeFilePath} copy={copy} depth={0} nodes={group.tree}
           openDirectoryIds={openDirectoryIds} onOpenChange={onOpenChange} onToggleDirectory={toggleDirectory} />
         {paged && group.page.loading && <div className="code-file-changes-status" role="status">{copy.loading}</div>}
-        {paged && group.page.error && <div className="code-file-changes-status error" role="alert">{group.page.error}<button type="button" className="code-file-change-review" onClick={() => { void changes.refreshChanges() }}>{copy.refreshFiles}</button></div>}
+        {paged && group.page.error && <div className="code-file-changes-status error" role="alert">{group.page.error}<button type="button" className="code-file-change-review" onClick={() => { void changes.refreshChanges() }}>{copy.retry}</button></div>}
         {paged && group.page.page.nextCursor && !group.page.error && <div className="code-file-change-scope-actions"><button type="button" className="code-file-change-review" disabled={group.page.loading} onClick={group.page.loadMore}>{copy.loadMoreChanges} ({group.items.length}/{group.page.page.total})</button></div>}
         {!paged && group.truncated && <div className="code-file-changes-status" role="status">{copy.partialChangesDescription}</div>}
       </>}
     </div>)}
-    {changes.error && <div className="code-file-changes-status error" data-testid="code-file-changes-error" role="alert">{changes.error}</div>}
+    {changes.error && <div className="code-file-changes-status error" data-testid="code-file-changes-error" role="alert">{changes.error}<button type="button" className="code-file-change-review" onClick={() => { void changes.refreshChanges() }}>{copy.retry}</button></div>}
   </div>
 }
 
@@ -430,7 +430,7 @@ export function FileChangesSection(props: FileChangesSectionProps) {
       {collapsed && (props.changes.error || props.changes.truncated || repositories.some(repository => repository.error)) &&
         <span className="code-file-repository-status">{props.changes.error || repositories.some(repository => repository.error) ? props.copy.repositoryUnavailable : props.copy.partialChanges}</span>}
     </div>
-    {props.changes.error && <div className="code-file-changes-status error" role="alert">{props.changes.error}</div>}
+    {props.changes.error && <div className="code-file-changes-status error" role="alert">{props.changes.error}<button type="button" className="code-file-change-review" onClick={() => { void props.changes.refreshChanges() }}>{props.copy.retry}</button></div>}
     {!collapsed && repositories.map(repository => <RepositoryChangesGroup key={repository.path} {...props} repository={repository} />)}
   </div>
 }

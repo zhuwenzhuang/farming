@@ -1,3 +1,5 @@
+import { WorkspaceFileApiError } from '@/lib/workspace-files'
+import { resolveWorkspaceLinkPath } from '@/lib/workspace-files'
 import { AgentSidebarDisclosureProvider } from './code/AgentSidebarDisclosure'
 import { useSubagentOpening } from './code/useSubagentOpening'
 import { SubagentPreparation } from './code/SubagentPreparation'
@@ -274,7 +276,6 @@ import { useProjectMutationController } from './code/useProjectMutationControlle
 import { executeProjectRemoval, projectArchiveTargets, type ProjectRemovalPlan } from './code/project-removal'
 import {
   terminalTargetFilePath,
-  terminalTargetGlobalFilePath,
 } from './code/workspace-file-view'
 import {
   applySessionDisplayOverrides,
@@ -3812,20 +3813,33 @@ export function CodeWorkspace({
 
   const resolveTerminalPathTarget = useCallback(async (agentId: string, target: TerminalPathOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, agentId)
-    const filePath = terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
-    if (!filePath) {
-      const globalFilePath = terminalTargetGlobalFilePath(target.path)
-      return globalFilePath ? { ...target, path: globalFilePath, globalRoot: true, exactExternal: true } : null
+    // Resolve the exact path against the output line's cwd. Never turn a hover
+    // or a failed file open into a repository search.
+    let absolutePath = target.path
+    const homeRelative = absolutePath.startsWith('~/')
+    if (!absolutePath.startsWith('/') && !homeRelative) {
+      if (!target.cwd) return null
+      absolutePath = `${target.cwd}/${absolutePath}`
     }
-
+    const parts: string[] = []
+    for (const part of absolutePath.split('/')) {
+      if (part === '..') parts.pop()
+      else if (part && part !== '.') parts.push(part)
+    }
+    if (!homeRelative) absolutePath = `/${parts.join('/')}`
+    const relative = homeRelative ? null : terminalTargetFilePath(absolutePath, identity.workspaceRoot ?? '')
+    const globalRoot = relative === null
+    const path = globalRoot ? homeRelative ? absolutePath : absolutePath.slice(1) : relative
     try {
-      const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
-      const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
-      const exactPathMatch = pathMatches.find(match => match.path === filePath)
-      const resolvedPath = exactPathMatch?.path ?? (pathMatches.length === 1 ? pathMatches[0]?.path : '')
-      return resolvedPath ? { ...target, path: resolvedPath } : null
-    } catch {
-      return null
+      const result = await resolveWorkspaceLinkPath(globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : identity.filesId, path, {
+        exactExternal: globalRoot, signal: target.signal,
+      })
+      return { ...target, resolved: true, signal: undefined, path: result.path, globalRoot, exactExternal: globalRoot }
+    } catch (error) {
+      // Only a proven absence is a negative cache entry. Transport and access
+      // failures must remain retryable by a later deliberate interaction.
+      if (error instanceof WorkspaceFileApiError && error.status === 404) return null
+      throw error
     }
   }, [resolveWorkspaceFileIdentity])
 
@@ -3970,7 +3984,7 @@ export function CodeWorkspace({
   }, [copy, setCopyNotice, focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   // All path entry points share exact resolution and one navigation lease.
-  // Only Terminal shorthand may fall back to search.
+  // Terminal links have already passed exact metadata resolution.
   const openTerminalPathTarget = useCallback((agentId: string, target: TerminalPathOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, agentId)
     const filePath = target.globalRoot
@@ -3979,7 +3993,7 @@ export function CodeWorkspace({
     if (!filePath) return
     void openWorkspaceFilePath(agentId, filePath, {
       ...openTargetForTerminalPath(target),
-      suppressSearchOnMiss: Boolean(target.exactExternal),
+      suppressSearchOnMiss: true,
       ...(target.globalRoot ? { globalRoot: true } : {}),
       ...(target.exactExternal ? { exactExternal: true } : {}),
       sourceAgentId: identity.sourceAgentId,

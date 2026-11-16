@@ -11,7 +11,7 @@ import type {
 import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../../shared/browser-protocol'
 import { performanceRequestKind, type PerformanceTrace } from '../../shared/interaction-performance'
 import { beginInteraction } from './interaction-performance'
-import { languageServerRequestLane, workspaceRequestLane, WORKSPACE_REQUEST_CONCURRENCY, type WorkspaceRequestLane } from '../../shared/workspace-request-scheduling'
+import { workspaceRequestBudget, languageServerRequestLane, workspaceRequestLane, WORKSPACE_REQUEST_CONCURRENCY, type WorkspaceRequestLane } from '../../shared/workspace-request-scheduling'
 
 type WorkspaceTransportMessage = WorkspaceRequestMessage | WorkspaceCancelMessage | LanguageServerRequestMessage
 type WorkspaceTransport = (message: WorkspaceTransportMessage) => boolean
@@ -23,6 +23,10 @@ interface PendingRequest {
   requestId: string
   message: WorkspaceTransportMessage
   mutation: boolean
+  deadline: number
+  priority: number
+  owner: string
+  retries: number
   sent: boolean
   lane: WorkspaceRequestLane
   signal?: AbortSignal
@@ -53,12 +57,13 @@ let transportReady = false
 let requestSequence = 0
 let inlineMessageLimit = MAX_INLINE_WORKSPACE_MESSAGE_BYTES
 const pendingRequests = new Map<string, PendingRequest>()
-// Cancelled semantic work still owns server admission until its terminal result.
-const cancelledLanguageRequests = new Map<string, WorkspaceRequestLane>()
+// Cancelled work still owns server admission until its terminal result.
+const cancelledRequests = new Map<string, WorkspaceRequestLane>()
 const MAX_LANGUAGE_SERVER_PENDING_REQUESTS = 32
 const MAX_PENDING_REQUESTS = 512
 const MAX_BACKGROUND_PENDING_REQUESTS = MAX_PENDING_REQUESTS - 64
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+const lastOwnerByLane = new Map<WorkspaceRequestLane, string>()
 
 function requestId(domain: RequestDomain): string {
   requestSequence += 1
@@ -85,6 +90,7 @@ function deletePending(request: PendingRequest): void {
 
 function sendPending(request: PendingRequest): boolean {
   if (!transportReady || !transport || request.sent || request.signal?.aborted) return false
+  if (request.message.type !== 'workspace-cancel') request.message.budgetMs = Math.max(1, Math.ceil(request.deadline - performance.now()))
   const sent = transport(request.message)
   request.sent = sent
   if (sent) request.trace.mark('sent')
@@ -94,14 +100,20 @@ function sendPending(request: PendingRequest): boolean {
 
 function drainPending(): void {
   if (!transportReady || !transport) return
-  const running = { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 }
-  for (const lane of cancelledLanguageRequests.values()) running[lane] += 1
+  const running = { metadata: 0, interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 }
+  for (const lane of cancelledRequests.values()) running[lane] += 1
   for (const request of pendingRequests.values()) {
     if (request.sent) running[request.lane] += 1
   }
-  for (const request of pendingRequests.values()) {
-    if (request.sent || running[request.lane] >= WORKSPACE_REQUEST_CONCURRENCY[request.lane]) continue
-    if (!sendPending(request)) break
+  const waiting = [...pendingRequests.values()].filter(request => !request.sent)
+  while (waiting.length) {
+    const eligible = waiting.filter(request => running[request.lane] < WORKSPACE_REQUEST_CONCURRENCY[request.lane])
+    eligible.sort((a, b) => a.priority - b.priority
+      || Number(a.owner === lastOwnerByLane.get(a.lane)) - Number(b.owner === lastOwnerByLane.get(b.lane)))
+    const request = eligible[0]
+    if (!request || !sendPending(request)) break
+    lastOwnerByLane.set(request.lane, request.owner)
+    waiting.splice(waiting.indexOf(request), 1)
     running[request.lane] += 1
   }
 }
@@ -119,21 +131,21 @@ function cancelPending(request: PendingRequest): void {
 }
 
 function retainCancelledAdmission(request: PendingRequest): void {
-  if (request.sent && transportReady && request.domain === 'language-server') {
-    cancelledLanguageRequests.set(request.requestId, request.lane)
+  if (request.sent && transportReady) {
+    cancelledRequests.set(request.requestId, request.lane)
   }
 }
 
 function createRequest<T>(
   domain: RequestDomain,
   message: WorkspaceTransportMessage,
-  options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
+  options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number; priority?: 'interactive' | 'background' } = {},
 ): Promise<T> {
   if (options.signal?.aborted) return Promise.reject(abortError(options.signal))
   const lane = message.type === 'language-server-request' ? languageServerRequestLane(message.request)
     : message.type === 'workspace-request' ? workspaceRequestLane(message.request) : 'interactive'
   const requests = [...pendingRequests.values()]
-  const fileRequests = requests.filter(request => request.lane === 'interactive' || request.lane === 'background')
+  const fileRequests = requests.filter(request => request.domain === 'workspace')
   const languageServerLane = lane === 'languageServer' || lane === 'languageServerBackground'
   const full = languageServerLane
     ? requests.filter(request => request.lane === lane).length >= MAX_LANGUAGE_SERVER_PENDING_REQUESTS
@@ -154,6 +166,10 @@ function createRequest<T>(
       requestId: id,
       message,
       mutation: options.mutation === true,
+      deadline: performance.now() + (options.timeoutMs && options.timeoutMs > 0 ? Math.min(options.timeoutMs, 300_000) : message.type === 'workspace-request' ? workspaceRequestBudget(message.request) : DEFAULT_REQUEST_TIMEOUT_MS),
+      priority: options.priority === 'background' ? 1 : 0,
+      owner: message.type !== 'workspace-cancel' && 'rootId' in message.request ? message.request.rootId || '' : '',
+      retries: 0,
       sent: false,
       lane,
       signal: options.signal,
@@ -163,7 +179,7 @@ function createRequest<T>(
     request.onAbort = () => cancelPending(request)
     pendingRequests.set(id, request)
     options.signal?.addEventListener('abort', request.onAbort, { once: true })
-    const timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? options.timeoutMs : DEFAULT_REQUEST_TIMEOUT_MS
+    const timeoutMs = Math.max(1, request.deadline - performance.now())
     request.timeout = setTimeout(() => {
       if (!pendingRequests.has(id)) return
       const uncertain = request.mutation && request.sent
@@ -192,7 +208,7 @@ export function setWorkspaceRequestTransportReady(
   transportReady = ready && transport !== null
   inlineMessageLimit = Math.max(1, Math.min(maxInlineBytes, MAX_INLINE_WORKSPACE_MESSAGE_BYTES))
   if (!transportReady) {
-    cancelledLanguageRequests.clear()
+    cancelledRequests.clear()
     for (const request of [...pendingRequests.values()]) {
       if (!request.sent) continue
       if (request.mutation) {
@@ -212,21 +228,35 @@ export function workspaceInlineMessageLimit(): number {
   return inlineMessageLimit
 }
 
+export function prioritizeWorkspaceRequest(rootId: string, operation: WorkspaceRequest['operation']): void {
+  for (const request of pendingRequests.values()) {
+    if (request.sent || request.message.type !== 'workspace-request') continue
+    if (request.message.request.operation !== operation || request.owner !== rootId) continue
+    request.priority = 0
+    request.message.priority = 'interactive'
+  }
+  drainPending()
+}
+
 export function requestWorkspace<T>(
   request: WorkspaceRequest,
-  options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
+  options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number; priority?: 'interactive' | 'background' } = {},
 ): Promise<T> {
+  if (!options.priority && (request.operation === 'tree-decorations' || request.operation === 'file-link-access')) {
+    options = { ...options, priority: 'background' }
+  }
   const id = requestId('workspace')
   return createRequest<T>('workspace', {
     type: 'workspace-request',
     requestId: id,
     request,
+    priority: options.priority,
   }, options)
 }
 
 export function requestLanguageServerTransport<T>(
   request: LanguageServerRequestPayload,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  options: { signal?: AbortSignal; timeoutMs?: number; priority?: 'interactive' | 'background' } = {},
 ): Promise<{ result: T; supported: boolean }> {
   const id = requestId('language-server')
   return createRequest<{ result: T; supported: boolean }>('language-server', {
@@ -240,12 +270,22 @@ function settle(
   message: WorkspaceResultMessage | LanguageServerResultMessage,
   domain: RequestDomain,
 ): boolean {
-  if (domain === 'language-server' && cancelledLanguageRequests.delete(message.requestId)) {
+  if (cancelledRequests.delete(message.requestId)) {
     drainPending()
     return true
   }
   const request = pendingRequests.get(message.requestId)
   if (!request || request.domain !== domain) return false
+  // A stale read snapshot is the only automatically replayed failure. A failed
+  // mutation or an ambiguous transport outcome must be reconciled by its owner.
+  if (!message.ok && !request.mutation && request.retries === 0 && request.deadline > performance.now()
+    && message.error?.status === 409 && typeof message.error.details === 'object' && message.error.details !== null
+    && 'reason' in message.error.details && message.error.details.reason === 'snapshot-stale') {
+    request.retries++
+    request.sent = false
+    drainPending()
+    return true
+  }
   deletePending(request)
   request.trace.mark('received')
   request.trace.end(message.ok ? 'completed' : message.error?.uncertain ? 'uncertain' : 'failed')

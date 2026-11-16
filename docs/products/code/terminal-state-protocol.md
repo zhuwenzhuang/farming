@@ -44,6 +44,12 @@ or contains only zombie or kernel-exiting members; live members or an
 unavailable observation retain the cleanup failure. This applies to every
 provider and does not introduce another stop mode.
 
+Shell cwd markers travel in the ordered terminal stream. The terminal reducer owns
+bounded cwd ranges anchored to buffer markers, which follow reflow and scrollback
+trim. Checkpoints preserve surviving ranges alongside rendered terminal output;
+reconnect does not substitute the current cwd for historical lines. Old checkpoints
+without ranges leave relative paths unconfirmed. Prompt text is not cwd authority.
+
 ## Provider Activity And Attention
 
 For a persistent coding CLI, process liveness is not turn activity. Provider

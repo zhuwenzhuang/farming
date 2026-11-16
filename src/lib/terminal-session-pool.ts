@@ -1117,6 +1117,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     logicalLineAtCell: cell => selection.logicalLineAtCell(cell),
     logicalLineAtBufferRow: bufferRow => selection.logicalLineAtBufferRow(bufferRow),
     previousLogicalLines: beforeBufferRow => selection.previousLogicalLines(beforeBufferRow),
+    cwdAtLine: line => terminal.cwdAtLine(line),
     pathOpenHandler: () => record.pathOpenHandler,
     pathResolveHandler: () => record.pathResolveHandler,
     searchOpenHandler: () => record.searchOpenHandler,

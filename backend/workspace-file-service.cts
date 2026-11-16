@@ -1,3 +1,4 @@
+import { SharedWorkspaceRead } from './shared-workspace-read.cjs';
 const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -303,6 +304,7 @@ type GitStatusMap = Map<string, GitStatusEntry> & { truncated?: boolean };
 interface GitStatusCacheEntry {
   expiresAt: number;
   promise?: Promise<GitStatusMap>;
+  shared?: SharedWorkspaceRead<GitStatusMap>;
   value?: GitStatusMap;
 }
 
@@ -884,11 +886,15 @@ function execFileAsync(command: string, args: string[], options: CommandExecutio
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
       ...options,
+      signal: undefined,
+      ...(options.signal ? { killSignal: 'SIGKILL' } : {}),
       // The command helper merges request environments onto its own process
       // environment; keep the direct path identical so a packaged runtime does
       // not run commands with a stripped environment.
       ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
     }, (error: ProcessError | null, stdout: string | Buffer, stderr: string | Buffer) => {
+      options.signal?.removeEventListener('abort', cancel);
+      if (options.signal?.aborted) { reject(options.signal.reason); return; }
       if (error) {
         error.stdout = stdout;
         error.stderr = stderr;
@@ -897,6 +903,9 @@ function execFileAsync(command: string, args: string[], options: CommandExecutio
       }
       resolve({ stdout, stderr });
     });
+    const cancel = () => { child.kill('SIGKILL'); };
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) cancel();
     if (options.input !== undefined) {
       child.stdin.on('error', () => { /* execFile reports command failure through its callback. */ });
       child.stdin.end(options.input);
@@ -1686,7 +1695,7 @@ class WorkspaceFileService {
   blameSnapshots = new Map<string, { root: string; path: string; revision?: string; version?: string; expiresAt: number; bytes: number; result: Awaited<ReturnType<WorkspaceFileService['blame']>> }>();
   activeChangeReads = new Map<string, {
     sequence: number; readers: number;
-    pending: Map<ChangeReadScope, { sequence: number; promise: Promise<unknown> }>;
+    pending: Map<ChangeReadScope, { sequence: number; shared: SharedWorkspaceRead<unknown>; promise: Promise<unknown> }>;
   }>();
   gitStatusCacheTtlMs: number;
   gitStatusTimeoutMs: number;
@@ -1740,9 +1749,16 @@ class WorkspaceFileService {
       ...(git ? { timeout: options.timeout && options.timeout > 0 ? options.timeout : this.gitStatusTimeoutMs, env: gitCommandEnvironment({ GIT_OPTIONAL_LOCKS: '0', ...options.env }) } : {}),
     };
     const commandArgs = git ? gitCommandArgs(args) : args;
-    return options.signal
+    return options.signal && this.ownsCommandRunner
       ? execFileAsync(command, commandArgs, commandOptions)
       : this.commandRunner.run(command, commandArgs, commandOptions);
+  }
+
+  private gitReader(signal?: AbortSignal) {
+    return { gitPath: this.gitPath, execFile: (command: string, args: string[], options: CommandExecutionOptions) => {
+      signal?.throwIfAborted();
+      return this.execFile(command, args, { ...options, signal });
+    } };
   }
 
   gitWorktree(root: string) {
@@ -2191,8 +2207,10 @@ class WorkspaceFileService {
     let realTarget;
     try {
       realTarget = await fsp.realpath(target);
-    } catch {
-      throw new WorkspaceFileError('path not found', 404);
+    } catch (error) {
+      const code = processError(error).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') throw new WorkspaceFileError('path not found', 404);
+      throw error;
     }
 
     const external = !isInside(root, realTarget);
@@ -2211,6 +2229,17 @@ class WorkspaceFileService {
       readOnly: external,
       symbolicLink: Boolean(requestedStat && requestedStat.isSymbolicLink()),
     };
+  }
+
+  async resolveLinkPath(workspaceRoot: string, userPath: string, options: ResolvePathOptions = {}) {
+    options.signal?.throwIfAborted();
+    const resolved = await this.resolvePath(workspaceRoot, userPath, options);
+    const stat = await fsp.stat(resolved.target);
+    options.signal?.throwIfAborted();
+    if (!stat.isFile() && !stat.isDirectory()) throw new WorkspaceFileError('path is not a file or directory', 400);
+    await fsp.access(resolved.target, fs.constants.R_OK);
+    options.signal?.throwIfAborted();
+    return { path: resolved.relativePath, kind: stat.isDirectory() ? 'directory' : 'file' };
   }
 
   async fileLinkAccess(workspaceRoot: unknown, paths: string[], options: ResolvePathOptions = {}) {
@@ -2257,8 +2286,10 @@ class WorkspaceFileService {
     }
     try {
       await fsp.lstat(target);
-    } catch {
-      throw new WorkspaceFileError('path not found', 404);
+    } catch (error) {
+      const code = processError(error).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') throw new WorkspaceFileError('path not found', 404);
+      throw error;
     }
     const realParent = await fsp.realpath(path.dirname(target)).catch(() => null);
     if (!realParent || !isInside(root, realParent)) {
@@ -2448,7 +2479,7 @@ class WorkspaceFileService {
     }
   }
 
-  async listTreeDecorations(workspaceRoot: unknown, userPath: unknown = '', entryPaths: unknown[] = []) {
+  async listTreeDecorations(workspaceRoot: unknown, userPath: unknown = '', entryPaths: unknown[] = [], signal?: AbortSignal) {
     const root = await this.waitForWorkspaceMutations(workspaceRoot);
     const { target, relativePath } = await this.resolvePath(root, userPath);
     const stat = await fsp.stat(target);
@@ -2463,13 +2494,18 @@ class WorkspaceFileService {
       }
       return normalizeGitStatusPath(normalizedPath);
     })));
-    const owner = await repositoryForFile(this, root, relativePath ? `${relativePath}/.farming-decoration` : '.farming-decoration');
+    signal?.throwIfAborted();
+    const owner = await repositoryForFile(this.gitReader(signal), root, relativePath ? `${relativePath}/.farming-decoration` : '.farming-decoration');
     const toRepositoryPath = (entry: string) => relativeFromRoot(owner.root, path.join(root, entry));
     const toProjectPath = (entry: string) => relativeFromRoot(root, path.join(owner.root, entry));
-    const [repositoryStatus, repositoryIgnored] = await Promise.all([
-      this.getGitStatusByPath(owner.root),
-      this.loadGitIgnoredPaths(owner.root, normalizedEntryPaths.map(toRepositoryPath)),
+    const decorationResults = await Promise.allSettled([
+      this.getGitStatusByPath(owner.root, signal),
+      this.loadGitIgnoredPaths(owner.root, normalizedEntryPaths.map(toRepositoryPath), signal),
     ]);
+    const failed = decorationResults.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
+    const repositoryStatus = (decorationResults[0] as PromiseFulfilledResult<GitStatusMap>).value;
+    const repositoryIgnored = (decorationResults[1] as PromiseFulfilledResult<Set<string>>).value;
     const gitStatusByPath: GitStatusMap = new Map(Array.from(repositoryStatus, ([entry, status]) => [toProjectPath(entry), status]));
     const ignoredPaths = new Set(Array.from(repositoryIgnored, toProjectPath));
     const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
@@ -2509,6 +2545,8 @@ class WorkspaceFileService {
   }
 
   async loadGitStatusByPath(root: string, options: Record<string, unknown> = {}): Promise<GitStatusMap> {
+    const signal = options.signal as AbortSignal | undefined;
+    signal?.throwIfAborted();
     const untrackedFiles = options.untrackedFiles || 'normal';
     const pathspecArgs = Array.isArray(options.paths)
       ? ['--', ...options.paths.map(filePath => `:(literal)${filePath}`)]
@@ -2524,7 +2562,7 @@ class WorkspaceFileService {
     };
     try {
       root = await this.resolveRoot(root);
-      prefix = path.relative(await resolveRepositoryRoot(this, root), root).split(path.sep).join('/');
+      prefix = path.relative(await resolveRepositoryRoot(this.gitReader(signal), root), root).split(path.sep).join('/');
       const { stdout } = await this.execFile(this.gitPath, [
         'status',
         '--porcelain=v1',
@@ -2533,7 +2571,7 @@ class WorkspaceFileService {
         '--ignored=no',
         ...pathspecArgs,
       ], {
-        cwd: root,
+        cwd: root, signal,
         env: { GIT_OPTIONAL_LOCKS: '0' },
         timeout: Number(options.timeoutMs) || this.gitStatusTimeoutMs,
         ...(Number(options.maxBuffer) > 0 ? { maxBuffer: Number(options.maxBuffer) } : {}),
@@ -2566,7 +2604,7 @@ class WorkspaceFileService {
     return new WorkspaceFileError(String(error.stderr || error.message || `${operation} failed`), 500);
   }
 
-  async loadGitIgnoredPaths(root: string, relativePaths: unknown[]): Promise<Set<string>> {
+  async loadGitIgnoredPaths(root: string, relativePaths: unknown[], signal?: AbortSignal): Promise<Set<string>> {
     const paths: string[] = Array.from(new Set<string>(relativePaths
       .map(normalizeGitStatusPath)
       .filter(Boolean)));
@@ -2594,7 +2632,7 @@ class WorkspaceFileService {
           'check-ignore',
           '-z',
           '--stdin',
-        ], { cwd: root, input: `${pathBatch.join('\0')}\0` });
+        ], { cwd: root, input: `${pathBatch.join('\0')}\0`, signal });
         String(stdout)
           .split('\0')
           .map(normalizeGitStatusPath)
@@ -2650,20 +2688,22 @@ class WorkspaceFileService {
     while (retained.length > 64) this.gitStatusCache.delete(retained.shift()!);
   }
 
-  async getGitStatusByPath(root: string) {
+  async getGitStatusByPath(root: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     if (this.gitStatusCacheTtlMs > 0) {
       const now = Date.now();
       const cached = this.gitStatusCache.get(root);
       if (cached?.value && cached.expiresAt > now) {
         return cached.value;
       }
-      if (cached?.promise) {
-        return cached.promise;
+      if (cached?.shared && !cached.shared.controller.signal.aborted) {
+        return cached.shared.join(signal);
       }
 
       this.pruneGitStatusCache(now);
 
-      const promise = this.loadGitStatusByPath(root).then((value) => {
+      const shared = new SharedWorkspaceRead(signal => this.loadGitStatusByPath(root, { signal }));
+      const promise = shared.promise.then((value) => {
         if (this.gitStatusCache.get(root)?.promise === promise) {
           this.gitStatusCache.set(root, {
             value,
@@ -2677,13 +2717,15 @@ class WorkspaceFileService {
         throw error;
       });
       this.gitStatusCache.set(root, {
-        promise,
+        promise, shared,
         expiresAt: now + this.gitStatusCacheTtlMs,
       });
-      return promise;
+      // Cache publication observes completion without owning a cancellation vote.
+      void promise.catch(() => {});
+      return shared.join(signal);
     }
 
-    return this.loadGitStatusByPath(root);
+    return this.loadGitStatusByPath(root, { signal });
   }
 
   async getGitStatusForPath(root: string, relativePath: unknown): Promise<GitStatusEntry | null> {
@@ -2927,16 +2969,17 @@ class WorkspaceFileService {
 
   // The inventory contains exact counts only after a complete, bounded Git
   // read. Pages are fenced by that inventory, not a mutable numeric offset.
-  async changeSnapshot(root: string, scope?: 'tracked' | 'untracked') {
+  async changeSnapshot(root: string, scope?: 'tracked' | 'untracked', signal?: AbortSignal) {
+    signal?.throwIfAborted();
     root = await this.resolveRoot(root);
     let stdout: unknown;
     let prefix = '';
     try {
-      prefix = path.relative(await resolveRepositoryRoot(this, root), root).split(path.sep).join('/');
+      prefix = path.relative(await resolveRepositoryRoot(this.gitReader(signal), root), root).split(path.sep).join('/');
       ({ stdout } = await this.execFile(this.gitPath, [
         'status', '--porcelain=v2', '-z', scope === 'tracked' ? '--untracked-files=no' : '--untracked-files=all',
         '--ignore-submodules=dirty', '--ignored=no', '--', '.',
-      ], { cwd: root, timeout: this.gitStatusTimeoutMs, maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER }));
+      ], { cwd: root, signal, timeout: this.gitStatusTimeoutMs, maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER }));
     } catch (caught) {
       const error = processError(caught);
       if (/not a git repository/i.test(String(error.stderr || ''))) return { revision: 'non-git', items: [] as WorkspaceChangeItem[] };
@@ -2980,27 +3023,29 @@ class WorkspaceFileService {
     return { revision, items };
   }
 
-  private async withChangeRead<T>(root: string, scope: ChangeReadScope, load: (verify: () => void) => Promise<T>): Promise<T> {
+  private async withChangeRead<T>(root: string, scope: ChangeReadScope, load: (verify: () => void, signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const read = this.activeChangeReads.get(root) || {
       sequence: 0, readers: 0,
-      pending: new Map<ChangeReadScope, { sequence: number; promise: Promise<unknown> }>(),
+      pending: new Map<ChangeReadScope, { sequence: number; shared: SharedWorkspaceRead<unknown>; promise: Promise<unknown> }>(),
     };
     this.activeChangeReads.set(root, read);
     const pending = read.pending.get(scope);
     // Each scope has one result type and one capture owner. Only actual
     // invalidation advances the sequence; another reader is not a write.
-    if (pending?.sequence === read.sequence) return pending.promise as Promise<T>;
+    if (pending?.sequence === read.sequence && !pending.shared.controller.signal.aborted) return pending.shared.join(signal) as Promise<T>;
     const sequence = read.sequence;
     read.readers++;
     const verify = () => {
       if (sequence !== read.sequence) throw new WorkspaceFileError('Repository changes changed while loading. Refresh the list.', 409, { reason: 'snapshot-stale' });
     };
-    const promise = Promise.resolve().then(() => load(verify)).finally(() => {
+    const shared = new SharedWorkspaceRead<T>(signal => load(() => { signal.throwIfAborted(); verify(); }, signal));
+    const promise = shared.promise.finally(() => {
       if (read.pending.get(scope)?.promise === promise) read.pending.delete(scope);
       if (--read.readers === 0) this.activeChangeReads.delete(root);
     });
-    read.pending.set(scope, { sequence, promise });
-    return promise;
+    read.pending.set(scope, { sequence, shared, promise });
+    void promise.catch(() => {});
+    return shared.join(signal);
   }
 
   private rememberChangeInventory(root: string, scope: ChangeReadScope, snapshots: ChangeInventory['snapshots']) {
@@ -3019,10 +3064,10 @@ class WorkspaceFileService {
     this.changeInventories.set(root, inventories);
   }
 
-  async changesInventory(workspaceRoot: unknown) {
+  async changesInventory(workspaceRoot: unknown, signal?: AbortSignal) {
     const root = await this.resolveRoot(workspaceRoot);
-    return this.withChangeRead(root, 'inventory', async verify => {
-      const repositories = await discoverWorkspaceRepositories(this, root);
+    return this.withChangeRead(root, 'inventory', async (verify, sharedSignal) => {
+      const repositories = await discoverWorkspaceRepositories(this.gitReader(sharedSignal), root);
       const snapshots = new Map<string, { root: string; items: WorkspaceChangeItem[] }>();
       const inventory = await mapWithConcurrency(repositories, 4, async repository => {
         try {
@@ -3030,7 +3075,7 @@ class WorkspaceFileService {
             return { path: repository.path, uninitialized: true, trackedCount: 0, untrackedCount: 0, truncated: false };
           }
           if (repository.error) throw new Error(repository.error);
-          const snapshot = await this.changeSnapshot(repository.root);
+          const snapshot = await this.changeSnapshot(repository.root, undefined, sharedSignal);
           snapshots.set(snapshot.revision, { root: repository.root, items: snapshot.items });
           return { path: repository.path, revision: snapshot.revision,
             trackedCount: snapshot.items.filter(item => item.gitStatus !== 'untracked').length,
@@ -3042,10 +3087,10 @@ class WorkspaceFileService {
       verify();
       this.rememberChangeInventory(root, 'inventory', snapshots);
       return { items: [], repositories: inventory, truncated: false };
-    });
+    }, signal);
   }
 
-  async changesPage(workspaceRoot: unknown, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }) {
+  async changesPage(workspaceRoot: unknown, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number; signal?: AbortSignal }) {
     const root = await this.resolveHistoryRepository(workspaceRoot, options.repositoryPath);
     let offset = 0;
     let snapshot: { revision: string; items: WorkspaceChangeItem[] };
@@ -3065,12 +3110,12 @@ class WorkspaceFileService {
       snapshot = { revision: match[1], items: cached.items };
       offset = Number(match[2]);
     } else {
-      snapshot = await this.withChangeRead(root, options.scope, async verify => {
-        const captured = await this.changeSnapshot(root, options.scope);
+      snapshot = await this.withChangeRead(root, options.scope, async (verify, signal) => {
+        const captured = await this.changeSnapshot(root, options.scope, signal);
         verify();
         this.rememberChangeInventory(root, options.scope, new Map([[captured.revision, { root, scope: options.scope, items: captured.items }]]));
         return captured;
-      });
+      }, options.signal);
     }
     const { revision, items } = snapshot;
     const selected = items.filter(item => (item.gitStatus === 'untracked') === (options.scope === 'untracked'));

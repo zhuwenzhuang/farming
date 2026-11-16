@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
   fetchWorkspaceTreePage,
   releaseWorkspaceTree,
@@ -32,7 +31,6 @@ interface InFlightDecorationLoad {
   controller: AbortController
 }
 
-const WORKSPACE_FILE_REQUEST_TIMEOUT_MS = 30_000
 
 function normalizeDirectoryPath(directoryPath: string) {
   return directoryPath.replace(/^\/+|\/+$/g, '')
@@ -72,7 +70,6 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
   const decorationStoreRef = useRef<WorkspaceFileDecorationStore | null>(null)
   if (!decorationStoreRef.current) decorationStoreRef.current = new WorkspaceFileDecorationStore()
   const decorations = decorationStoreRef.current
-  const reconnectDirectoryLoadsRef = useRef(new Set<string>())
   const generationRef = useRef(0)
 
   const loadDirectoryDecorations = useCallback((
@@ -135,11 +132,6 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
 
     let request: Promise<WorkspaceDirectoryTree | null> | null = null
     request = (async () => {
-      let timedOut = false
-      const timeoutId = window.setTimeout(() => {
-        timedOut = true
-        abortController.abort()
-      }, WORKSPACE_FILE_REQUEST_TIMEOUT_MS)
       try {
         const tree = await fetchWorkspaceTreePage(agentId, normalizedPath, { cursor, signal: abortController.signal })
         if (!tree.nextCursor && cursor) releaseWorkspaceTree(agentId, normalizedPath, cursor)
@@ -189,27 +181,21 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         return { path: tree.path, items }
       } catch (error) {
         if (generationRef.current !== generation) return null
-        if (abortController.signal.aborted && !timedOut) return null
+        if (abortController.signal.aborted) return null
         if (normalizedPath && error instanceof WorkspaceFileApiError && error.status === 404) {
           // Reconcile against the parent listing; a failed read alone must not
           // remove entries (for example, a broken symbolic link still exists).
           await loadDirectory(parentDirectory(normalizedPath))
           if (generationRef.current !== generation || abortController.signal.aborted) return null
         }
-        const recovering = !getBackendConnectionSnapshot().connected
-        if (recovering) reconnectDirectoryLoadsRef.current.add(normalizedPath)
         setDirectories(previous => {
           const next = {
             ...previous,
             [normalizedPath]: {
               ...previous[normalizedPath],
               items: previous[normalizedPath]?.items ?? [],
-              loading: recovering,
-              error: recovering
-                ? null
-                : timedOut
-                  ? 'File refresh timed out'
-                  : error instanceof Error ? error.message : 'Failed to load directory',
+              loading: false,
+              error: error instanceof Error ? error.message : 'Failed to load directory',
             },
           }
           directoriesRef.current = next
@@ -217,7 +203,6 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         })
         return null
       } finally {
-        window.clearTimeout(timeoutId)
         if (request && inFlightDirectoryLoadsRef.current.get(normalizedPath)?.promise === request) {
           inFlightDirectoryLoadsRef.current.delete(normalizedPath)
         }
@@ -259,7 +244,6 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
     inFlightDecorationLoadsRef.current.forEach(load => load.controller.abort())
     inFlightDecorationLoadsRef.current.clear()
     decorations.clear()
-    reconnectDirectoryLoadsRef.current.clear()
   }, [agentId, decorations, workspaceKey])
 
   useEffect(() => {
@@ -275,18 +259,6 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
     inFlightDecorationLoadsRef.current.clear()
     decorations.clear()
   }, [decorations])
-
-  useEffect(() => {
-    const retryRecoverableLoads = () => {
-      const directoryPaths = Array.from(reconnectDirectoryLoadsRef.current)
-      reconnectDirectoryLoadsRef.current.clear()
-      directoryPaths.forEach(directoryPath => {
-        void loadDirectory(directoryPath)
-      })
-    }
-    window.addEventListener('farming:backend-connected', retryRecoverableLoads)
-    return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoads)
-  }, [loadDirectory])
 
   return useMemo(() => ({
     decorations,

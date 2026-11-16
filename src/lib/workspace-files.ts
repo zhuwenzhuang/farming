@@ -291,7 +291,6 @@ export interface WorkspaceFileSearchResult {
   timeoutMs?: number
 }
 
-const WORKSPACE_FILE_SEARCH_REQUEST_TIMEOUT_MS = 185_000
 
 export class WorkspaceFileApiError extends Error {
   status: number
@@ -329,7 +328,7 @@ async function readJson<T>(response: Response): Promise<T> {
 
 async function runWorkspaceRequest<T>(
   request: WorkspaceRequest,
-  options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
+  options: { mutation?: boolean; signal?: AbortSignal; timeoutMs?: number; priority?: 'interactive' | 'background' } = {},
 ): Promise<T> {
   try {
     return await requestWorkspace<T>(request, options)
@@ -641,13 +640,13 @@ export async function fetchWorkspaceDiff(rootId: string, filePath: string) {
   return runWorkspaceRequest<WorkspaceFileDiff>({ operation: 'diff', rootId, path: filePath })
 }
 
-export async function fetchWorkspaceChanges(rootId: string, options: { inventory?: boolean; limit?: number; signal?: AbortSignal } = {}) {
-  return retryWorkspaceSnapshotRead(() => runWorkspaceRequest<WorkspaceFileChanges>({
+export async function fetchWorkspaceChanges(rootId: string, options: { inventory?: boolean; limit?: number; signal?: AbortSignal; priority?: 'interactive' | 'background' } = {}) {
+  return runWorkspaceRequest<WorkspaceFileChanges>({
     operation: 'changes',
     rootId,
     ...(options.inventory ? { inventory: true } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
-  }, { signal: options.signal }), options.signal)
+  }, { signal: options.signal, priority: options.priority })
 }
 
 export interface WorkspaceChangePage {
@@ -720,6 +719,12 @@ export async function fetchWorkspaceLineChanges(rootId: string, filePath: string
   })
 }
 
+export function resolveWorkspaceLinkPath(rootId: string, path: string, options: { exactExternal?: boolean; signal?: AbortSignal } = {}) {
+  return runWorkspaceRequest<{ path: string; kind: 'file' | 'directory' }>({
+    operation: 'resolve-path', rootId, path, ...(options.exactExternal ? { exactExternal: true } : {}),
+  }, { signal: options.signal })
+}
+
 export async function searchWorkspaceFiles(rootId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; scope?: 'all' | 'file-path' | 'entries'; signal?: AbortSignal } = {}) {
   return runWorkspaceRequest<WorkspaceFileSearchResult>({
     operation: 'search',
@@ -729,7 +734,7 @@ export async function searchWorkspaceFiles(rootId: string, query: string, option
     ...(options.path ? { path: options.path } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
     ...(options.scope ? { scope: options.scope } : {}),
-  }, { signal: options.signal, timeoutMs: WORKSPACE_FILE_SEARCH_REQUEST_TIMEOUT_MS })
+  }, { signal: options.signal,  })
 }
 
 export function renewWorkspaceHtmlPreview(previewId: string) {

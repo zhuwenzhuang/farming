@@ -602,6 +602,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'POST /api/agents/:agentId/acp-terminals/:terminalId/resize',
   'GET /api/agents/:agentId/related-sessions',
   'GET /api/agents/:agentId/acp-subagents/:sessionId/transcript',
+  'DELETE /api/agents/:agentId/acp-notices/:sessionId/:noticeId',
   'POST /api/agents/:agentId/acp-subagents/:sessionId/cancel',
   'POST /api/agents/:agentId/acp-patches/:toolCallId/decision',
   'GET /api/agents/:agentId/acp-sessions',

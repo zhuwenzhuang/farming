@@ -1,3 +1,4 @@
+import { TerminalCwdHistory } from '../shared/terminal-cwd.js';
 import { Terminal } from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
 
@@ -195,6 +196,7 @@ class TerminalScreenState {
   private readonly scrollback: number;
   private readonly serializeAddon: SerializeAddon;
   private readonly terminal: Terminal;
+  private readonly cwdHistory: TerminalCwdHistory;
   private pendingWrite: Promise<TerminalScreenSnapshot>;
   private previewDirty: boolean;
   private previewSnapshot: TerminalViewportSnapshot | null;
@@ -218,6 +220,7 @@ class TerminalScreenState {
       allowProposedApi: true,
       convertEol: true,
     });
+    this.cwdHistory = new TerminalCwdHistory(this.terminal);
     this.serializeAddon = new SerializeAddon();
     this.terminal.loadAddon(this.serializeAddon);
 
@@ -267,7 +270,7 @@ class TerminalScreenState {
     // so a restored TUI keeps the same cursor and mouse input protocol.
     const mouseEncoding = getTerminalMouseEncodingSequence(this.terminal);
     const cursorVisibility = `\x1b[?25${getTerminalCursorVisible(this.terminal) ? 'h' : 'l'}`;
-    this.renderOutput = `${serialized}${mouseEncoding}${cursorVisibility}`;
+    this.renderOutput = `${this.cwdHistory.checkpoint(serialized, scrollback)}${mouseEncoding}${cursorVisibility}`;
     this.renderedScrollback = Math.min(this.terminal.buffer.active.baseY, scrollback);
     this.renderOutputDirty = false;
   }
@@ -352,6 +355,7 @@ class TerminalScreenState {
   }
 
   dispose(): void {
+    this.cwdHistory.dispose();
     this.terminal.dispose();
   }
 }

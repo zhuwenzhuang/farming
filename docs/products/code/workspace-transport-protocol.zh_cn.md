@@ -84,7 +84,7 @@ Canonical 且已授权的 Workspace；Persisted Client 升级期间，旧 Agent 
 | Workspace Root Inventory | 现有权威 State Snapshot/Delta | 不保留 Files Endpoint |
 | Directory Structure 与普通文件 Metadata/Read | Request/Result | 仅 Oversized 或 Binary Body |
 | Directory Git/Ignored Decoration | 有界 `tree-decorations` Request/Result | 无 |
-| Chat 文件链接验证 | 后台通道上的有界 `file-link-access` 元数据与权限批量检查 | 无 |
+| Chat 与 Terminal 文件链接验证 | 元数据通道上的精确 `resolve-path` 与有界 `file-link-access` 元数据与权限批量检查 | 无 |
 | Save、Create、Rename、Move、Delete | Payload 可内联时使用 Request/Result | 仅 Oversized Upload Body |
 | Search | 有界 Match 的 Request/Result | 无 |
 | Changes、Branch Inventory、Worktrees、History、Blame、Line Changes | 分页或截断的 Request/Result | 无 |
@@ -204,17 +204,19 @@ Latest File-open Intent 限制。
 ## 请求准入与 Server 调度
 
 浏览器请求代理在发送到 socket 前限制并发，与服务端共享操作分类。Workspace
-最多同时发送四个交互请求与两个后台请求，Language Server 的交互与后台通道各并发一个请求，
+最多同时发送两个元数据请求、四个交互请求与两个后台请求，Language Server 的交互与后台通道各并发一个请求，
 不占用文件操作名额。恢复大量
 展开目录时在本地排队，不能冲满服务端队列，也不能让 Git 装饰阻塞目录导航。
-结果、取消和超时都会为下一个仍被使用的请求释放准入名额。服务端排队请求被
-取消时立即释放队列容量。
+取消和超时立即结束消费者等待，但已发送任务必须等后端确认实际执行结束才释放名额。
+尚未执行的请求可立即确认取消。共享 Git 读取仅在最后一个消费者离开时取消子进程，
+所有消费者都要等子进程退出后才能释放执行名额。
 
 浏览器最多保留 512 个待完成 Workspace 请求，其中为交互工作预留 64 个；服务端的 64 项 Workspace 队列
 同样为交互工作预留 16 项。LSP 的交互与后台通道在浏览器各保留至多 32 个待处理请求，服务端每连接
 每个通道各允许排队 8 个，不占用 Workspace 队列配额。即使底层语言服务不响应取消，也不能占满文件通道或共享
-队列；不能为释放名额而让仍在运行的 LSP 工作无限堆积。超出时在发送或执行前明确拒绝。默认 60 秒期限包含
-本地排队与传输时间；具体操作可使用自己的有界期限。发送前取消或超时的变更
+队列；不能为释放名额而让仍在运行的 LSP 工作无限堆积。超出时在发送或执行前明确拒绝。共享操作策略统一规定总预算，包含本地/服务端排队、执行和重连。浏览器仅发送剩余预算，
+服务端到期取消。组件负责反馈时机，不再另设竞争的请求计时器；子进程上限是总预算内的执行保护。
+只有已证明的读取快照失效可在原期限内自动重试一次。发送前取消或超时的变更
 不会产生不确定结果。重连时安全读取的重发也遵循相同并发限制；已发送变更不
 重放，`BUSY` 结果不自动重试。
 
@@ -223,15 +225,17 @@ WebSocket Message Handler 只执行 Validate 与 Schedule；不能等待一个�
 Deadline、Operation Classification 与有界 Result Budget。Connection Close 会取消所有
 Cancel-safe 工作并释放其 Watch Registration。
 
-Workspace 与语义请求分为四个 Scheduling Lane：
+Workspace 与语义请求分为五个 Scheduling Lane：
+
+- **元数据**：Terminal 精确路径和 Chat 文件引用检查；
 
 - **Interactive**：Directory `tree`、File Resolve、Explicit Reload、Save 与目录项变更；
 - **Background**：`tree-decorations`、Search、Git Status、History、Blame、Preview 与 Watch-triggered Revalidation；
 - **交互 Language Server**：主动语义导航与 Hover；
 - **后台 Language Server**：能力发现、自动 Semantic Tokens、Inlay Hints、Symbols、Highlights 和诊断。
 
-Background 与 Language Server Work 使用独立并发上限，不能占满所有 Workspace Execution Slot；至少保留一个
-Interactive Slot。Limit 同时按 Connection 与 Global 生效，避免一个 Browser 制造无界 Server
+Background 与 Language Server Work 使用独立并发上限，不能占满所有 Workspace Execution Slot；目录和文件导航的准入独立。每个通道内，主动操作优先于排队的自动任务，
+同优先级请求按 Project 轮转。重复刷新加入现有读取并提升排队自动请求的优先级，不取消重启。Limit 同时按 Connection 与 Global 生效，避免一个 Browser 制造无界 Server
 工作。同 Resource Read 由 Workspace File Model 合并；Transport Scheduler 不建立第二份 Cache。
 
 Terminal Input 与已经到达的 Protocol Message 继续同步接收。Workspace 调度不得延迟其

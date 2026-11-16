@@ -4,9 +4,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WORKSPACE_REQUEST_CONCURRENCY = void 0;
 exports.workspaceRequestLane = workspaceRequestLane;
 exports.languageServerRequestLane = languageServerRequestLane;
-exports.WORKSPACE_REQUEST_CONCURRENCY = { interactive: 4, background: 2, languageServer: 1, languageServerBackground: 1 };
+exports.workspaceRequestBudget = workspaceRequestBudget;
+exports.WORKSPACE_REQUEST_CONCURRENCY = { metadata: 2, interactive: 4, background: 2, languageServer: 1, languageServerBackground: 1 };
 function workspaceRequestLane(request) {
     switch (request.operation) {
+        case 'resolve-path':
+        case 'file-link-access':
+            return 'metadata';
         case 'search':
             return request.scope === 'entries' ? 'interactive' : 'background';
         case 'tree':
@@ -27,4 +31,17 @@ function languageServerRequestLane(request) {
     // the server ignores cancellation during initialization.
     return request.operation === 'capability' || request.priority === 'background'
         ? 'languageServerBackground' : 'languageServer';
+}
+// One wall-clock budget covers browser admission, server admission, execution,
+// and reconnect. Execution-specific subprocess caps may be shorter, never longer.
+function workspaceRequestBudget(request) {
+    switch (request.operation) {
+        case 'resolve-path': return 5_000;
+        case 'file-link-access': return 5_000;
+        case 'tree':
+        case 'read-file': return 30_000;
+        // Explicit content search permits the configured maximum execution time.
+        case 'search': return request.scope === 'entries' ? 30_000 : 185_000;
+        default: return 60_000;
+    }
 }

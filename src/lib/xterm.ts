@@ -1,3 +1,4 @@
+import { TerminalCwdHistory } from '../../shared/terminal-cwd'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { ClipboardAddon } from '@xterm/addon-clipboard'
@@ -34,6 +35,7 @@ export const SESSION_TERMINAL_FONT_MOBILE = 11
 export type XtermFitAddon = FitAddon
 
 export type XtermBackedTerminal = Terminal & {
+  cwdAtLine: (line: number) => string | undefined
   getRendererType: () => 'pending' | 'webgl' | 'failed'
   onRendererFailure: (handler: (error: Error) => void) => { dispose: () => void }
   getVisibleBufferBase: () => number
@@ -240,6 +242,10 @@ function decorateXtermTerminal(
   themeOverride?: AppearanceTerminalTheme,
 ): XtermBackedTerminal {
   const adapted = terminal as unknown as XtermBackedTerminal
+  const cwdHistory = new TerminalCwdHistory(terminal)
+  adapted.cwdAtLine = line => cwdHistory.atLine(line)
+  const nativeReset = terminal.reset.bind(terminal)
+  terminal.reset = () => { cwdHistory.clear(); nativeReset() }
   const nativeOpen = terminal.open.bind(terminal)
   const nativeDispose = terminal.dispose.bind(terminal)
   const nativeScrollToLine = terminal.scrollToLine.bind(terminal)
@@ -294,6 +300,7 @@ function decorateXtermTerminal(
     })
   }
   adapted.dispose = () => {
+    cwdHistory.dispose()
     contextLossSubscription?.dispose()
     contextLossSubscription = null
     snapshotTerminals.delete(snapshotTerminal)

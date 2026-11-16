@@ -5,7 +5,7 @@ import type {
   WorkspaceRequestMessage,
 } from '../shared/browser-protocol.js';
 import type { PerformanceTrace, PerformanceOperation } from '../shared/interaction-performance.js';
-import { WORKSPACE_REQUEST_CONCURRENCY, workspaceRequestLane, languageServerRequestLane, type WorkspaceRequestLane } from '../shared/workspace-request-scheduling.js';
+import { WORKSPACE_REQUEST_CONCURRENCY, workspaceRequestBudget, workspaceRequestLane, languageServerRequestLane, type WorkspaceRequestLane } from '../shared/workspace-request-scheduling.js';
 
 interface WorkspaceRequestClient {
   accessMode?: 'owner' | 'read-only' | 'none';
@@ -43,6 +43,13 @@ type RequestLane = WorkspaceRequestLane;
 interface ScheduledRequest {
   trace?: PerformanceTrace;
   cancelled: boolean;
+  timeout?: ReturnType<typeof setTimeout>;
+  budgetMs: number;
+  priority: number;
+  owner: string;
+  timedOut?: boolean;
+  mutation: boolean;
+  uncertain?: boolean;
   controller: AbortController;
   lane: RequestLane;
   requestId: string;
@@ -52,6 +59,8 @@ interface ScheduledRequest {
 }
 
 interface ClientSchedule {
+  metadata: ScheduledRequest[];
+  lastOwner: Partial<Record<RequestLane, string>>;
   background: ScheduledRequest[];
   running: Record<RequestLane, number>;
   languageServer: ScheduledRequest[];
@@ -61,8 +70,8 @@ interface ClientSchedule {
   requests: Map<string, ScheduledRequest>;
 }
 
-const LANES: RequestLane[] = ['interactive', 'background', 'languageServer', 'languageServerBackground'];
-const GLOBAL_LIMITS = { interactive: 24, background: 12, languageServer: 6, languageServerBackground: 6 };
+const LANES: RequestLane[] = ['metadata', 'interactive', 'background', 'languageServer', 'languageServerBackground'];
+const GLOBAL_LIMITS = { metadata: 12, interactive: 24, background: 12, languageServer: 6, languageServerBackground: 6 };
 const MAX_LANGUAGE_SERVER_QUEUED_REQUESTS = 8;
 const MAX_QUEUED_REQUESTS = 64;
 const MAX_BACKGROUND_QUEUED_REQUESTS = MAX_QUEUED_REQUESTS - 16;
@@ -73,14 +82,16 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
 ) {
   const schedules = new WeakMap<Client, ClientSchedule>();
   const activeClients = new Set<Client>();
-  const globalRunning = { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 };
+  const globalRunning = { metadata: 0, interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 };
 
   function scheduleFor(client: Client): ClientSchedule {
     let schedule = schedules.get(client);
     if (!schedule) {
       schedule = {
+        metadata: [],
+        lastOwner: {},
         background: [],
-        running: { interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 },
+        running: { metadata: 0, interactive: 0, background: 0, languageServer: 0, languageServerBackground: 0 },
         languageServer: [],
         languageServerBackground: [],
         interactive: [],
@@ -113,6 +124,7 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   }
 
   function finish(client: Client, request: ScheduledRequest): void {
+    clearTimeout(request.timeout);
     if (request.started) {
       request.started = false;
       globalRunning[request.lane] -= 1;
@@ -127,10 +139,11 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   }
 
   function acknowledgeCancellation(client: Client, request: ScheduledRequest): void {
-    if (request.responseType !== 'language-server-result') return;
     send(client, {
       type: request.responseType, requestId: request.requestId, ok: false,
-      error: { code: 'CANCELLED', message: 'Workspace request was cancelled', status: 499 },
+      error: request.timedOut
+        ? { code: 'TIMEOUT', message: 'Workspace request timed out', status: 504, ...(request.uncertain ? { uncertain: true } : {}) }
+        : { code: 'CANCELLED', message: 'Workspace request was cancelled', status: 499, ...(request.uncertain ? { uncertain: true } : {}) },
     });
   }
 
@@ -153,7 +166,10 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
         && globalRunning[lane] < GLOBAL_LIMITS[lane]
         && schedule[lane].length > 0
       ) {
+        schedule[lane].sort((a, b) => a.priority - b.priority
+          || Number(a.owner === schedule.lastOwner[lane]) - Number(b.owner === schedule.lastOwner[lane]));
         const request = schedule[lane].shift()!;
+        schedule.lastOwner[lane] = request.owner;
         if (request.cancelled) continue;
         start(client, schedule, request);
       }
@@ -161,7 +177,9 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
   }
 
   function drainAll(): void {
-    for (const client of activeClients) drain(client);
+    const clients = [...activeClients];
+    for (const client of clients) drain(client);
+    if (clients[0]) { activeClients.delete(clients[0]); activeClients.add(clients[0]); }
   }
 
   function enqueue(client: Client, request: ScheduledRequest): void {
@@ -180,9 +198,9 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     const languageServerLane = request.lane === 'languageServer' || request.lane === 'languageServerBackground';
     const queueFull = languageServerLane
       ? schedule[request.lane].length >= MAX_LANGUAGE_SERVER_QUEUED_REQUESTS
-      : schedule.interactive.length + schedule.background.length >= MAX_QUEUED_REQUESTS
+      : schedule.metadata.length + schedule.interactive.length + schedule.background.length >= MAX_QUEUED_REQUESTS
         || (request.lane === 'background' && schedule.background.length >= MAX_BACKGROUND_QUEUED_REQUESTS);
-    const backpressured = request.lane !== 'interactive' && Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES;
+    const backpressured = request.lane !== 'interactive' && request.lane !== 'metadata' && Number(client.bufferedAmount || 0) >= BACKPRESSURE_BYTES;
     if (queueFull || backpressured) {
       request.trace?.end('failed');
       send(client, {
@@ -193,6 +211,10 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       });
       return;
     }
+    request.timeout = setTimeout(() => {
+      request.timedOut = true;
+      cancel(client, { type: 'workspace-cancel', requestId: request.requestId });
+    }, request.budgetMs);
     schedule.requests.set(request.requestId, request);
     schedule[request.lane].push(request);
     drain(client, schedule);
@@ -205,6 +227,10 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       cancelled: false,
       controller,
       lane: workspaceRequestLane(message.request),
+      mutation: ['save-file', 'create-entry', 'move-entry', 'rename-entry', 'delete-entry', 'switch-branch', 'create-preview', 'delete-preview', 'renew-preview'].includes(message.request.operation),
+      budgetMs: Math.min(message.budgetMs ?? workspaceRequestBudget(message.request), workspaceRequestBudget(message.request)),
+      priority: message.priority === 'background' ? 1 : 0,
+      owner: 'rootId' in message.request ? message.request.rootId : '',
       requestId: message.requestId,
       responseType: 'workspace-result',
       started: false,
@@ -237,6 +263,10 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
       cancelled: false,
       controller,
       lane: languageServerRequestLane(message.request),
+      mutation: false,
+      budgetMs: Math.min(message.budgetMs ?? 60_000, 300_000),
+      priority: message.request.priority === 'background' ? 1 : 0,
+      owner: message.request.rootId || '',
       requestId: message.requestId,
       responseType: 'language-server-result',
       started: false,
@@ -268,7 +298,9 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     const request = schedule?.requests.get(message.requestId);
     if (!schedule || !request || request.cancelled) return;
     request.cancelled = true;
-    request.trace?.end('cancelled');
+    request.uncertain = request.mutation && request.started;
+    clearTimeout(request.timeout);
+    request.trace?.end(request.timedOut ? 'timeout' : 'cancelled');
     request.controller.abort();
     if (!request.started) {
       schedule.requests.delete(message.requestId);
@@ -284,10 +316,12 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     if (!schedule) return;
     for (const request of schedule.requests.values()) {
       request.cancelled = true;
+      clearTimeout(request.timeout);
       request.trace?.end('cancelled');
       request.controller.abort();
     }
     schedule.requests.clear();
+    schedule.metadata.length = 0;
     schedule.interactive.length = 0;
     schedule.background.length = 0;
     schedule.languageServer.length = 0;

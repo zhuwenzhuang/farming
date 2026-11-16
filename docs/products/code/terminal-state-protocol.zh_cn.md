@@ -32,6 +32,10 @@ Controller 与 Runtime 的代际计数器通过精确进程身份的文件 Claim
 或仅包含僵尸进程、已进入内核退出阶段的进程；仍有活进程或观测不可用时，继续保留清理失败。
 这一规则适用于所有 Provider，不引入另一种停止模式。
 
+Shell cwd 标记随有序终端流传输。终端 reducer 持有有界 cwd 区间，区间由随重排和
+滚动裁剪移动的缓冲标记定位。检查点在屏幕输出之外保留存续区间；重连不能用当前 cwd
+替代历史行目录。不含区间的旧检查点保留相对路径未确认状态，不能从提示符文字猜测 cwd。
+
 ## Provider Activity 与 Attention
 
 对于持久运行的 Coding CLI，Process 存活不等于 Turn 正在执行。Provider Terminal Observer 从

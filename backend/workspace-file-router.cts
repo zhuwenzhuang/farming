@@ -70,10 +70,11 @@ interface TransportFileResult extends ResourceFileResult {
 }
 
 interface WorkspaceFileServiceLike {
+  resolveLinkPath(root: string, userPath: string, options?: ReadOptions): Promise<unknown>;
   fileLinkAccess(root: string, paths: string[], options?: ReadOptions): Promise<unknown>;
   resolvePath(root: string, userPath: unknown): Promise<{ target: string }>;
-  changesInventory(root: string): Promise<unknown>;
-  changesPage(root: string, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number }): Promise<unknown>;
+  changesInventory(root: string, signal?: AbortSignal): Promise<unknown>;
+  changesPage(root: string, options: { repositoryPath?: string; scope: 'tracked' | 'untracked'; cursor?: string; limit?: number; signal?: AbortSignal }): Promise<unknown>;
   blamePage(root: string, userPath: unknown, revision?: string, cursor?: string, ifSnapshot?: string, signal?: AbortSignal): Promise<unknown>;
   blameCapability(root: string, userPath: unknown, options?: ReadOptions & { revision?: string }): Promise<unknown>;
   changes(root: string, options?: InputRecord): Promise<unknown>;
@@ -87,7 +88,7 @@ interface WorkspaceFileServiceLike {
   invalidateGitStatus?(root: string): void;
   lineChanges(root: string, userPath: unknown, lineNumber: unknown, mode: unknown): Promise<unknown>;
   listTreePage(root: string, userPath: unknown, options?: TreeReadOptions): Promise<unknown>;
-  listTreeDecorations(root: string, userPath: unknown, entryPaths: unknown[]): Promise<unknown>;
+  listTreeDecorations(root: string, userPath: unknown, entryPaths: unknown[], signal?: AbortSignal): Promise<unknown>;
   moveEntry(root: string, sourcePath: unknown, targetDirectory: unknown, options?: MutationVersionOptions): Promise<unknown>;
   readFile(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
   readPreviewFile(root: string, userPath: unknown, options?: ReadOptions): Promise<PreviewFileResult>;
@@ -519,6 +520,17 @@ async function executeWorkspaceFileRequest(
 
   options.signal?.throwIfAborted();
   switch (request.operation) {
+    case 'resolve-path': {
+      const global = isGlobalWorkspaceFilesAgentId(request.rootId);
+      if (global) {
+        assertExactExternalFileAccess({ authAccessMode: options.accessMode } as HttpRequest);
+      }
+      const requestedPath = global && request.path.startsWith('~/')
+        ? path.join(os.homedir(), request.path.slice(2)).replace(/^\//, '') : request.path;
+      return fileService.resolveLinkPath(resolveRequestRoot(request).root, requestedPath, {
+        ...readOptionsForAgent(agentManager, request.rootId), signal: options.signal,
+      });
+    }
     case 'file-link-access': {
       if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
         assertExactExternalFileAccess({ authAccessMode: options.accessMode } as HttpRequest);
@@ -546,6 +558,7 @@ async function executeWorkspaceFileRequest(
         resolveRequestRoot(request).root,
         request.path || '',
         request.entryPaths,
+        options.signal,
       );
     }
     case 'read-file': {
@@ -719,8 +732,8 @@ async function executeWorkspaceFileRequest(
         throw new WorkspaceFileError('global files do not support workspace changes', 403);
       }
       const root = resolveRequestRoot(request).root;
-      if (request.inventory) return fileService.changesInventory(root);
-      if (request.scope) return fileService.changesPage(root, { repositoryPath: request.repositoryPath, scope: request.scope, cursor: request.cursor, limit: request.limit });
+      if (request.inventory) return fileService.changesInventory(root, options.signal);
+      if (request.scope) return fileService.changesPage(root, { repositoryPath: request.repositoryPath, scope: request.scope, cursor: request.cursor, limit: request.limit, signal: options.signal });
       return fileService.changes(root, { limit: request.limit, repositories: true });
     }
     case 'branch': {

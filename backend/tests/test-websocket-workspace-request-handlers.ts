@@ -140,7 +140,8 @@ async function run(): Promise<void> {
     gate.resolve({ ignored: true });
     await flush();
     assert(aborted.includes('read-file:root-duplicate'));
-    assert.strictEqual(socket.messages.length, 1, 'cancelled work must not publish a late result');
+    assert.strictEqual(socket.messages.length, 2, 'cancellation must acknowledge physical completion');
+    assert.strictEqual((socket.messages[1].error as { code: string }).code, 'CANCELLED');
     pending.delete('read-file:root-duplicate');
   }
 
@@ -197,10 +198,11 @@ async function run(): Promise<void> {
       });
       handlers.cancel(socket, { type: 'workspace-cancel', requestId: `obsolete-${i}` });
     }
-    assert.deepStrictEqual(socket.messages, [], 'cancelled queued work must immediately release queue capacity');
+    assert(socket.messages.every(message => (message.error as { code: string }).code === 'CANCELLED'), 'queued cancellations acknowledge release');
+    const cancellationCount = socket.messages.length;
     gate.resolve({});
     await flush();
-    assert.strictEqual(socket.messages.length, 4, 'only the four retained requests may complete');
+    assert.strictEqual(socket.messages.length, cancellationCount + 4, 'only the four retained requests may complete');
     handlers.close(socket);
     for (let i = 0; i < 4; i += 1) pending.delete(`read-file:held-${i}`);
   }

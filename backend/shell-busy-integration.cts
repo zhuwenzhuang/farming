@@ -451,6 +451,7 @@ function parseShellBusyMarkers(
   data: unknown,
   previousBusy: boolean | null = null,
   pending = '',
+  preserveCwd = false,
 ): ParsedShellBusyMarkers {
   let markerSeen = false;
   let statusMarkerSeen = false;
@@ -493,7 +494,7 @@ function parseShellBusyMarkers(
 
     if (cwdValue) {
       cwd = cwdFromOsc7(cwdValue);
-      return '';
+      return preserveCwd && cwd ? _match : '';
     }
 
     if (busyState) {

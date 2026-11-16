@@ -135,6 +135,7 @@ export interface TerminalLinkHostElement extends TerminalLinkEventTarget {
 
 export interface TerminalLinkInteractionPorts {
   agentId: string
+  cwdAtLine?: (line: number) => string | undefined
   hostEl: TerminalLinkHostElement
   windowTarget: TerminalLinkEventTarget
   registerLinkProvider: ((provider: TerminalLinkProvider) => { dispose: () => void }) | null
@@ -171,6 +172,8 @@ interface TerminalLinkInteractionFence {
 }
 
 interface PathResolveCacheEntry {
+  controller?: AbortController
+  opening?: boolean
   fence: TerminalLinkInteractionFence
   resolution: Promise<TerminalPathOpenTarget | null>
   resolvedAt: number
@@ -214,6 +217,7 @@ export function terminalOpenTargetTitle(
 function terminalPathResolveCacheKey(target: TerminalPathOpenTarget) {
   return [
     target.path,
+    target.cwd ?? '',
     target.lineNumber ?? '',
     target.column ?? '',
     target.endLineNumber ?? '',
@@ -249,6 +253,7 @@ export class TerminalLinkInteractionController {
   readonly #pathResolveCache = new Map<string, PathResolveCacheEntry>()
   readonly #listenerRemovals: Array<() => void> = []
   #revision = 0
+  #openRevision = 0
   #handlersRevision: TerminalLinkHandlersRevision | null = null
   #linkProviderDisposable: (() => void) | null = null
   #lastHoverEvent: MouseEvent | null = null
@@ -320,6 +325,7 @@ export class TerminalLinkInteractionController {
     this.#revision += 1
     this.#clearHoverState()
     this.#exactOpenMouseDown = null
+    this.#pathResolveCache.forEach(entry => entry.controller?.abort())
     this.#pathResolveCache.clear()
   }
 
@@ -341,6 +347,7 @@ export class TerminalLinkInteractionController {
     this.#lastHoverEvent = null
     this.#providerHoverTarget = null
     this.#exactOpenMouseDown = null
+    this.#pathResolveCache.forEach(entry => entry.controller?.abort())
     this.#pathResolveCache.clear()
     return true
   }
@@ -369,6 +376,11 @@ export class TerminalLinkInteractionController {
     return domLine ? parseTerminalUrlAtColumn(domLine.text, domLine.col) : null
   }
 
+  #withCwd(matches: TerminalLinkMatch[], row: number) {
+    const cwd = this.#ports.cwdAtLine?.(row)
+    return cwd ? matches.map(match => match.pathTarget ? { ...match, pathTarget: { ...match.pathTarget, cwd } } : match) : matches
+  }
+
   #pathLinksAtCell(cell: TerminalLinkCell) {
     const logicalLine = this.#ports.logicalLineAtCell(cell)
     if (!logicalLine) return []
@@ -376,13 +388,13 @@ export class TerminalLinkInteractionController {
     // portion as a workspace path makes a plain click start file resolution and
     // briefly suppresses the modifier-click that should open the URL.
     if (parseExplicitTerminalUrlAtColumn(logicalLine.text, logicalLine.col)) return []
-    const directLinks = collectTerminalPathLinkMatches(logicalLine.text)
+    const directLinks = this.#withCwd(collectTerminalPathLinkMatches(logicalLine.text), logicalLine.startRow)
       .filter(match => matchCoversColumn(match, logicalLine.col))
     if (directLinks.length > 0) return directLinks
-    return collectTerminalMultiLinePathLinkMatches(
+    return this.#withCwd(collectTerminalMultiLinePathLinkMatches(
       logicalLine.text,
       this.#ports.previousLogicalLines(logicalLine.startRow),
-    ).filter(match => matchCoversColumn(match, logicalLine.col))
+    ), logicalLine.startRow).filter(match => matchCoversColumn(match, logicalLine.col))
   }
 
   pathLinkAtCell(cell: TerminalLinkCell) {
@@ -419,6 +431,7 @@ export class TerminalLinkInteractionController {
   }
 
   #searchAtEvent(event: MouseEvent) {
+    if (this.#pathLinksAtEvent(event).length > 0) return null
     if (this.urlAtEvent(event)) return null
     if (this.#ports.pathOpenHandler() && this.pathLinkAtEvent(event)) return null
     const cell = this.#ports.cellFromEvent(event)
@@ -443,7 +456,7 @@ export class TerminalLinkInteractionController {
     return null
   }
 
-  async resolvePathTarget(target: TerminalPathOpenTarget) {
+  async resolvePathTarget(target: TerminalPathOpenTarget, opening = false) {
     // The fence is the identity of this request. Capture and validate it before
     // any decision, so a disposed owner or a superseded attachment cannot pass
     // a target through the resolver-free and global-root shortcuts either.
@@ -452,10 +465,11 @@ export class TerminalLinkInteractionController {
 
     const resolveHandler = this.#ports.pathResolveHandler()
     if (!resolveHandler) return target
-    if (target.globalRoot) return target
+    if (target.globalRoot || target.resolved) return target
 
     const cacheKey = terminalPathResolveCacheKey(target)
     const cached = this.#pathResolveCache.get(cacheKey)
+    if (cached && opening) cached.opening = true
     if (
       cached
       && this.#isCurrentFence(cached.fence)
@@ -467,10 +481,22 @@ export class TerminalLinkInteractionController {
 
     // A resolver that throws synchronously is a failed resolution, not a
     // rejection the caller must handle.
+    cached?.controller?.abort()
+    const controller = new AbortController()
     const promise = Promise.resolve()
-      .then(() => resolveHandler(this.#ports.agentId, target))
-      .catch(() => null)
+      .then(() => resolveHandler(this.#ports.agentId, { ...target, signal: controller.signal }))
+      .catch(() => {
+        if (this.#pathResolveCache.get(cacheKey)?.resolution === promise) this.#pathResolveCache.delete(cacheKey)
+        return null
+      })
+    while (this.#pathResolveCache.size >= 32) {
+      const disposable = [...this.#pathResolveCache].find(([, entry]) => !entry.opening)
+      if (!disposable) break
+      disposable[1].controller?.abort()
+      this.#pathResolveCache.delete(disposable[0])
+    }
     this.#pathResolveCache.set(cacheKey, {
+      controller, opening,
       fence,
       resolution: promise,
       resolvedAt: this.#ports.now(),
@@ -575,8 +601,9 @@ export class TerminalLinkInteractionController {
         event.stopImmediatePropagation()
         this.#ports.clearSelection()
         const fence = this.#currentFence()
-        void this.resolvePathTarget(pathTarget).then(resolvedTarget => {
-          if (!this.#isCurrentFence(fence)) return
+        const openRevision = ++this.#openRevision
+        void this.resolvePathTarget(pathTarget, true).then(resolvedTarget => {
+          if (!this.#isCurrentFence(fence) || openRevision !== this.#openRevision) return
           if (!resolvedTarget) {
             this.#ports.focusInput()
             return
@@ -694,6 +721,7 @@ export class TerminalLinkInteractionController {
       return
     }
     const fence = this.#currentFence()
+    this.#cancelObsoleteHover(event)
     this.#lastHoverEvent = event
     if (!this.#openTargetKindAtEvent(event)) {
       this.#providerHoverTarget = null
@@ -712,11 +740,24 @@ export class TerminalLinkInteractionController {
     })
   }
 
+  #cancelObsoleteHover(event?: MouseEvent) {
+    const target = event ? this.pathLinkAtEvent(event)?.pathTarget : null
+    const keep = target ? terminalPathResolveCacheKey(target) : null
+    for (const [key, entry] of this.#pathResolveCache) {
+      if (entry.promise && !entry.opening && key !== keep) {
+        entry.controller?.abort()
+        this.#pathResolveCache.delete(key)
+      }
+    }
+  }
+
   #handleHoverLeave = () => {
+    this.#cancelObsoleteHover()
     this.#clearHoverState()
   }
 
   #handleWindowBlur = () => {
+    this.#cancelObsoleteHover()
     this.#clearHoverState()
   }
 
@@ -805,10 +846,11 @@ export class TerminalLinkInteractionController {
     event.stopImmediatePropagation()
     this.#ports.clearSelection()
     this.suppressActivation()
+    const openRevision = ++this.#openRevision
     void (async () => {
       for (const pathTarget of mouseDown.pathTargets) {
-        const resolvedTarget = await this.resolvePathTarget(pathTarget)
-        if (!this.#isCurrentFence(mouseDown.fence)) return
+        const resolvedTarget = await this.resolvePathTarget(pathTarget, true)
+        if (!this.#isCurrentFence(mouseDown.fence) || openRevision !== this.#openRevision) return
         if (!resolvedTarget) continue
         this.#ports.pathOpenHandler()?.(this.#ports.agentId, resolvedTarget)
         this.suppressActivation()
@@ -894,7 +936,7 @@ export class TerminalLinkInteractionController {
         }
 
         void (async () => {
-          const resolvedMatches = await this.#resolveLinkMatches(matches)
+          const resolvedMatches = await this.#resolveLinkMatches(this.#withCwd(matches, logicalLine.startRow))
           if (!this.#isCurrentFence(fence)) {
             callback(undefined)
             return
@@ -954,6 +996,7 @@ export class TerminalLinkInteractionController {
         } else if (match.kind === 'search') {
           this.#ports.searchOpenHandler()?.(this.#ports.agentId, match.text)
         } else if (match.pathTarget) {
+          ++this.#openRevision
           this.#ports.pathOpenHandler()?.(this.#ports.agentId, match.pathTarget)
         }
         this.suppressActivation()
@@ -966,6 +1009,7 @@ export class TerminalLinkInteractionController {
           text: match.text,
           ...(match.pathTarget ? { pathTarget: match.pathTarget } : {}),
         }
+        this.#cancelObsoleteHover(event)
         this.#lastHoverEvent = event
         const active = pathDirectOpen || this.#isOpenModifierActive(event)
         setTerminalLinkDecorations(link, {

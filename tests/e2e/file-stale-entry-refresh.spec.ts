@@ -80,15 +80,17 @@ test('refresh reconciles a deleted open file while preserving its unsaved draft'
   await page.screenshot({ path: testInfo.outputPath('deleted-file-draft.png'), animations: 'disabled' })
 })
 
-test('refresh reports the failed step while still updating successful directory reads', async ({ page, workspaceRoot }) => {
+test('Git failure has its own retry while directory refresh succeeds', async ({ page, workspaceRoot }, testInfo) => {
   const workspace = path.join(workspaceRoot, 'refresh-partial-failure')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'old.txt'), 'old\n')
   let failChanges = false
+  let treeReads = 0
   await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
     const server = socket.connectToServer()
     socket.onMessage(payload => {
       const message = JSON.parse(String(payload))
+      if (message.type === 'workspace-request' && message.request?.operation === 'tree') treeReads++
       if (failChanges && message.type === 'workspace-request' && message.request?.operation === 'changes') {
         socket.send(JSON.stringify({
           type: 'workspace-result', requestId: message.requestId, ok: false,
@@ -103,12 +105,25 @@ test('refresh reports the failed step while still updating successful directory 
   fs.writeFileSync(path.join(workspace, 'new.txt'), 'new\n')
   const refresh = files.getByTestId('code-files-refresh')
   await refresh.click()
-  await expect(refresh).toHaveAttribute('data-refresh-status', 'error')
-  await expect(refresh).toHaveAttribute('title', /Changes[\s\S]*Git status unavailable/)
-  await expect(files.locator('[data-file-path="new.txt"]')).toBeVisible()
-  failChanges = false
-  await refresh.click()
   await expect(refresh).toHaveAttribute('data-refresh-status', 'success')
+  const gitError = files.getByTestId('code-file-changes-error')
+  await expect(gitError).toContainText('Git status unavailable')
+  await expect(files.locator('[data-file-path="new.txt"]')).toBeVisible()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.getByTestId('code-sidebar-options').click()
+    const settings = page.getByTestId('code-settings-panel')
+    await settings.getByRole('group', { name: 'Appearance' }).getByRole('button', { name: appearance[0].toUpperCase() + appearance.slice(1), exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+    await settings.getByRole('button', { name: 'Close', exact: true }).click()
+    const screenshot = await page.screenshot({ path: testInfo.outputPath(`${appearance}-independent-git-error.png`) })
+    expect(screenshot.readUInt32BE(16)).toBe(page.viewportSize()!.width)
+    expect(screenshot.readUInt32BE(20)).toBe(page.viewportSize()!.height)
+  }
+  const readsBeforeRetry = treeReads
+  failChanges = false
+  await gitError.getByRole('button').click()
+  await expect(gitError).toHaveCount(0)
+  expect(treeReads).toBe(readsBeforeRetry)
 })
 
 test('does not resurrect a removed branch from a late directory response', async ({ page, workspaceRoot }) => {

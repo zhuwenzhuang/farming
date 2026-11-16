@@ -327,6 +327,23 @@ async function testModifierChangeDrivesUrlHover() {
     'a detached terminal drops its hover decoration and modifier state');
 }
 
+async function testNewClickRejectsLatePathResolution() {
+  const fixture = createFixture({ deferResolve: true, lines: ['first.txt', 'second.txt'] });
+  fixture.hostTarget.dispatch('mousedown', createEvent({ clientX: 15, clientY: 5 }));
+  fixture.hostTarget.dispatch('mouseup', createEvent({ clientX: 15, clientY: 5 }));
+  await flush();
+  fixture.state.now += TERMINAL_OPEN_ACTIVATION_FENCE_MS + 1;
+  fixture.hostTarget.dispatch('mousedown', createEvent({ clientX: 15, clientY: 25 }));
+  fixture.hostTarget.dispatch('mouseup', createEvent({ clientX: 15, clientY: 25 }));
+  await flush();
+  fixture.resolveQueued(1);
+  await flush();
+  fixture.resolveQueued(0);
+  await flush();
+  assert.deepStrictEqual(fixture.opened.paths.map(entry => entry.target.path), ['/workspace/second.txt']);
+  fixture.controller.dispose();
+}
+
 async function testExactOpenClick() {
   const fixture = createFixture();
   fixture.hostTarget.dispatch('mousedown', createEvent({ clientX: 115, clientY: 5 }));
@@ -1125,6 +1142,7 @@ async function run() {
   await testHoverCommitsForTheLatestHoverIdentity();
   await testModifierChangeDrivesUrlHover();
   await testExactOpenClick();
+  await testNewClickRejectsLatePathResolution();
   await testDraggedClickAndDetachBetweenMouseDownAndMouseUp();
   await testEscapedPathStaysPlainText();
   await testResetAndDispose();

@@ -94,6 +94,22 @@ async function run() {
     };
     const requestOptions = { previewSessionManager: previewSessions, maxInlineResponseBytes: 32 };
 
+    assert.deepStrictEqual(await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'resolve-path', rootId: 'agent-main', path: 'README.md',
+    }), { path: 'README.md', kind: 'file' });
+    assert.deepStrictEqual(await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'resolve-path', rootId: 'agent-main', path: 'site',
+    }), { path: 'site', kind: 'directory' });
+    await assert.rejects(() => executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'resolve-path', rootId: 'agent-main', path: 'missing.ts',
+    }), /path not found/);
+    await assert.rejects(() => executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'resolve-path', rootId: 'wroot_global', path: outsideAllowedSearchFile.slice(1), exactExternal: true,
+    }, { accessMode: 'read-only' }), /read-only/);
+    assert.deepStrictEqual(await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'resolve-path', rootId: 'wroot_global', path: outsideAllowedSearchFile.slice(1), exactExternal: true,
+    }), { path: outsideAllowedSearchFile.slice(1), kind: 'file' });
+
     const access = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'file-link-access', rootId: 'agent-main',
       paths: ['README.md', 'README.md', 'missing.ts', 'site', '../outside-allowed-search.txt', 'outside-search-link/secret.txt'],
