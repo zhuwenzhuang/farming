@@ -270,6 +270,7 @@ export class WorkspaceSurfaceRestoreAdmission {
 }
 
 interface CurrentWorkspaceSurfaceOptions {
+  fileDiffEnabled?: boolean
   activeView: WorkspaceView
   mainPaneMode: 'terminal' | 'editor' | 'browser' | 'computer'
   activeTerminalId: string | null
@@ -278,6 +279,7 @@ interface CurrentWorkspaceSurfaceOptions {
 }
 
 export function currentWorkspaceSurface({
+  fileDiffEnabled,
   activeView,
   mainPaneMode,
   activeTerminalId,
@@ -305,7 +307,7 @@ export function currentWorkspaceSurface({
     kind: 'file',
     workspace,
     filePath: openWorkspaceFile.file.path,
-    view: openWorkspaceFile.diffRequestId ? 'diff' : 'editor',
+    view: fileDiffEnabled && !openWorkspaceFile.file.preview ? 'diff' : 'editor',
     lineNumber: openWorkspaceFile.cursor?.lineNumber,
     column: openWorkspaceFile.cursor?.column,
     endLineNumber: openWorkspaceFile.cursor?.endLineNumber,
@@ -334,6 +336,7 @@ interface UseWorkspaceSurfaceControllerOptions extends CurrentWorkspaceSurfaceOp
 }
 
 export function useWorkspaceSurfaceController({
+  fileDiffEnabled,
   activeView,
   mainPaneMode,
   activeTerminalId,
@@ -428,6 +431,7 @@ export function useWorkspaceSurfaceController({
   useEffect(() => {
     if (!restored) return
     const surface = currentWorkspaceSurface({
+      fileDiffEnabled,
       activeView,
       mainPaneMode,
       activeTerminalId,
@@ -435,7 +439,7 @@ export function useWorkspaceSurfaceController({
       openWorkspaceFile,
     })
     if (surface) saveCodeWorkspaceViewState({ surface })
-  }, [activeAgents, activeTerminalId, activeView, mainPaneMode, openWorkspaceFile, restored])
+  }, [activeAgents, activeTerminalId, activeView, mainPaneMode, openWorkspaceFile, restored, fileDiffEnabled])
 
   return { restored }
 }

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {
   expect,
@@ -350,8 +351,10 @@ test.describe('Farming Code appearance skins', () => {
     fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Dark mode\n\nconsole palette check\n')
     fs.writeFileSync(path.join(projectDir, 'src', 'app.ts'), 'export const theme = "dark";\n')
-    const historyWorkspace = process.cwd()
-    const secondaryHistoryWorkspace = path.dirname(process.cwd())
+    // Isolated release lanes check out source under /tmp, which the product
+    // intentionally excludes from recent workspaces.
+    const historyWorkspace = os.homedir()
+    const secondaryHistoryWorkspace = path.dirname(historyWorkspace)
     const suggestionParent = path.join(workspaceRoot, 'dark-suggestions')
     const suggestedWorkspace = path.join(suggestionParent, 'alpha-workspace')
     fs.mkdirSync(suggestedWorkspace, { recursive: true })

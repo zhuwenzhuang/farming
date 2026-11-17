@@ -59,6 +59,7 @@ async function openDiff(page: Page, directory: string) {
   fs.writeFileSync(path.join(directory, 'a.txt'), 'inserted line\nfirst line\nchanged second line\nthird line\n')
   await openFile(page, directory)
   await page.getByRole('button', { name: 'Open File Diff', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'Side-by-side diff', exact: true }).click()
   await expect(page.getByTestId('code-file-diff-monaco').locator('.editor.modified .view-lines')).toContainText('inserted line')
 }
 
@@ -120,6 +121,7 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       .replace('    const value90 = 90;\n', ''))
     await openFile(page, directory, 'large.ts')
     await page.getByRole('button', { name: 'Open File Diff', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Side-by-side diff', exact: true }).click()
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
     const diff = page.getByTestId('code-file-diff-view')
     const original = diff.locator('.editor.original')

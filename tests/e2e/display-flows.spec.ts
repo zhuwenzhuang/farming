@@ -1347,6 +1347,9 @@ test.describe('display-backed agent flows', () => {
     await expect(untrackedRow).toBeVisible()
     await untrackedRow.click()
     await expect(activeFileTabName(page)).toHaveText('scratch.log')
+    // Switching files retains Diff until the user explicitly closes it.
+    await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
+    await page.getByTestId('code-file-diff-view').getByRole('button', { name: 'Close diff', exact: true }).click()
     await expect(page.getByTestId('code-file-diff-view')).toHaveCount(0)
     await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('temporary\n')
 
@@ -2553,6 +2556,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
     await expect.poll(() => fs.readFileSync(path.join(childWorkspace, 'README.md'), 'utf8')).not.toContain(shortcutSaveMarker)
     await page.getByRole('button', { name: 'Open File Diff' }).click()
+    await page.getByRole('menuitemradio', { name: 'Inline diff', exact: true }).click()
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await page.getByTestId('code-file-diff-view').getByRole('button', { name: 'Close diff' }).click()

@@ -167,10 +167,10 @@ test.describe('ACP human-like browser matrix', () => {
       const assertLayout = async () => {
         await expect.poll(() => dock.evaluate(element => {
           const dock = element.getBoundingClientRect()
-          const top = document.querySelector('.code-mobile-topbar')!.getBoundingClientRect()
+          const top = document.querySelector('.code-mobile-topbar')?.getBoundingClientRect().bottom ?? 0
           const composer = document.querySelector('.code-composer')!.getBoundingClientRect()
           const transcript = document.querySelector('.code-agent-transcript-scroll')!.getBoundingClientRect()
-          return dock.top >= top.bottom && dock.top >= transcript.bottom - 1
+          return dock.top >= top && dock.top >= transcript.bottom - 1
             && dock.bottom <= composer.top + 1 && composer.bottom <= innerHeight + 1
             && dock.left >= 0 && dock.right <= innerWidth
         })).toBe(true)
@@ -205,7 +205,7 @@ test.describe('ACP human-like browser matrix', () => {
       await assertLayout()
       await expect(header).toHaveText(title)
       await page.setViewportSize({ width: 1440, height: 900 })
-      await expect(dock).toHaveCSS('position', 'absolute')
+      await assertLayout()
       await page.setViewportSize({ width: 390, height: 844 })
       await assertLayout()
       await sendAcpMessage(page, 'Finish the layout check')
@@ -1188,7 +1188,6 @@ test.describe('ACP human-like browser matrix', () => {
     const plan = page.getByTestId('code-agent-transcript-plan-driver')
     await expect(plan).toBeVisible()
     await expect(plan).toContainText('1/3')
-    await expect(page.getByTestId('code-agent-activity-dock')).toHaveCSS('position', 'absolute')
     await expect(plan).toHaveCSS('position', 'relative')
     await expect(plan.locator('.code-agent-transcript-plan-driver-summary > span')).toHaveCSS('font-weight', '400')
     await expect(plan.locator('.code-agent-transcript-plan-driver-summary')).toHaveAttribute('aria-expanded', 'false')

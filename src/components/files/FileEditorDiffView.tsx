@@ -14,7 +14,7 @@ import {
 } from '@/lib/workspace-editor-monaco'
 import { workspaceFileResourceKey } from '@/lib/workspace-working-copy'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
-import { isCompactViewport } from '@/lib/responsive-mode'
+import { useFileEditorDiffPreference } from '@/lib/file-editor-diff-preference'
 import type { CodeCopy } from '../code/copy'
 import type { FileEditorDiffState } from './useFileEditorDiffController'
 import { FileEditorDiffBlame } from './FileEditorDiffBlame'
@@ -22,6 +22,7 @@ import { FileEditorDiffBlame } from './FileEditorDiffBlame'
 interface FileEditorDiffViewProps {
   openFile: OpenWorkspaceFile
   diffState: FileEditorDiffState
+  wordWrapEnabled: boolean
   copy: CodeCopy
   onClose: () => void
 }
@@ -72,9 +73,19 @@ function createDiffTextModel(filePath: string, workspaceRoot: string | undefined
 export function FileEditorDiffView({
   openFile,
   diffState,
+  wordWrapEnabled,
   copy,
   onClose,
 }: FileEditorDiffViewProps) {
+  const { layout } = useFileEditorDiffPreference()
+  const displayOptions = useRef<monaco.editor.IDiffEditorOptions>({})
+  displayOptions.current = {
+    renderSideBySide: layout === 'split',
+    useInlineViewWhenSpaceIsLimited: false,
+    enableSplitViewResizing: layout === 'split',
+    wordWrap: wordWrapEnabled ? 'on' : 'off',
+    diffWordWrap: wordWrapEnabled ? 'on' : 'off',
+  }
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<HTMLElement>(null)
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
@@ -114,10 +125,7 @@ export function FileEditorDiffView({
     const diffEditor = monaco.editor.createDiffEditor(host, {
       theme: workspaceEditorMonacoThemeForAppearance(),
       automaticLayout: false,
-      // A side-by-side diff leaves two line-number gutters on a phone. Use
-      // Monaco's inline diff layout there so the code keeps one readable
-      // column and the user can scroll it vertically.
-      renderSideBySide: !isCompactViewport(),
+      ...displayOptions.current,
       originalEditable: false,
       readOnly: true,
       contextmenu: false,
@@ -127,9 +135,8 @@ export function FileEditorDiffView({
       ...workspaceEditorScrollbarOptions(),
       fixedOverflowWidgets: true,
       renderOverviewRuler: true,
-      enableSplitViewResizing: !isCompactViewport(),
       ignoreTrimWhitespace: false,
-      glyphMargin: true,
+      glyphMargin: false,
       lineNumbersMinChars: 4,
       unicodeHighlight: {
         ambiguousCharacters: false,
@@ -143,9 +150,11 @@ export function FileEditorDiffView({
     const appearanceObserver = new MutationObserver(records => {
       if (records.some(record => record.attributeName === 'data-appearance')) {
         applyWorkspaceEditorMonacoTheme(diffEditor)
+        diffEditor.getOriginalEditor().updateOptions({ glyphMargin: false })
       }
       if (records.some(record => record.attributeName === 'data-code-content-font-size')) {
         updateWorkspaceEditorContentFontSize(diffEditor)
+        diffEditor.getOriginalEditor().updateOptions({ glyphMargin: false })
       }
     })
     appearanceObserver.observe(document.body, {
@@ -168,6 +177,19 @@ export function FileEditorDiffView({
       setEditors(null)
     }
   }, [showDiffEditor])
+
+  useEffect(() => {
+    const editor = diffEditorRef.current
+    if (!editor) return
+    editor.updateOptions(displayOptions.current)
+    // Monaco forces both wrapping overrides off in inline mode, but leaves
+    // override2 behind when returning to split mode. Release that stale override.
+    editor.getOriginalEditor().updateOptions({
+      wordWrapOverride2: layout === 'split' ? 'inherit' : 'off',
+      glyphMargin: false,
+    })
+    editor.layout()
+  }, [layout, wordWrapEnabled, showDiffEditor])
 
   useEffect(() => {
     if (!showDiffEditor || !diffState.diff) return
@@ -200,7 +222,7 @@ export function FileEditorDiffView({
       modified.setPosition({ lineNumber: line, column: 1 })
       modified.revealLineInCenter(line, monaco.editor.ScrollType.Immediate)
       // In split mode a deletion may be taller than its empty modified range.
-      if (change.modifiedEndLineNumber === 0 && !isCompactViewport()) {
+      if (change.modifiedEndLineNumber === 0 && displayOptions.current.renderSideBySide) {
         original.revealLineInCenter(change.originalStartLineNumber, monaco.editor.ScrollType.Immediate)
       }
       navigating = false
@@ -262,6 +284,8 @@ export function FileEditorDiffView({
       ref={viewRef}
       className="code-file-diff-view"
       data-testid="code-file-diff-view"
+      data-diff-layout={layout}
+      data-word-wrap={wordWrapEnabled ? 'on' : 'off'}
       aria-label={copy.fileDiff}
       tabIndex={-1}
     >

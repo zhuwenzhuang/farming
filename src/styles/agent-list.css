@@ -592,28 +592,28 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
 }
 
 .code-agent-activity-dock {
-  position: absolute;
-  top: 54px;
-  right: 22px;
-  z-index: 18;
-  width: min(286px, calc(100% - 44px));
-  max-height: min(54vh, 480px);
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  width: min(286px, calc(100% - 24px));
+  max-height: min(28dvh, 220px);
+  margin: 0 12px 6px auto;
   box-sizing: border-box;
   display: grid;
+  grid-auto-rows: max-content;
   gap: 6px;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
+.code-main:has(> .code-agent-activity-dock) > .code-terminal-grid > .code-agent-work-pane {
+  min-height: 0;
+}
+
 .code-main.related-session-open > .code-agent-activity-dock,
 .code-subagent-panel > .code-agent-activity-dock {
-  position: relative;
-  inset: auto;
   width: auto;
-  min-width: 0;
-  flex: 0 0 auto;
   margin: 4px 12px;
-  max-height: min(28dvh, 220px);
 }
 
 .code-agent-launch-submenu-panel .agent-launch-icon {
@@ -708,16 +708,8 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
     }
 
   body.code-mode.code-compact-layout .code-agent-activity-dock {
-      position: relative;
-      flex: 0 0 auto;
-      top: auto;
-      right: auto;
-      left: auto;
       width: auto;
-      min-width: 0;
-      grid-auto-rows: max-content;
       margin: 4px 7px var(--mobile-composer-reserved-height, 80px);
-      max-height: min(28dvh, 220px);
     }
 
   body.code-mode.code-compact-layout .code-main:has(> .code-agent-activity-dock) > .code-terminal-grid {

@@ -60,18 +60,34 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await send.click()
     const goal = page.getByTestId('code-agent-goal-driver')
     const plan = page.getByTestId('code-agent-transcript-plan-driver')
+    const dock = page.getByTestId('code-agent-activity-dock')
+    const expectActivityOutsideChat = async () => {
+      await expect.poll(() => dock.evaluate(element => {
+        const main = element.closest('.code-main')!
+        const transcript = main.querySelector('.code-agent-work-pane.active .code-agent-transcript-scroll')!.getBoundingClientRect()
+        const composer = main.querySelector('.code-composer')!.getBoundingClientRect()
+        const activity = element.getBoundingClientRect()
+        return transcript.height > 0 && transcript.bottom <= activity.top + 1
+          && activity.bottom <= composer.top + 1 && composer.bottom <= innerHeight + 1
+      })).toBe(true)
+    }
     await expect(goal).toContainText('active')
     await expect(plan).toBeVisible()
+    await expectActivityOutsideChat()
     await goal.getByRole('button').click()
     await expect(goal).toContainText('Token budget: 5,000')
     await expect(goal.getByRole('button')).toHaveCount(1)
     await expect(plan.getByRole('button')).toHaveAttribute('aria-expanded', 'false')
+    await expectActivityOutsideChat()
     const shot = testInfo.outputPath(`goal-${appearance}.png`)
     await page.screenshot({ path: shot })
     await testInfo.attach(`Goal ${appearance}`, { path: shot, contentType: 'image/png' })
     await plan.getByRole('button').click()
     await expect(goal.getByRole('button')).toHaveAttribute('aria-expanded', 'false')
     await expect(plan.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
+    await page.setViewportSize({ width: 1100, height: 480 })
+    await expectActivityOutsideChat()
+    await page.setViewportSize({ width: 1280, height: 720 })
     await expect(send).toHaveAttribute('data-action', 'interrupt')
     await send.click()
     await expect(send).not.toHaveAttribute('data-action', 'interrupt')

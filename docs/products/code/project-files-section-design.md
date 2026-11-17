@@ -38,8 +38,8 @@ Agent selection. A source-Agent association is navigation metadata, not file
 ownership. URI boundaries encode/decode once; free-form terminal text cannot
 reinterpret arbitrary whitespace as a path.
 
-Absolute-file entry points share backend worktree resolution. A proven containing
-worktree uses the normal Project file path; files outside repositories use bounded
+Absolute-path entry points share backend worktree resolution. A proven containing
+worktree uses the normal Project path; files outside repositories use bounded
 read-only global access. An external file has no invented Explorer target. Desktop
 Reveal requires authoritative local-backend capability, not a hostname guess.
 Global read-only access never mounts the filesystem root as a Project.
@@ -144,8 +144,10 @@ visible failure without repository search or substitution of a same-named file.
 Terminal paths use the cwd recorded for their output line and a metadata-only
 exact check; neither hovering nor opening a path starts repository search.
 Unknown historical cwd stays unknown. Explicit word search is a separate action. A directory in another
-mounted Project uses that Project; directory navigation does not mount new Projects
-or broaden filesystem access.
+mounted Project uses that Project. An owner opening an explicit directory link
+outside mounted Projects mounts that exact directory through the normal Project
+membership operation, then reveals the canonical target. Missing, unreadable
+and filesystem-root targets never create membership; read-only shares cannot mount.
 External URLs retain normal safe Markdown handling.
 
 Inferred inline-code paths remain authored code until a bounded backend check
@@ -194,6 +196,18 @@ Read-only inspection does not write the Git index.
 | Blame | Immutable saved-file snapshot; annotations must match displayed line content, including exact historical sides of a diff |
 | File Diff | Exact model pair; navigation follows computed changes and cannot override later user input |
 | Review | Scoped comparison with its own identity; see [Review foundation](review-foundation.md) |
+
+File Diff is one persisted browser preference across the editor. Turning it on
+keeps eligible files in Diff across file/Project switches, pane remounts and reloads,
+until explicitly turned off. Unsupported previews temporarily use their ordinary
+viewer without clearing the preference. Explicit Diff opens enable it; ordinary
+navigation and restored per-file requests do not override it. Each displayed file
+owns a cancellable comparison read; late results cannot replace a newer file or
+reopen a closed Diff. Sharing and restored surfaces describe the effective view.
+The Diff button offers Off, Inline and Side-by-side in one shared menu. Layout is
+an explicit persisted preference (initially Inline); resizing never changes it.
+The editor's word-wrap toggle applies to both Diff sides, without refetching or
+resetting change navigation. Read-only Diff does not reserve an empty glyph margin.
 
 Cursors bind repository, scope and captured snapshot. Writes/watch events invalidate
 relevant inventories, including in-flight captures. Expiry, eviction or restart

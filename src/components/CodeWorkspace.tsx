@@ -1,4 +1,5 @@
 import { WorkspaceFileApiError } from '@/lib/workspace-files'
+import { setFileEditorDiffEnabled, useFileEditorDiffEnabled } from '@/lib/file-editor-diff-preference'
 import { resolveWorkspaceLinkPath } from '@/lib/workspace-files'
 import { AgentSidebarDisclosureProvider } from './code/AgentSidebarDisclosure'
 import { useSubagentOpening } from './code/useSubagentOpening'
@@ -1279,6 +1280,7 @@ export function CodeWorkspace({
     updateOpenFile: workspaceOpenFiles.update,
   })
 
+  const fileDiffEnabled = useFileEditorDiffEnabled()
   const decoratedAgentSessions = useMemo(
     () => applySessionDisplayOverrides(agentSessions, agentSessionPinnedOverrides, {}),
     [agentSessionPinnedOverrides, agentSessions]
@@ -1678,7 +1680,7 @@ export function CodeWorkspace({
     recordWorkspaceNavigationFile({
       agentId: openWorkspaceFile.agentId,
       filePath: openWorkspaceFile.file.path,
-      view: openWorkspaceFile.diffRequestId ? 'diff' : 'editor',
+      view: fileDiffEnabled && !openWorkspaceFile.file.preview ? 'diff' : 'editor',
       lineNumber: openWorkspaceFile.cursor?.lineNumber,
       column: openWorkspaceFile.cursor?.column,
       endColumn: openWorkspaceFile.cursor?.endColumn,
@@ -1692,7 +1694,8 @@ export function CodeWorkspace({
     openWorkspaceFile?.cursor?.endColumn,
     openWorkspaceFile?.cursor?.lineNumber,
     openWorkspaceFile?.cursor?.requestId,
-    openWorkspaceFile?.diffRequestId,
+    fileDiffEnabled,
+    openWorkspaceFile?.file.preview,
     openWorkspaceFile?.file.path,
     openWorkspaceFile?.sourceAgentId,
     recordWorkspaceNavigationFile,
@@ -1917,7 +1920,7 @@ export function CodeWorkspace({
         filePath: openWorkspaceFile.file.path,
         ...(workspaceRoot ? { absolutePath: workspaceShareAbsolutePath(workspaceRoot, openWorkspaceFile.file.path) } : {}),
         ...(workspaceRoot ? { projectLabel: workspaceShareProjectLabel(workspaceRoot) } : {}),
-        view: openWorkspaceFile.diffRequestId ? 'diff' : 'editor',
+        view: fileDiffEnabled && !openWorkspaceFile.file.preview ? 'diff' : 'editor',
         lineNumber: openWorkspaceFile.cursor?.lineNumber,
         column: openWorkspaceFile.cursor?.column,
         endColumn: openWorkspaceFile.cursor?.endColumn,
@@ -1938,7 +1941,8 @@ export function CodeWorkspace({
     openWorkspaceFile?.cursor?.column,
     openWorkspaceFile?.cursor?.endColumn,
     openWorkspaceFile?.cursor?.lineNumber,
-    openWorkspaceFile?.diffRequestId,
+    fileDiffEnabled,
+    openWorkspaceFile?.file.preview,
     openWorkspaceFile?.file.path,
     openWorkspaceFile?.workspaceRoot,
     showFileEditor,
@@ -3550,6 +3554,7 @@ export function CodeWorkspace({
       sourceAgentId: identity.sourceAgentId,
     }
     workspaceOpenFiles.openFromRead(identity.filesId, file, openRequest)
+    if (target?.view === 'diff' && options?.origin !== 'restore') setFileEditorDiffEnabled(true)
     if (shouldRevealSelectedWorkspaceOpenFile(target)) {
       setFileRevealRequest({
         agentId: identity.filesId,
@@ -3579,12 +3584,27 @@ export function CodeWorkspace({
     }
     if (!readOnly) {
       try {
-        const workspace = await requestProjectMountForFile(absolutePath)
-        const filePath = workspace ? workspaceRelativePath(absolutePath, workspace) : null
-        if (workspace && filePath) {
+        const resolved = await resolveWorkspaceLinkPath(
+          GLOBAL_WORKSPACE_FILES_AGENT_ID,
+          normalizeGlobalWorkspaceFilePath(absolutePath),
+          { exactExternal: true },
+        )
+        if (resolved.kind === 'directory') {
+          if (!resolved.path || resolved.path === '.' || !normalizeGlobalWorkspaceFilePath(resolved.path)) return null
+          const workspace = await mountProject(absolutePath)
+          if (!workspace || workspace === '/') return null
           return {
             identity: resolveWorkspaceFileIdentity(projectFilesWorkspaceId(workspace), sourceAgentId),
-            filePath,
+            filePath: '.',
+            globalRoot: false,
+          }
+        }
+        const workspace = await requestProjectMountForFile(absolutePath)
+        const filePath = workspace ? workspaceRelativePath(absolutePath, workspace) : null
+        if (workspace && filePath !== null) {
+          return {
+            identity: resolveWorkspaceFileIdentity(projectFilesWorkspaceId(workspace), sourceAgentId),
+            filePath: filePath || '.',
             globalRoot: false,
           }
         }
@@ -3599,7 +3619,7 @@ export function CodeWorkspace({
       filePath,
       globalRoot: true,
     }
-  }, [readOnly, requestProjectMountForFile, resolveWorkspaceFileIdentity])
+  }, [readOnly, mountProject, requestProjectMountForFile, resolveWorkspaceFileIdentity])
 
   const restoreWorkspaceAgent = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId, { focusTerminal: false, origin: 'restore' })
@@ -3630,6 +3650,7 @@ export function CodeWorkspace({
     openWorkspaceFile,
     projectWorkspaces,
     projectWorkspacesLoaded,
+    fileDiffEnabled,
     resolveWorkspaceFileIdentity,
     openAgent: restoreWorkspaceAgent,
     openFile: restoreWorkspaceFile,
@@ -3740,7 +3761,7 @@ export function CodeWorkspace({
     return [{
       workspace,
       filePath: file.file.path,
-      view: file.diffRequestId ? 'diff' as const : 'editor' as const,
+      view: fileDiffEnabled && !file.file.preview ? 'diff' as const : 'editor' as const,
       lineNumber: file.cursor?.lineNumber,
       column: file.cursor?.column,
       endLineNumber: file.cursor?.endLineNumber,
@@ -3748,7 +3769,7 @@ export function CodeWorkspace({
       sourceAgentId: file.sourceAgentId,
       transient: file.transient,
     }]
-  }), [activeAgents, openWorkspaceFiles])
+  }), [activeAgents, openWorkspaceFiles, fileDiffEnabled])
   const openFilesViewStateKey = JSON.stringify(openFilesViewState)
 
   useEffect(() => {
@@ -3873,6 +3894,7 @@ export function CodeWorkspace({
       sourceAgentId: identity.sourceAgentId,
     }
     if (!workspaceOpenFiles.select(identity.filesId, filePath, openRequest)) return false
+    if (target?.view === 'diff') setFileEditorDiffEnabled(true)
     beginNavigationPerformance('file.open', filePerformanceKey(identity.filesId, filePath))
     closeContextMenu()
     clearSearch()
@@ -3938,6 +3960,7 @@ export function CodeWorkspace({
       try {
         const directory = await fetchWorkspaceTree(filesId, resolvedFilePath)
         if (!intentLease.isCurrent()) return
+        if (isGlobalWorkspaceFilesAgentId(filesId)) throw new Error('Directory has no mounted Project')
         revealWorkspaceFileInExplorer(filesId, directory.path, 'directory')
       } catch {
         if (!intentLease.isCurrent()) return
@@ -4336,7 +4359,6 @@ export function CodeWorkspace({
     }
 
     const target: WorkspaceFileOpenTarget = {
-      view: entry.view,
       lineNumber: entry.lineNumber,
       column: entry.column,
       endColumn: entry.endColumn,

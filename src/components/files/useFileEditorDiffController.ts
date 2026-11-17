@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { setFileEditorDiffEnabled, useFileEditorDiffEnabled } from '@/lib/file-editor-diff-preference'
 import {
   workspaceEditorModelKey as openFileKey,
 } from '@/lib/workspace-editor-model'
@@ -26,92 +27,53 @@ export function useFileEditorDiffController({
   diffDisabled,
   onClearBlameDetail,
 }: UseFileEditorDiffControllerOptions) {
-  const diffRequestRef = useRef(0)
-  const handledDiffRequestRef = useRef<string | null>(null)
-  const currentOpenFileKey = openFileKey(openFile)
-  const requestedDiffKey = openFile.diffRequestId
-    ? `${currentOpenFileKey}:${openFile.diffRequestId}`
-    : null
+  const enabled = useFileEditorDiffEnabled()
+  const open = enabled && !diffDisabled
+  // Keep the open comparison stable during background file refreshes. An
+  // explicit Diff request or switching files loads a new comparison snapshot.
+  const currentOpenFileKey = `${openFileKey(openFile)}:${openFile.diffRequestId ?? ''}`
   const openFileAgentId = openFile.agentId
   const openFilePath = openFile.file.path
-  const openFileKeyRef = useRef(currentOpenFileKey)
-  const [diffState, setDiffState] = useState<FileEditorDiffState>({
-    open: false,
-    loading: false,
-    error: null,
-    diff: null,
-  })
-  openFileKeyRef.current = currentOpenFileKey
+  const [loaded, setLoaded] = useState<{
+    key: string
+    error: string | null
+    diff: WorkspaceFileDiff | null
+  } | null>(null)
 
   const closeDiff = useCallback(() => {
-    diffRequestRef.current += 1
-    setDiffState({
-      open: false,
-      loading: false,
-      error: null,
-      diff: null,
-    })
+    setFileEditorDiffEnabled(false)
+    setLoaded(null)
   }, [])
 
-  const openDiff = useCallback(async () => {
-    if (diffDisabled) return
-    const requestId = diffRequestRef.current + 1
-    const checkedFileKey = currentOpenFileKey
-    diffRequestRef.current = requestId
+  useEffect(() => {
+    if (!open) return
+    const controller = new AbortController()
     onClearBlameDetail()
-    setDiffState({
-      open: true,
-      loading: true,
-      error: null,
-      diff: null,
-    })
-    try {
-      const diff = await fetchWorkspaceDiff(openFileAgentId, openFilePath)
-      if (diffRequestRef.current !== requestId || openFileKeyRef.current !== checkedFileKey) return
-      setDiffState({
-        open: true,
-        loading: false,
-        error: null,
-        diff,
+    setLoaded(null)
+    void fetchWorkspaceDiff(openFileAgentId, openFilePath, controller.signal)
+      .then(diff => {
+        if (!controller.signal.aborted) setLoaded({ key: currentOpenFileKey, error: null, diff })
       })
-    } catch (error) {
-      if (diffRequestRef.current !== requestId || openFileKeyRef.current !== checkedFileKey) return
-      setDiffState({
-        open: true,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to load diff',
-        diff: null,
+      .catch(error => {
+        if (!controller.signal.aborted) setLoaded({
+          key: currentOpenFileKey,
+          error: error instanceof Error ? error.message : 'Failed to load diff',
+          diff: null,
+        })
       })
-    }
-  }, [currentOpenFileKey, diffDisabled, onClearBlameDetail, openFileAgentId, openFilePath])
+    return () => controller.abort()
+  }, [currentOpenFileKey, open, onClearBlameDetail, openFileAgentId, openFilePath])
 
-  const toggleDiff = useCallback(() => {
-    if (diffState.open) {
-      closeDiff()
-      return
-    }
-    void openDiff()
-  }, [closeDiff, diffState.open, openDiff])
-
-  useEffect(() => {
-    diffRequestRef.current += 1
-    setDiffState({
-      open: false,
-      loading: false,
-      error: null,
-      diff: null,
-    })
-  }, [currentOpenFileKey, diffDisabled])
-
-  useEffect(() => {
-    if (!requestedDiffKey || diffDisabled || handledDiffRequestRef.current === requestedDiffKey) return
-    handledDiffRequestRef.current = requestedDiffKey
-    void openDiff()
-  }, [diffDisabled, openDiff, requestedDiffKey])
+  const current = loaded?.key === currentOpenFileKey ? loaded : null
+  const diffState: FileEditorDiffState = {
+    open,
+    loading: open && !current,
+    error: open ? current?.error ?? null : null,
+    diff: open ? current?.diff ?? null : null,
+  }
 
   return {
     diffState,
     closeDiff,
-    toggleDiff,
   }
 }

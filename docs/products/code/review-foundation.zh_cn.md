@@ -169,6 +169,11 @@ Final Change 与 Previous Revision 之后的 Fixes 服务不同注意力需求�
 
 ## 失败与恢复
 
+`farming review` 在核实精确进程身份并完成有时限的所有者认证检查后，复用所选 Config
+的运行中 Server；仅在没有运行中 Server 时启动服务。打开 Review 不得停止或重启
+Server 及其 Agent。就绪检查失败、端点冲突和并发启动冲突必须明确失败，不得替换
+已有所有者。
+
 Malformed Identity、Duplicate Path、Inconsistent Range 与 Source Mismatch 在边界失败。File Load、
 Comment Save、Reviewed Write 或 Refresh 的迟到结果如果不再属于 Active Review，就必须忽略。
 

@@ -43,6 +43,7 @@ interface FileEditorSurfaceProps {
   copy: CodeCopy
   cursorPosition: FileEditorCursorPosition
   diffState: FileEditorDiffState
+  wordWrapEnabled: boolean
   editorMode: WorkspaceEditorFileMode
   editorHostRef: RefObject<HTMLDivElement | null>
   editorRef: RefObject<monaco.editor.IStandaloneCodeEditor | null>
@@ -123,6 +124,7 @@ export function FileEditorSurface({
   onQuoteSelection,
   cursorPosition,
   diffState,
+  wordWrapEnabled,
   editorMode,
   editorHostRef,
   editorRef,
@@ -168,6 +170,7 @@ export function FileEditorSurface({
         <FileEditorDiffView
           openFile={openFile}
           diffState={diffState}
+          wordWrapEnabled={wordWrapEnabled}
           copy={copy}
           onClose={onCloseDiff}
         />

@@ -636,8 +636,8 @@ export async function fetchWorkspaceBlameCapability(rootId: string, filePath: st
   return runWorkspaceRequest<WorkspaceFileBlameCapability>({ operation: 'blame-capability', rootId, path: filePath, ...(revision ? { revision } : {}) })
 }
 
-export async function fetchWorkspaceDiff(rootId: string, filePath: string) {
-  return runWorkspaceRequest<WorkspaceFileDiff>({ operation: 'diff', rootId, path: filePath })
+export async function fetchWorkspaceDiff(rootId: string, filePath: string, signal?: AbortSignal) {
+  return runWorkspaceRequest<WorkspaceFileDiff>({ operation: 'diff', rootId, path: filePath }, { signal })
 }
 
 export async function fetchWorkspaceChanges(rootId: string, options: { inventory?: boolean; limit?: number; signal?: AbortSignal; priority?: 'interactive' | 'background' } = {}) {

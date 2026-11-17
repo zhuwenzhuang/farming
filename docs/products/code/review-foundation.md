@@ -291,6 +291,12 @@ Review pass.
 
 ## Failure And Recovery
 
+`farming review` reuses the selected Config's running Server after exact-process
+and bounded owner-authentication checks. It starts a Server only when none is
+running. Opening Review never stops or restarts a Server or its Agents; failed
+readiness, endpoint conflicts and concurrent startup fail explicitly without
+replacing an existing owner.
+
 Malformed identities, duplicate paths, inconsistent ranges, and source mismatch
 fail at the boundary. A late file load, comment save, reviewed write, or refresh
 is ignored when it no longer belongs to the active Review.

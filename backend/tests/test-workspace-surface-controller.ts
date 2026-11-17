@@ -226,6 +226,7 @@ function run() {
   assert.deepStrictEqual(currentWorkspaceSurface({
     activeView: 'projects',
     mainPaneMode: 'browser',
+    fileDiffEnabled: true,
     activeTerminalId: sourceAgent.id,
     activeAgents,
     openWorkspaceFile: openFile,
@@ -240,6 +241,12 @@ function run() {
     endColumn: 5,
     sourceAgentId: sourceAgent.id,
   }, 'resource panes must preserve the last file surface exactly as the existing product does');
+  const sourceSurface = currentWorkspaceSurface({
+    activeView: 'projects', mainPaneMode: 'editor', activeTerminalId: sourceAgent.id,
+    activeAgents, openWorkspaceFile: openFile, fileDiffEnabled: false,
+  });
+  assert.strictEqual(sourceSurface?.kind === 'file' && sourceSurface.view, 'editor',
+    'an old per-file Diff request must not override the current editor preference');
   assert.strictEqual(currentWorkspaceSurface({
     activeView: 'history',
     mainPaneMode: 'editor',

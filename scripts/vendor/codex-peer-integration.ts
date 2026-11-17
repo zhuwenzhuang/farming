@@ -9,7 +9,7 @@ export function integrateCodexPeerMessages(source: string): string {
   // legacy Codex extension, through parsing, queueing and the native request.
   replace('      sessionId,\n      prompt,\n      ...idleBehavior', '      sessionId,\n      prompt,\n      clientMessageId: params["clientMessageId"],\n      ...idleBehavior');
   replace('    const clientUserMessageId = randomUUID6();', '    const clientUserMessageId = params.clientMessageId || randomUUID6();');
-  replace('  async createUserMessageUpdates(item) {\n    const updates = [];\n    const messageId = item.id;', '  async createUserMessageUpdates(item) {\n    const updates = [];\n    const messageId = item.clientId || item.id;');
+  // The reviewed adapter patch preserves clientId for both ACP protocol versions.
   // Reuse history's content conversion for live receiver-owned input. These
   // messages may have no sender metadata; visibility must not depend on it.
   replace('      await promptClient.subscribeToSessionEvents(', `      promptEventHandler.farmingUserMessageUpdates = item => this.createUserMessageUpdates(item);

@@ -29,6 +29,47 @@ async function transcript(page: Page, agentId: string, text: string) {
 }
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`mounts unlisted directory links and worktree roots in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
+    const launcher = path.join(workspaceRoot, 'directory-launcher')
+    const repository = path.join(workspaceRoot, 'directory-repository')
+    const worktree = path.join(workspaceRoot, 'directory-review')
+    const plain = path.join(workspaceRoot, 'plain-directory')
+    for (const directory of [launcher, repository, plain]) fs.mkdirSync(directory)
+    fs.mkdirSync(path.join(repository, 'src'))
+    fs.writeFileSync(path.join(repository, 'src', 'example.txt'), 'Directory target\n')
+    for (const args of [['init'], ['add', '.'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'Directory base'], ['worktree', 'add', '-b', 'review', worktree]]) {
+      execFileSync('git', args, { cwd: repository, stdio: 'ignore' })
+    }
+    const alias = path.join(workspaceRoot, 'review-link')
+    fs.symlinkSync(worktree, alias, 'dir')
+    await page.request.post('/farming/api/settings', { data: { appearance } })
+    const agentId = await createAgent(page, launcher)
+    await transcript(page, agentId, [
+      `[Worktree](${alias})`, `[Nested](${worktree}/src/)`,
+      `[Plain](${plain})`, `[Missing](${worktree}/missing/)`,
+    ].join('\n\n'))
+    await openFarming(page)
+    await page.locator(`[data-agent-id="${agentId}"][data-testid="code-agent-row"]`).click()
+    const answer = page.locator('.code-agent-transcript-answer')
+    const mounted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/api/projects/mount'))
+    await answer.getByRole('link', { name: 'review-link', exact: true }).click()
+    expect((await (await mounted).json()).projectWorkspaces).toContain(fs.realpathSync(worktree))
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'directory-review' })
+    await expect(project.locator('.code-files-title').first()).toHaveAttribute('aria-expanded', 'true')
+    await answer.getByRole('link', { name: 'src', exact: true }).click()
+    await expect(project.locator('[data-testid="code-file-row"][data-file-path="src/example.txt"]')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+    await project.screenshot({ path: testInfo.outputPath(`mounted-directory-${appearance}.png`) })
+    await answer.getByRole('link', { name: 'plain-directory', exact: true }).click()
+    await expect(page.getByTestId('code-project-group').filter({ hasText: 'plain-directory' }).locator('.code-files-title').first()).toHaveAttribute('aria-expanded', 'true')
+    await answer.getByRole('link', { name: 'missing', exact: true }).click()
+    await expect(page.locator('.code-copy-toast.error')).toContainText('missing')
+    const settings = (await (await page.request.get('/farming/api/settings')).json()).settings
+    expect(settings.projectWorkspaces).not.toContain(path.join(worktree, 'missing'))
+    const rootResponse = await page.request.post('/farming/api/projects/mount-file', { data: { path: '/' } })
+    expect(rootResponse.status()).toBe(404)
+  })
+
   test(`opens exact directory links across Chat, preview and Projects in ${appearance}`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, 'path-link-reader')
     const other = path.join(workspaceRoot, 'path-link-other')

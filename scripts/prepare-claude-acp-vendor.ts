@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.106.0';
-const expectedSdkVersion = '0.3.322';
-const expectedBundleSha256 = '4fbeda3307da1e7b8615d228acf0c9236222c2d97ba2abcf85568a024e027bc6';
+const expectedVersion = '0.108.0';
+const expectedSdkVersion = '0.3.326';
+const expectedBundleSha256 = '9a4c9e43b5e94bba1f392e1103e61116f387272f257a813177edd367fd19f669';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 // Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
@@ -27,7 +27,7 @@ const targetEntry = path.join(targetDirectory, `claude-agent-acp-${expectedVersi
 const targetLicense = path.join(targetDirectory, 'LICENSE.claude-agent-acp');
 const targetSdkLicense = path.join(targetDirectory, 'LICENSE.claude-agent-sdk');
 const executableFunctionStart = 'export async function claudeCliPath() {';
-const executableFunctionEnd = 'function isMuslLibc() {';
+const executableFunctionEnd = '/**\n * How a session\'s MCP servers reach the CLI';
 const upstreamDeleteMethod = [
   '    async deleteSession(params) {',
   '        return this.sessionIndex.deleteSession(params);',

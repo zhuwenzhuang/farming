@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { run as runIsolated, executeLane, isTcpPortAvailable } from './run-playwright-isolated-lanes.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const defaultLaneTimeoutMs = 180_000;
+const mobileLaneTimeoutMs = 300_000;
 const definitions = [
   ['touch-files', 'release:fast-screen:touch-files'],
   ['file-blame', 'release:fast-screen:file-blame'],
@@ -40,7 +42,7 @@ export function selectBrowserScreen(files) {
   for (const filename of files) {
     let mapped = false;
     const select = names => { mapped = true; names.forEach(name => selected.add(name)); };
-    if (/^src\/components\/files\/|^src\/lib\/workspace-|^src\/styles\/(file-|files\.css$|git-history\.css$|search\.css$)|^tests\/e2e\/(file-|global-file-search|iphone-mobile-layout|mobile-files|mobile-human-story)/.test(filename)) {
+    if (/^src\/components\/files\/|^src\/lib\/(workspace-|file-editor-diff-preference\.ts$)|^src\/components\/code\/useWorkspaceSurfaceController\.ts$|^src\/styles\/(file-|files\.css$|git-history\.css$|search\.css$)|^tests\/e2e\/(file-|global-file-search|iphone-mobile-layout|mobile-files|mobile-human-story)/.test(filename)) {
       select(['touch-files', 'mobile-files', 'mobile-auth']);
     }
     if (/^extensions\/language-server\/|^src\/styles\/language-server\.css$|^shared\/workspace-request-scheduling\.|^tests\/e2e\/(lsp-|file-editor-diagnostics)/.test(filename)) select(['language-server']);
@@ -106,8 +108,10 @@ export function selectBrowserScreen(files) {
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }
   return {
-    files, lanes: definitions.filter(([name]) => selected.has(name)).map(([name, script]) => ({ name, script })),
-    unmapped, maxParallel: 2, laneTimeoutMs: 180_000,
+    files, lanes: definitions.filter(([name]) => selected.has(name)).map(([name, script]) => ({
+      name, script, ...(name === 'mobile-files' ? { timeoutMs: mobileLaneTimeoutMs } : {}),
+    })),
+    unmapped, maxParallel: 2, laneTimeoutMs: defaultLaneTimeoutMs,
     scope: 'Early changed-area screen; full final exact-SHA CI remains required.',
     timingRisk: selected.size > 4 ? 'More than four selected lanes require a bounded queue; this screen may exceed three minutes.' : null,
     omissionReason: selected.size === 0 && unmapped.length === 0 ? 'No mapped browser input selected a lane; metadata and other backend inputs still require their owning checks.' : null,
@@ -133,8 +137,9 @@ export function parseBrowserArgs(args) {
   return { base, plan };
 }
 export function laneCommand(script) {
+  const timeoutMs = script === 'release:fast-screen:mobile' ? mobileLaneTimeoutMs : defaultLaneTimeoutMs;
   return { command: process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    args: ['run', script, '--', '--workers=1', '--retries=0', '--global-timeout=180000', '--max-failures=1', '--reporter=line'],
+    args: ['run', script, '--', '--workers=1', '--retries=0', `--global-timeout=${timeoutMs}`, '--max-failures=1', '--reporter=line'],
     env: { FARMING_E2E_REAL_CODEX: '0', FARMING_PLAYWRIGHT_INTERNAL: '0',
       FARMING_PLAYWRIGHT_AUTH: script === 'release:fast-screen:mobile-auth' ? '1' : '0' } };
 }

@@ -661,6 +661,8 @@ export interface CodeCopy {
   mermaidCopySource: string
   mermaidCopiedSource: string
   fileDiff: string
+  diffInline: string
+  diffSideBySide: string
   loadingDiff: string
   noFileDiff: string
   diffUnavailable: string
@@ -1480,6 +1482,8 @@ const EN_COPY: CodeCopy = {
   mermaidCopySource: 'Copy Mermaid source',
   mermaidCopiedSource: 'Copied Mermaid source',
   fileDiff: 'File Diff',
+  diffInline: 'Inline diff',
+  diffSideBySide: 'Side-by-side diff',
   loadingDiff: 'Loading diff...',
   noFileDiff: 'No file changes.',
   diffUnavailable: 'Diff content is unavailable for this file.',
@@ -2334,6 +2338,8 @@ const ZH_COPY: CodeCopy = {
   mermaidCopySource: '复制 Mermaid 源码',
   mermaidCopiedSource: '已复制 Mermaid 源码',
   fileDiff: '文件 Diff',
+  diffInline: '上下对比',
+  diffSideBySide: '左右对比',
   loadingDiff: '正在加载 Diff...',
   noFileDiff: '文件没有变化。',
   diffUnavailable: '这个文件没有可显示的 Diff 内容。',

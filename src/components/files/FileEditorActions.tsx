@@ -15,6 +15,7 @@ import type { CodeCopy } from '../code/copy'
 import { shareNoticeAnchor, type ShareNoticeAnchor } from '../code/share-notice'
 import { useWorkspaceMenuKeyboard } from './useWorkspaceMenuKeyboard'
 import { useTouchFileSource } from './FileEditorTouchSource'
+import { FileEditorDiffMenu, FileEditorDiffOptions } from './FileEditorDiffMenu'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
   if (previewOpen) {
@@ -124,7 +125,6 @@ interface FileEditorActionsProps {
   onToggleMarkdownWideLayout: () => void
   onToggleSourcePreview: () => void
   onToggleWordWrap: () => void
-  onToggleDiff: () => void
   onQuoteCodeSelection?: () => void
   onToggleAgentSidePanel?: () => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
@@ -148,7 +148,6 @@ export function FileEditorActions({
   onToggleMarkdownWideLayout,
   onToggleSourcePreview,
   onToggleWordWrap,
-  onToggleDiff,
   onQuoteCodeSelection,
   onToggleAgentSidePanel,
   onRevealInExplorer,
@@ -246,16 +245,9 @@ export function FileEditorActions({
         />
       )}
       {actions.showDiff && (
-        <button
-          type="button"
-          className={`code-file-editor-action narrow-overflow diff ${diffOpen ? 'active' : ''}`}
-          onClick={onToggleDiff}
-          disabled={openFile.saving}
-          aria-label={diffOpen ? copy.closeDiff : copy.openFileDiff}
-          title={diffOpen ? copy.closeDiff : copy.openFileDiff}
-        >
+        <FileEditorDiffMenu copy={copy} disabled={openFile.saving} active={diffOpen}>
           <DiffIcon />
-        </button>
+        </FileEditorDiffMenu>
       )}
       {showSourcePreviewAction && (
         <button
@@ -403,16 +395,7 @@ export function FileEditorActions({
             <span>{copy.copyReadOnlyShareLink}</span>
           </button>
           {actions.showDiff && (
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={diffOpen}
-              disabled={openFile.saving}
-              onClick={() => runMoreAction(onToggleDiff)}
-            >
-              <DiffIcon />
-              <span>{diffOpen ? copy.closeDiff : copy.openFileDiff}</span>
-            </button>
+            <FileEditorDiffOptions copy={copy} disabled={openFile.saving} onSelect={closeMoreMenuWithFocus} />
           )}
           {actions.showMarkdownPreview && (
             <button

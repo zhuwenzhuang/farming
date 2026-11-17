@@ -358,10 +358,10 @@ an idempotent request identity for explicit reconciliation after timeout or relo
 Repeated activation while pending observes the same request. Errors retain the
 draft and offer a bounded result check, without automatically replaying creation.
 
-Each pane presents its own Goal and current plan above its composer in split
-layouts. Activity must not overlap input text or toolbar controls, including at
-narrow widths and during expansion. Goal and plan state comes from that pane's
-transcript, not its parent's presentation state.
+Goal, current plan and Browser activity take space between the transcript and
+composer of the pane that shows them. The activity area scrolls when content exceeds
+its height limit, keeping the transcript and composer independently usable.
+Goal and plan state comes from that pane's transcript.
 
 Native child IDs and capabilities are fenced to their immediate parent runtime
 generation. Associations precede child traffic and cannot change ownership.

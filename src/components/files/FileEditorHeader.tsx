@@ -18,7 +18,6 @@ interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   onToggleMarkdownSplit: () => void
   onToggleMarkdownWideLayout: () => void
   onToggleWordWrap: () => void
-  onToggleDiff: () => void
   onQuoteCodeSelection?: () => void
   agentSidePanelOpen: boolean
   onToggleAgentSidePanel?: () => void
@@ -61,7 +60,6 @@ export function FileEditorHeader({
   onToggleMarkdownSplit,
   onToggleMarkdownWideLayout,
   onToggleWordWrap,
-  onToggleDiff,
   onQuoteCodeSelection,
   agentSidePanelOpen,
   onToggleAgentSidePanel,
@@ -122,7 +120,6 @@ export function FileEditorHeader({
             onToggleMarkdownWideLayout={onToggleMarkdownWideLayout}
             onToggleSourcePreview={onToggleSourcePreview}
             onToggleWordWrap={onToggleWordWrap}
-            onToggleDiff={onToggleDiff}
             onQuoteCodeSelection={onQuoteCodeSelection}
             onToggleAgentSidePanel={onToggleAgentSidePanel}
           />

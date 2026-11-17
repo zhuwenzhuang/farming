@@ -618,10 +618,32 @@ function openBrowser(url: string): void {
 
 async function runReview(parsed: ParsedReviewArgs): Promise<number> {
   const target = resolveReviewTarget(parsed);
-  const serverParsed = { command: 'daemon', env: parsed.env, portExplicit: parsed.portExplicit };
-  const code = await startDaemon(serverParsed);
-  if (code) return code;
-  const env = buildControlEnv(parsed.env);
+  const env = canonicalizeServerConfigDir(buildControlEnv(parsed.env));
+  const pid = readPid(env.FARMING_CONFIG_DIR);
+  if (isRunning(pid)) {
+    const state = readServerState(env.FARMING_CONFIG_DIR);
+    const identity = await assertServerProcessIdentity(env.FARMING_CONFIG_DIR, pid, state, 'reuse');
+    if ((parsed.portExplicit && Number(env.PORT) !== Number(state.port))
+      || (parsed.env.FARMING_BASE_PATH && parsed.env.FARMING_BASE_PATH !== state.basePath)) {
+      throw new Error('Review endpoint options do not match the running Farming instance');
+    }
+    env.PORT = String(state.port);
+    env.FARMING_BASE_PATH = state.basePath || DEFAULT_BASE_PATH;
+    await waitForServer(env, serverStartTimeoutMs(env), pid);
+    const readyIdentity = await assertServerProcessIdentity(
+      env.FARMING_CONFIG_DIR, pid, readServerState(env.FARMING_CONFIG_DIR), 'reuse',
+    );
+    if (readPid(env.FARMING_CONFIG_DIR) !== pid
+      || !matchingProcessIdentity(identity, readyIdentity)) {
+      throw new Error('Farming server identity changed while opening Review');
+    }
+  } else {
+    // Review may create an absent service, but never invokes the restart path.
+    // The child's Config owner claim fences concurrent startup; a loser fails
+    // without stopping the winner or any existing Agent.
+    const code = await launchDaemon(parsed, env);
+    if (code) return code;
+  }
   const url = reviewUrl(env, target);
   console.log(url);
   if (!parsed.noOpen) openBrowser(url);
@@ -991,6 +1013,7 @@ async function assertServerProcessIdentity(
   configDir: string,
   pid: number,
   state: ServerState,
+  operation: 'stop' | 'reuse' = 'stop',
 ): Promise<ServerProcessIdentity> {
   const expected = state?.processIdentity;
   if (
@@ -1003,17 +1026,17 @@ async function assertServerProcessIdentity(
     || !String(expected.startedAt || '').trim()
   ) {
     throw new Error(
-      `Refusing to stop Farming PID ${pid}: server control metadata does not contain a matching process identity`,
+      `Refusing to ${operation} Farming PID ${pid}: server control metadata does not contain a matching process identity`,
     );
   }
   const current = await readServerProcessIdentity(pid);
   if (!current || !matchingProcessIdentity(expected, current)) {
     throw new Error(
-      `Refusing to stop Farming PID ${pid}: the live process identity does not match the server control metadata`,
+      `Refusing to ${operation} Farming PID ${pid}: the live process identity does not match the server control metadata`,
     );
   }
   if (state.phase !== 'starting' && !processOwnsListeningPort(pid, Number(state.port))) {
-    throw new Error(`Refusing to stop Farming PID ${pid}: the process does not own listening port ${state.port}`);
+    throw new Error(`Refusing to ${operation} Farming PID ${pid}: the process does not own listening port ${state.port}`);
   }
   return current;
 }
@@ -1706,6 +1729,11 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
   readServerProcessIdentity(process.pid);
   await stopExistingServerBeforeStart(env, 'background');
+  return launchDaemon(parsed, env);
+}
+
+async function launchDaemon(parsed: ParsedServerOperation, env: ServerEnv): Promise<number> {
+  assertServerProcessClaimAvailable(env.FARMING_CONFIG_DIR);
   await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
   const configDir = env.FARMING_CONFIG_DIR;

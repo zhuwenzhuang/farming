@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
-import { selectBrowserScreen, readChanges, runBrowserScreen } from './run-release-browser-screen.mjs';
+import { selectBrowserScreen, readChanges, runBrowserScreen, laneCommand } from './run-release-browser-screen.mjs';
 import { run as runIsolated } from './run-playwright-isolated-lanes.mjs';
 
 const changed = ['src/components/files/FileEditorTouchSource.tsx',
@@ -24,6 +24,7 @@ test('2.2.86 native Files/Composer/disclosure changes select owning bounded lane
     .lanes.map(lane => lane.name), ['interaction']);
   assert.equal(selectBrowserScreen(['package.json', 'backend/provider.cts', 'release-notes/v2.2.86.md']).lanes.length, 0);
   assert.deepEqual(selectBrowserScreen(['src/new-widget.tsx']).unmapped, ['src/new-widget.tsx']);
+  assert(laneCommand('release:fast-screen:mobile').args.includes('--global-timeout=300000'));
 });
 test('unexpected worker rejection leaves unexecuted lanes failed instead of accepting a sparse result array', async () => {
   const fake = runnerDependencies();
@@ -97,7 +98,8 @@ test('one shared build, isolated ports/Config/evidence and all-settled failure',
   for (const lane of fake.calls) {
     assert.equal(lane.env.FARMING_PLAYWRIGHT_SKIP_BUILD, '1');
     assert.equal(lane.env.FARMING_E2E_REAL_CODEX, '0');
-    assert(lane.args.includes('--global-timeout=180000'));
+    assert(lane.args.includes(lane.args.includes('release:fast-screen:mobile')
+      ? '--global-timeout=300000' : '--global-timeout=180000'));
     assert(lane.args.includes('--workers=1'));
     assert(lane.args.includes('--retries=0'));
     assert(lane.args.includes('--max-failures=1'));

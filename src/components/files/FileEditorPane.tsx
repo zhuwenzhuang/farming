@@ -524,7 +524,6 @@ export function FileEditorPane({
   const {
     diffState,
     closeDiff,
-    toggleDiff,
   } = useFileEditorDiffController({
     openFile,
     diffDisabled: !editorMode.canShowDiff,
@@ -709,7 +708,6 @@ export function FileEditorPane({
               onToggleMarkdownSplit={toggleMarkdownSplit}
               onToggleMarkdownWideLayout={toggleMarkdownWideLayout}
               onToggleWordWrap={toggleWordWrap}
-              onToggleDiff={toggleDiff}
               onQuoteCodeSelection={onQuoteSelection && editorMode.canEditText ? quoteCodeSelection : undefined}
               agentSidePanelOpen={agentSidePanelOpen}
               onToggleAgentSidePanel={onToggleAgentSidePanel}
@@ -768,6 +766,7 @@ export function FileEditorPane({
               openFile={openFile}
               onClearBlameDetail={clearBlameDetail}
               onCloseDiff={closeDiff}
+              wordWrapEnabled={wordWrapEnabled}
               onCloseLineChanges={closeLineChanges}
               onOpenFilePath={onOpenFilePath}
               onMarkdownReadingPositionChange={rememberMarkdownReadingPosition}
