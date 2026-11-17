@@ -880,11 +880,13 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   fs.symlinkSync(path.join(externalSharedDir, 'config.toml'), path.join(workspace, 'external-config.toml'))
 
   const workspaceGate = await installWorkspaceRequestGate(page)
-  await page.request.post('/farming/api/control/agents', {
+  const externalAgentResponse = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace: externalSharedDir },
   })
+  const { agentId: externalAgentId } = await externalAgentResponse.json() as { agentId: string }
 
   await openFarming(page)
+  await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${externalAgentId}"]`)).toBeVisible()
   await openNewAgentDialog(page)
   await startAgentFromOpenDialog(page, 'bash', workspace)
 
