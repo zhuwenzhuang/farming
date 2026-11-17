@@ -309,7 +309,7 @@ test('refresh retries a failed page even when the repository inventory is unchan
     await expect(error).toContainText('Change list temporarily unavailable')
     await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)
     const failedReads = pageReads
-    await error.getByRole('button', { name: 'Refresh files', exact: true }).click()
+    await error.getByRole('button', { name: 'Retry', exact: true }).click()
     await expect(error).toHaveCount(0)
     await expect.poll(() => pageReads).toBeGreaterThan(failedReads)
     await expect(untracked.getByTestId('code-file-change-row')).toHaveCount(100)

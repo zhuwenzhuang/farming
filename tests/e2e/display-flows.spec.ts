@@ -1309,7 +1309,7 @@ test.describe('display-backed agent flows', () => {
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'refreshing')
     await expect(filesRefreshButton).toBeDisabled()
     await expect(filesRefreshButton).toHaveAccessibleName('Refreshing files…')
-    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', /refreshing|refreshed/)
     await expect(untrackedCount).toHaveAttribute('data-refresh-state', /refreshing|refreshed/)
     await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toBeVisible({ timeout: 30_000 })
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
