@@ -31,15 +31,22 @@ function fileSystemError(error: unknown): error is { code?: unknown } {
 
 async function acquireGenerationLock(claimKey: string, lockDir: string): Promise<ProcessFileLockClaim> {
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  let emptyLockObserved = false;
   while (Date.now() < deadline) {
     // Legacy allocators published empty directories. They have no process proof
     // and cannot safely be overwritten by atomic publication of a new claim.
+    // An async read can also finish against a directory that was just renamed
+    // away and emptied during release, so confirm an empty result by retrying.
     try {
       if ((await fs.promises.readdir(lockDir)).length === 0) {
-        throw new Error(`Unverifiable legacy native PTY generation lock: ${lockDir}`);
+        emptyLockObserved = true;
+        await delay(LOCK_RETRY_MS);
+        continue;
       }
+      emptyLockObserved = false;
     } catch (error) {
       if (!fileSystemError(error) || error.code !== 'ENOENT') throw error;
+      emptyLockObserved = false;
     }
     try {
       recoverPendingLockRelease(claimKey, { lockTimeoutMs: 0 });
@@ -49,6 +56,7 @@ async function acquireGenerationLock(claimKey: string, lockDir: string): Promise
     }
     await delay(LOCK_RETRY_MS);
   }
+  if (emptyLockObserved) throw new Error(`Unverifiable legacy native PTY generation lock: ${lockDir}`);
   throw new Error('Timed out allocating native PTY controller generation');
 }
 

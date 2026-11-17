@@ -104,8 +104,32 @@ async function verify(kind: 'controller' | 'runtime') {
   }
 }
 
+async function verifyTransientEmptySnapshot(kind: 'controller' | 'runtime') {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'farming-generation-lock-snapshot-'));
+  const allocate = kind === 'controller' ? allocateNativePtyControllerGeneration : allocateNativePtyRuntimeGeneration;
+  const lock = kind === 'controller' ? storage.nativePtyControllerGenerationLockDir(root) : storage.nativePtyRuntimeGenerationLockDir(root);
+  const readdir = fs.promises.readdir;
+  let injected = false;
+  try {
+    fs.promises.readdir = (async (...args: unknown[]) => {
+      if (!injected && args[0] === lock) {
+        injected = true;
+        return [];
+      }
+      return Reflect.apply(readdir, fs.promises, args);
+    }) as typeof fs.promises.readdir;
+    assert.equal(await allocate(root), 1, 'a stale empty directory snapshot must be retried');
+    assert.equal(injected, true);
+  } finally {
+    fs.promises.readdir = readdir;
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await verify('controller');
   await verify('runtime');
+  await verifyTransientEmptySnapshot('controller');
+  await verifyTransientEmptySnapshot('runtime');
   console.log('Native PTY generation exact-owner lock tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
