@@ -273,6 +273,9 @@ export class TerminalLinkInteractionController {
     this.#installed = true
     this.#installLinkProvider()
     this.#listen(this.#ports.hostEl, 'mousedown', this.#handleExactOpenMouseDown as EventListener)
+    // xterm stops mouseup at the document during selection cleanup, before it
+    // reaches the terminal host. Capture it at the window for exact path clicks.
+    this.#listen(this.#ports.windowTarget, 'mouseup', this.#handleExactOpenMouseUp as EventListener)
     this.#listen(this.#ports.hostEl, 'mouseup', this.#handleExactOpenMouseUp as EventListener)
     this.#listen(this.#ports.hostEl, 'click', this.#handleClick as EventListener)
     this.#listen(this.#ports.hostEl, 'mousemove', this.#handleHoverMove as EventListener)
@@ -841,9 +844,7 @@ export class TerminalLinkInteractionController {
     }
     if (this.activateOpenTargetAtEvent(event)) return
 
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
+    this.#claimOpenMouseUp(event)
     this.#ports.clearSelection()
     this.suppressActivation()
     const openRevision = ++this.#openRevision

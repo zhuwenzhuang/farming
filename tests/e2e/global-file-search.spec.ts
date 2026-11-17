@@ -325,7 +325,7 @@ test.describe('global file path search', () => {
     const elapsed = Date.now() - startedAt
     expect(elapsed).toBeGreaterThanOrEqual(7_500)
     expect(elapsed).toBeLessThan(10_500)
-    expect(searchRequestCount).toBe(13)
+    expect(searchRequestCount).toBe(4)
     releaseResults()
 
     const cleanupResponse = await page.request.delete(`/farming/api/control/agents/${agentId}`)

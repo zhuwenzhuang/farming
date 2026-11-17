@@ -449,8 +449,10 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   await expect(breadcrumbBar).toHaveCount(0)
 
   await actions.locator('.diff').click()
+  await page.getByTestId('code-file-diff-menu').getByRole('menuitemradio', { name: 'Inline diff' }).click()
   await expect(breadcrumbBar).toBeVisible()
   await actions.locator('.diff').click()
+  await page.getByTestId('code-file-diff-menu').getByRole('menuitemradio', { name: 'Close diff' }).click()
   await expect(breadcrumbBar).toHaveCount(0)
 
   await actions.locator('.markdown-split').click()

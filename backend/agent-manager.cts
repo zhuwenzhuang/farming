@@ -6289,9 +6289,8 @@ class AgentManager extends EventEmitter {
 
       const agent = this.agents.get(agentId);
       const previousMainAgentId = this.mainAgentIdentity.currentId();
-      if (agent && agent.status === 'pending') {
-        agent.status = 'running';
-
+      if (agent && (agent.status === 'pending' || agent.status === 'running')) {
+        if (agent.status === 'pending') agent.status = 'running';
         const currentMainAgentId = this.mainAgentIdentity.currentId();
         const currentMainAgent = currentMainAgentId ? this.agents.get(currentMainAgentId) : null;
         const canBecomeMain = !currentMainAgentId || !currentMainAgent || currentMainAgent.status === 'dead';

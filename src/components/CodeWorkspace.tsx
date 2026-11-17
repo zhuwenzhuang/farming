@@ -3839,8 +3839,9 @@ export function CodeWorkspace({
     let absolutePath = target.path
     const homeRelative = absolutePath.startsWith('~/')
     if (!absolutePath.startsWith('/') && !homeRelative) {
-      if (!target.cwd) return null
-      absolutePath = `${target.cwd}/${absolutePath}`
+      const cwd = target.cwd || identity.sourceAgent?.cwd || identity.workspaceRoot
+      if (!cwd) return null
+      absolutePath = `${cwd}/${absolutePath}`
     }
     const parts: string[] = []
     for (const part of absolutePath.split('/')) {

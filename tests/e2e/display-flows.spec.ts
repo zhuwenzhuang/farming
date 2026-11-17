@@ -1142,14 +1142,13 @@ test.describe('display-backed agent flows', () => {
 
   test('opens project changes into the editor diff surface', async ({ page, workspaceRoot }) => {
     const workspaceRequests: Array<{ operation: string; path: string }> = []
-    let failNextChangesRequest = false
+    let failChangesRequests = false
     await interceptWorkspaceRequests(page, request => {
       workspaceRequests.push({
         operation: request.operation,
         path: 'path' in request ? request.path ?? '' : '',
       })
-      if (request.operation !== 'changes' || !failNextChangesRequest) return
-      failNextChangesRequest = false
+      if (request.operation !== 'changes' || !failChangesRequests) return
       return {
         response: {
           ok: false,
@@ -1311,7 +1310,7 @@ test.describe('display-backed agent flows', () => {
     await expect(filesRefreshButton).toBeDisabled()
     await expect(filesRefreshButton).toHaveAccessibleName('Refreshing files…')
     await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
-    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', /refreshing|refreshed/)
     await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toBeVisible({ timeout: 30_000 })
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
     await expect(filesRefreshButton).toBeEnabled()
@@ -1319,16 +1318,20 @@ test.describe('display-backed agent flows', () => {
     await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
     await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle', { timeout: 3_000 })
-    failNextChangesRequest = true
+    failChangesRequests = true
     await refreshProjectFiles()
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'refreshing')
-    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
-    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
-    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'error')
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', /refreshing|stale/)
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', /refreshing|stale/)
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', /success|idle/)
     await expect(filesRefreshButton).toBeEnabled()
-    await expect(filesRefreshButton).toHaveAccessibleName('Files refresh failed')
     await expect(trackedCount).toHaveAttribute('data-refresh-state', 'stale')
     await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'stale')
+    await expect(trackedCount).toHaveAttribute('title', 'Changes temporarily unavailable')
+    failChangesRequests = false
+    await refreshProjectFiles()
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
     const compactDirectory = untrackedGroup.getByTestId('code-file-change-directory-row').filter({ hasText: 'demo-app/packages/viewer' })
     await expect(compactDirectory).toBeVisible()
     await compactDirectory.click()

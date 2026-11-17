@@ -279,6 +279,8 @@ function settle(
   // A stale read snapshot is the only automatically replayed failure. A failed
   // mutation or an ambiguous transport outcome must be reconciled by its owner.
   if (!message.ok && !request.mutation && request.retries === 0 && request.deadline > performance.now()
+    && (request.message.type !== 'workspace-request'
+      || !('cursor' in request.message.request && request.message.request.cursor))
     && message.error?.status === 409 && typeof message.error.details === 'object' && message.error.details !== null
     && 'reason' in message.error.details && message.error.details.reason === 'snapshot-stale') {
     request.retries++

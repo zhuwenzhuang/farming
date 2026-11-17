@@ -691,8 +691,8 @@ test('loads large blame through bounded pages and restarts an expired snapshot o
   await openFile(page, directory, 'paged.txt')
   await annotate(page)
   await expect(page.locator('.code-file-inline-blame').first()).toContainText('First Author')
-  expect(starts).toBe(2)
-  expect(pages).toBeGreaterThan(1)
+  await expect.poll(() => starts).toBe(2)
+  await expect.poll(() => pages).toBeGreaterThan(1)
   await expect(page.getByText('Workspace result exceeds the inline WebSocket limit')).toHaveCount(0)
   for (const appearance of ['light', 'dark', 'paper']) {
     await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
