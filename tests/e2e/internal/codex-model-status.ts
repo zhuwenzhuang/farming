@@ -3,6 +3,10 @@ interface CatalogModelIdentity {
   displayName?: string
 }
 
+function canonicalModelLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/^gpt[- ](\d+)\.0(?=[- ])/, 'gpt-$1').replace(/ +/g, '-')
+}
+
 // Only the latest rendered footer is current provider evidence. Historical
 // model-change notices and earlier footers cannot authorize a billed turn.
 export function codexTerminalReportsModel(
@@ -19,6 +23,12 @@ export function codexTerminalReportsModel(
   const footer = footers.at(-1)
   if (!footer || footer[2] !== effort) return false
   const label = footer[1].trim()
-  const matches = catalog.filter(candidate => candidate.value === label || candidate.displayName?.trim() === label)
+  const canonicalLabel = canonicalModelLabel(label)
+  const matches = catalog.filter(candidate => (
+    candidate.value === label
+    || candidate.displayName?.trim() === label
+    || canonicalModelLabel(candidate.value) === canonicalLabel
+    || (candidate.displayName && canonicalModelLabel(candidate.displayName) === canonicalLabel)
+  ))
   return matches.length === 1 && matches[0].value === model
 }
