@@ -424,15 +424,13 @@ export const test = base.extend<{ workspaceRoot: string }>({
 export { expect }
 
 export async function openFarming(page: Page, options: { terminalComposerExpanded?: boolean } = {}) {
-  // Most interaction scenarios exercise Composer controls. Seed an explicit
-  // expanded preference; default-state scenarios opt out to test the product default.
+  // Composer scenarios explicitly open the per-view input when a Terminal
+  // appears. Scenarios that test the disclosure itself opt out.
+  const restore = page.locator('[data-testid="code-composer-restore"][data-terminal-composer]')
+  await page.removeLocatorHandler(restore)
   if (options.terminalComposerExpanded !== false) {
-    await page.addInitScript(() => {
-      // This is a host UI preference; opaque-origin preview frames must not
-      // access storage or receive errors from the test harness.
-      if (window !== window.top) return
-      const key = 'farming.code.terminalComposerCollapsed.v1'
-      if (localStorage.getItem(key) === null) localStorage.setItem(key, 'false')
+    await page.addLocatorHandler(restore, async button => {
+      await button.evaluate(element => (element as HTMLButtonElement).click())
     })
   }
   await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
@@ -481,7 +479,9 @@ export async function startAgentFromOpenDialog(page: Page, name: string, workspa
   }
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
   const restoreComposer = page.getByTestId('code-composer-restore')
-  if (await restoreComposer.count()) await restoreComposer.click()
+  if (await restoreComposer.count()) {
+    await restoreComposer.evaluate(element => (element as HTMLButtonElement).click())
+  }
   return agentId
 }
 

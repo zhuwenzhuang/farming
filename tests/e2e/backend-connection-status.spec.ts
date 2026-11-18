@@ -379,6 +379,7 @@ test('a real mobile offline transition retains draft input and requires an expli
     await page.getByTestId('code-mobile-menu').click()
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
+    await page.getByTestId('code-composer-restore').click()
 
     const command = "printf 'ONLINE_AFTER_RECOVERY\\n' > offline-marker.txt"
     const composer = page.getByTestId('code-composer-input')

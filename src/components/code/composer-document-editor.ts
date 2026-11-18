@@ -8,7 +8,7 @@ import { composerDocumentText, literalComposerDocument, normalizeComposerDocumen
 
 export const composerEditorExtensions = [StarterKit.configure({
   horizontalRule: false, trailingNode: false,
-  link: { autolink: false, openOnClick: false, linkOnPaste: false, isAllowedUri: url => safeComposerLink(url) },
+  link: { autolink: false, openOnClick: false, linkOnPaste: false, HTMLAttributes: { tabindex: 0 }, isAllowedUri: url => safeComposerLink(url) },
 })]
 export const composerEditorSchema = getSchema(composerEditorExtensions)
 /** Keep native composition in charge even when DOM reconciliation synthesizes a key. */

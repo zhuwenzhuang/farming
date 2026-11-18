@@ -168,7 +168,7 @@ test('quoting a file editor selection returns to the owning Terminal composer', 
   })
   expect(response.ok()).toBeTruthy()
   const { agentId } = await response.json() as { agentId: string }
-  await openFarming(page)
+  await openFarming(page, { terminalComposerExpanded: false })
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   const files = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) }).getByTestId('code-files-section')
   const title = files.locator('.code-files-title')

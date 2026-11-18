@@ -264,6 +264,7 @@ test('enforces Owner and read-only authority across real mobile authentication',
 
     await guestPage.getByTestId('code-mobile-menu').click()
     await guestPage.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await guestPage.getByTestId('code-composer-restore').click()
     const marker = 'READ_ONLY_MUTATION_MUST_NOT_RUN'
     const input = guestPage.getByTestId('code-composer-input')
     await input.fill(`printf '${marker}\\n'`)

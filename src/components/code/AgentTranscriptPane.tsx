@@ -79,7 +79,8 @@ import {
 } from '@/lib/workspace-files'
 import { appNavigationPath, appPath } from '@/lib/base-path'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
-import { writeClipboardText } from '@/lib/clipboard'
+import { writeClipboardRichText, writeClipboardText } from '@/lib/clipboard'
+import { transcriptClipboardHtml } from './transcript-clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID, normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
@@ -2638,6 +2639,7 @@ function AgentTranscriptTurnView({
   const resultFiles = turn.resultFiles || []
   const [copiedItemId, setCopiedItemId] = useState('')
   const [answerCopied, setAnswerCopied] = useState(false)
+  const answerContentRef = useRef<HTMLDivElement>(null)
   const [forking, setForking] = useState(false)
   const forkingRef = useRef(false)
   const [openProcessItemIds, setOpenProcessItemIds] = useState<Set<string>>(() => new Set())
@@ -2873,7 +2875,10 @@ function AgentTranscriptTurnView({
   const handleCopyAnswer = useCallback(() => {
     const text = answerMessage.trim()
     if (!text) return
-    void writeClipboardText(text).then(copied => {
+    const content = answerContentRef.current
+    const html = content && transcriptClipboardHtml(content)
+    const write = html ? writeClipboardRichText(text, html) : writeClipboardText(text)
+    void write.then(copied => {
       if (!copied) return
       setAnswerCopied(true)
       window.setTimeout(() => setAnswerCopied(false), 1200)
@@ -3264,7 +3269,10 @@ function AgentTranscriptTurnView({
       {answerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
         <div className="code-agent-transcript-answer" data-process-item-id={turn.finalMessageId || `${turn.id}-answer`}>
           {answerMessage ? (
-            <div className="code-agent-transcript-assistant code-markdown-preview">
+            <div
+              className="code-agent-transcript-assistant code-markdown-preview"
+              ref={answerContentRef}
+            >
               <LocalErrorBoundary
                 label="transcript answer Markdown"
                 resetKey={answerMessage}

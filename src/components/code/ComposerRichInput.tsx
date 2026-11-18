@@ -1,7 +1,8 @@
 import { Editor, Extension } from '@tiptap/core'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
-import { useLayoutEffect, useRef, useState, type HTMLAttributes, type RefObject } from 'react'
-import { composerDocumentText, literalComposerDocument, type ComposerDocument } from '../../../shared/composer-document.js'
+import { useLayoutEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type RefObject } from 'react'
+import { composerDocumentText, literalComposerDocument, safeComposerLink, type ComposerDocument } from '../../../shared/composer-document.js'
+import { openExternalUrl } from '@/lib/url-open-menu'
 import { composerEditorExtensions, composerTextOffset, composerTextPositions, editorDocument, guardComposerComposition, pasteComposerDocument, textSlice, replaceComposerText } from './composer-document-editor'
 import type { ComposerInputElement, StructuredComposerElement } from './composer-input-element'
 import { observeComposerCaretBoundary } from './composer-caret-boundary'
@@ -49,6 +50,19 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
         handlePaste(view, event) {
           try { const handled = pasteComposerDocument(view, event); setError(''); return handled }
           catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); return true }
+        },
+        handleDOMEvents: {
+          click(view, event) {
+            if (!view.editable || event.button !== 0 || event.defaultPrevented) return false
+            const link = event.target instanceof Element ? event.target.closest('a[href]') : null
+            const href = link?.getAttribute('href')
+            if (!link || !view.dom.contains(link) || !safeComposerLink(href)) return false
+            // Leave drag selections alone, even when they start and end inside a link.
+            if (window.getSelection()?.isCollapsed === false) return false
+            event.preventDefault()
+            openExternalUrl(href)
+            return true
+          },
         },
       },
       onUpdate: ({ editor }) => {
@@ -140,5 +154,17 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
     dom.setAttribute('autocapitalize', props.autoCapitalize || 'none')
     dom.setAttribute('autocorrect', props.autoCorrect || 'off')
   }, [props.enterKeyHint, props.inputMode, props.autoCapitalize, props.autoCorrect])
-  return <><div {...props} ref={mount} aria-disabled={disabled} className="code-rich-input" data-composer-rich-input="true" onPasteCapture={onPaste} onKeyDown={undefined} onKeyDownCapture={props.onKeyDown} />{error ? <div className="code-related-session-error" role="alert">{error}</div> : null}</>
+  function handleKeyDown(event: KeyboardEvent<StructuredComposerElement>) {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.target instanceof HTMLAnchorElement) {
+      const href = event.target.getAttribute('href')
+      if (safeComposerLink(href)) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!disabled && !event.repeat) openExternalUrl(href)
+        return
+      }
+    }
+    props.onKeyDown?.(event)
+  }
+  return <><div {...props} ref={mount} aria-disabled={disabled} className="code-rich-input" data-composer-rich-input="true" onPasteCapture={onPaste} onKeyDown={undefined} onKeyDownCapture={handleKeyDown} />{error ? <div className="code-related-session-error" role="alert">{error}</div> : null}</>
 }

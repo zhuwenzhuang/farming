@@ -1180,8 +1180,6 @@ test.describe('real Codex pre-release composite case', () => {
     expect((await codeRows(page, agentId)).join('\n')).not.toContain('Do you trust the contents of this directory?')
 
     await test.step('Code Terminal switches to the fixed low-cost model', async () => {
-      const restoreComposer = page.getByTestId('code-composer-restore')
-      if (await restoreComposer.isVisible()) await restoreComposer.click()
       const picker = page.getByTestId('code-composer-model-picker')
       await expect(picker).toHaveAttribute('data-agent-model-preset', `${launchModel?.value}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
       await picker.click()

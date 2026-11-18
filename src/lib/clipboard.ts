@@ -121,6 +121,22 @@ export async function writeClipboardText(text: string, signal?: AbortSignal) {
   return copied
 }
 
+export async function writeClipboardRichText(text: string, html: string) {
+  try {
+    if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([html], { type: 'text/html' }),
+      })])
+      recentClipboardWrite = { text, writtenAt: Date.now() }
+      return true
+    }
+  } catch {
+    // Preserve the text payload if the browser rejects HTML clipboard writes.
+  }
+  return writeClipboardText(text)
+}
+
 export function createTerminalClipboardProvider(): TerminalClipboardProvider {
   return {
     readText(selection) {

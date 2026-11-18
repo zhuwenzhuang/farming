@@ -6,11 +6,12 @@ Chat and Terminal input share one editing contract. Drafts, attachments and
 submission state belong to the existing Agent composer owner. Expanding the
 editor is local presentation state, never another draft or submission path.
 
-On desktop, a new Terminal defaults to a collapsed Composer and opening the
-Agent directs focus to the terminal. Explicit expand/collapse choices persist in
-the browser; missing or unavailable storage defaults to collapsed. Chat-to-Terminal
-runtime switching retains its existing visible-Composer continuity. Compact/touch
-layouts keep the input available without automatically opening the software keyboard.
+Opening a Terminal Agent or switching from Chat to Terminal starts with the
+Composer collapsed. Expand it for the current Terminal view with the expand
+control or by quoting a file selection into the Composer. Drafts survive collapse,
+and opening the view on desktop directs focus to the terminal.
+On touch layouts the expand control is visible without opening the software
+keyboard.
 
 Chat and Terminal toolbar labels share a line box that preserves complete glyphs, including descenders. Horizontal truncation must not clip text vertically or change the surrounding button height; this applies to model, reasoning and approval labels in regular and compact layouts.
 
@@ -152,7 +153,8 @@ text code units, 30,000 nodes and nesting depth 32; rejection leaves the draft
 unchanged and shows an error.
 
 Formatted Chat pastes stay in the editor so their structure is visible before
-send. Plain-text long pastes retain the captured-reference behavior above.
+send. Click a link or press Enter while the link has focus to open it separately
+from the draft. Plain-text long pastes retain the captured-reference behavior above.
 Terminal pastes use plain text regardless of source formatting. “Show in text
 field” restores captured text atomically; legacy cards retain their stored
 editable representation for compatibility.
@@ -285,6 +287,10 @@ Agent/layout changes. Verify the same DOM textarea survives expansion and that
 Enter does not submit. Capture compact and expanded states in Light, Dark and
 Paper. Browser-emulated viewport changes verify layout; they do not certify a
 physical phone's keyboard, dictation or candidate UI.
+
+For Chat answers with web links, the copy button places the original Markdown
+and rich HTML on the clipboard. Text selection uses the browser's native copy,
+which carries the selected formatting for rich paste and visible text for plain paste.
 
 Plain-text acceptance covers native copy from a rendered Chat answer, paste into
 main Chat, Terminal and side Chat, middle-of-text replacement, Chinese composition

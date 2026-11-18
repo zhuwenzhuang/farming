@@ -4069,6 +4069,10 @@ button.code-composer-attachment-preview {
 .code-composer-attachment.error.chip .code-composer-attachment-remove { position: absolute; right: 4px; top: 4px; }
 
 @media (hover: none), (pointer: coarse) {
+  .code-composer-restore-bar {
+    pointer-events: none;
+  }
+
   .code-composer-collapse,
   .code-composer-restore {
     opacity: 1;
@@ -4087,6 +4091,7 @@ body.code-mode .code-composer-document :is(h1,h2,h3,h4,h5,h6) { font-size: 1.12e
 body.code-mode .code-composer-document :is(ul,ol) { margin: .3em 0; padding-inline-start: 1.5em; }
 body.code-mode .code-composer-document blockquote { margin: .4em 0; padding-inline: 1em; color: var(--code-text-muted); }
 body.code-mode .code-composer-document a { color: inherit; text-decoration: underline; }
+body.code-mode .code-composer-document a[href] { cursor: pointer; }
 body.code-mode .code-rich-input .code-composer-document[data-empty="true"]::before { content: attr(data-placeholder); color: var(--code-text-muted); position: absolute; pointer-events: none; }
 /* Rich documents have an intrinsic content height; textarea-style collapse and
    measurement would disturb the browser-owned selection viewport on each edit. */

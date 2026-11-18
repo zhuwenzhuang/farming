@@ -68,30 +68,12 @@ type TerminalFollowState = {
   hasUnreadOutput: boolean
 }
 
-const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCollapsed.v1'
 const RESOURCE_AGENT_PANEL_OPEN_STORAGE_KEY = 'farming.code.resourceAgentPanelOpen.v1'
 const DEFAULT_RESOURCE_AGENT_WIDTH = 480
 const MAX_DEFAULT_RESOURCE_AGENT_WIDTH = 600
 const MIN_RESOURCE_AGENT_WIDTH = 360
 const MAX_RESOURCE_AGENT_WIDTH = 800
 const MIN_RESOURCE_WORKSPACE_WIDTH = 320
-
-function readTerminalComposerCollapsed() {
-  try {
-    const stored = window.localStorage.getItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY)
-    return stored !== 'false'
-  } catch {
-    return true
-  }
-}
-
-function writeTerminalComposerCollapsed(collapsed: boolean) {
-  try {
-    window.localStorage.setItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY, String(collapsed))
-  } catch {
-    // The in-memory preference still applies when local storage is unavailable.
-  }
-}
 
 function readResourceAgentPanelOpen() {
   try {
@@ -124,13 +106,6 @@ function supportsComposerCollapse() {
   return typeof window !== 'undefined'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
     && !isCompactViewport()
-}
-
-function replacesAgent(agent: Agent | null, previousAgentId: string | null) {
-  if (!agent || !previousAgentId) return false
-  return agent.id === previousAgentId
-    || agent.restartedFromAgentId === previousAgentId
-    || agent.restartedFromAgentIds?.includes(previousAgentId) === true
 }
 
 const FILE_EDITOR_LOAD_TIMEOUT_MS = 15_000
@@ -753,9 +728,8 @@ export function CodeMainArea({
     setCompactRelatedActive(true)
     setRelatedRatio(0.5)
   }, [relatedSession])
-  const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
+  const [expandedTerminalComposerId, setExpandedTerminalComposerId] = useState<string | null>(null)
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
-  const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
   const [dismissedBrowserPreviewKeys, setDismissedBrowserPreviewKeys] = useState<Set<string>>(() => new Set())
   const [goalPreview, setGoalPreview] = useState<{ agentId: string; goal: AgentGoal; completedUntil: number | null } | null>(null)
   const [activePlanPreview, setActivePlanPreview] = useState<{
@@ -784,10 +758,6 @@ export function CodeMainArea({
     pointerId: number
     target: HTMLDivElement
   } | null>(null)
-  const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
-    agentId: null,
-    kind: null,
-  })
   const [composerCollapseSupported, setComposerCollapseSupported] = useState(supportsComposerCollapse)
   const [fileEditorPane, setFileEditorPane] = useState<FileEditorPaneComponent | null>(() => loadedFileEditorPane)
   const [fileEditorPaneLoadError, setFileEditorPaneLoadError] = useState<unknown>(null)
@@ -816,10 +786,6 @@ export function CodeMainArea({
   const activeAgent = activeTerminalId
     ? openAgents.find(agent => agent.id === activeTerminalId) || null
     : null
-  // Latest activeAgent read via ref so the layout effect below can inspect the
-  // whole object without depending on it — it only reruns on activeAgent?.id.
-  const activeAgentRef = useRef(activeAgent)
-  activeAgentRef.current = activeAgent
   const openingBusy = agentOpening !== null
   const sideView = activeView !== 'projects' ? activeView : agentOpening?.target.source === 'search' || agentOpening?.target.source === 'history' ? agentOpening.target.source : null
   const browserWorkspaceVisible = !openingBusy && activeView === 'projects' && activeBrowserResource !== null
@@ -912,14 +878,17 @@ export function CodeMainArea({
   const browserOwnerName = browserOwnerAgent
     ? agentTitle(browserOwnerAgent)
     : activeBrowserResource?.ownerAgentId || ''
-  const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
-  const composerCollapseRequested = terminalComposerActive
-    ? (runtimeSwitchExpandedAgentId === activeAgent?.id ? false : terminalComposerCollapsed)
+  const visibleTerminalComposerId = agentSurfaceVisible && activeAgent?.runtimeBinding.kind === 'terminal'
+    ? activeAgent.id
+    : null
+  const composerCollapseRequested = visibleTerminalComposerId
+    ? expandedTerminalComposerId !== visibleTerminalComposerId
     : chatComposerCollapseRequested
-  const canCollapseComposer = composerCollapseSupported
+  const canCollapseChatComposer = composerCollapseSupported
     && activeView === 'projects'
     && (!showFileEditor || resourceAgentPanelVisible)
     && openAgentsCount > 0
+  const canCollapseComposer = visibleTerminalComposerId !== null || canCollapseChatComposer
   const composerCollapsed = canCollapseComposer && composerCollapseRequested
 
   const toggleResourceAgentPanel = useCallback(() => {
@@ -1022,22 +991,8 @@ export function CodeMainArea({
   }, [activeTerminalId, activeView, onOpenTerminal, resourceAgentId, resourceAgentPanelOpen])
 
   useLayoutEffect(() => {
-    const previous = previousActiveRuntimeRef.current
-    const currentKind = acpComposerActive ? 'acp' : terminalComposerActive ? 'terminal' : null
-    const activeId = activeAgent?.id ?? null
-    if (
-      previous.kind === 'acp'
-      && currentKind === 'terminal'
-      && activeId
-      && replacesAgent(activeAgentRef.current, previous.agentId)
-    ) {
-      // Runtime switching replaces the Agent id. Preserve the visible Chat
-      // composer for that replacement without changing the user's normal
-      // preference for newly opened Terminal sessions.
-      setRuntimeSwitchExpandedAgentId(activeId)
-    }
-    previousActiveRuntimeRef.current = { agentId: activeId, kind: currentKind }
-  }, [acpComposerActive, activeAgent?.id, terminalComposerActive])
+    setExpandedTerminalComposerId(expandedId => expandedId === visibleTerminalComposerId ? expandedId : null)
+  }, [visibleTerminalComposerId])
 
   useEffect(() => {
     setExpandedAgentActivity(null)
@@ -1103,10 +1058,10 @@ export function CodeMainArea({
   }, [])
 
   useEffect(() => {
-    if (!canCollapseComposer && chatComposerCollapseRequested) {
+    if (!canCollapseChatComposer && chatComposerCollapseRequested) {
       setChatComposerCollapseRequested(false)
     }
-  }, [canCollapseComposer, chatComposerCollapseRequested])
+  }, [canCollapseChatComposer, chatComposerCollapseRequested])
 
   // Detach the refreshCapability methods so calling them does not pull the whole
   // controller objects into the deps (they would rerun and remount the viewers).
@@ -1118,14 +1073,12 @@ export function CodeMainArea({
   }, [refreshBrowserCapability, refreshComputerCapability])
 
   const updateComposerCollapsed = useCallback((collapsed: boolean) => {
-    if (terminalComposerActive) {
-      setRuntimeSwitchExpandedAgentId(null)
-      setTerminalComposerCollapsed(collapsed)
-      writeTerminalComposerCollapsed(collapsed)
+    if (visibleTerminalComposerId) {
+      setExpandedTerminalComposerId(collapsed ? null : visibleTerminalComposerId)
       return
     }
     setChatComposerCollapseRequested(collapsed)
-  }, [terminalComposerActive])
+  }, [visibleTerminalComposerId])
 
   const dismissComposerKeyboardOnMainPress = useCallback((event: ReactSyntheticEvent<HTMLElement>) => {
     if (!isTouchInputViewport()) return
@@ -1325,6 +1278,7 @@ export function CodeMainArea({
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}
             onQuoteSelection={!readOnly && resourceAgentId && activeAgent?.id === resourceAgentId ? (text, context) => {
+              if (activeAgent.runtimeBinding.kind === 'terminal') setExpandedTerminalComposerId(resourceAgentId)
               onBackToAgentFromFile(resourceAgentId)
               onQuoteSelection(resourceAgentId, text, context)
             } : undefined}
@@ -1521,6 +1475,7 @@ export function CodeMainArea({
               type="button"
               className="code-composer-restore"
               data-testid="code-composer-restore"
+              data-terminal-composer={visibleTerminalComposerId !== null || undefined}
               aria-label={copy.restoreComposer}
               title={copy.restoreComposer}
               onClick={() => updateComposerCollapsed(false)}

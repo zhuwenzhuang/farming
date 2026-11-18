@@ -37,6 +37,12 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
       '[External source](https://example.com/store.cpp#L2) · [Unsafe](javascript:alert%281%29)',
       '[Missing reference](src/missing.cpp#L5)',
       '[`src/store.cpp:2`](src/also-missing.cpp)',
+      ...(appearance === 'light' ? [
+        '',
+        '- [Review 62](https://example.com/reviews/62)',
+        '- [Review 61](https://example.com/reviews/61)',
+        '- [Review 60](https://example.com/reviews/60)',
+      ] : []),
     ].join('\n')
     await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), route => route.fulfill({
       json: {
@@ -95,6 +101,65 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     }
     await expect(answer.getByRole('link', { name: 'External source', exact: true })).toHaveAttribute('href', 'https://example.com/store.cpp#L2')
     await expect(answer.getByRole('link', { name: 'Unsafe', exact: true })).toHaveCount(0)
+    if (appearance === 'light') {
+      const url = 'https://example.com/store.cpp#L2'
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+      const readClipboard = () => page.evaluate(async () => {
+        const items = await navigator.clipboard.read()
+        const html = items.find(item => item.types.includes('text/html'))
+        if (!html) return null
+        const document = new DOMParser().parseFromString(await (await html.getType('text/html')).text(), 'text/html')
+        const link = [...document.querySelectorAll('a')].find(anchor => anchor.textContent.includes('External source'))
+        return { href: link?.getAttribute('href'), visibleText: document.body.textContent }
+      })
+      const copyAnswer = answer.getByTestId('code-agent-transcript-copy-answer')
+      await copyAnswer.click()
+      await expect.poll(readClipboard).toMatchObject({ href: url })
+      expect((await readClipboard())?.visibleText).not.toContain(url)
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(text)
+
+      const reviewList = answer.locator('ul').filter({ hasText: 'Review 62' })
+      await reviewList.evaluate(list => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        const links = list.querySelectorAll('a')
+        const start = links[0].firstChild!
+        const end = links[links.length - 1].firstChild!
+        const range = document.createRange()
+        range.setStart(start, 0)
+        range.setEnd(end, end.textContent!.length)
+        const selection = window.getSelection()!
+        selection.removeAllRanges()
+        selection.addRange(range)
+      })
+      await page.keyboard.press('ControlOrMeta+C')
+      const input = page.getByTestId('code-acp-composer-input')
+      await input.focus()
+      await page.keyboard.press('ControlOrMeta+V')
+      const pastedLinks = input.locator('ul > li a')
+      await expect(pastedLinks).toHaveText(['Review 62', 'Review 61', 'Review 60'])
+      for (const [index, review] of [62, 61, 60].entries()) {
+        await expect(pastedLinks.nth(index)).toHaveAttribute('href', `https://example.com/reviews/${review}`)
+      }
+      await expect(input).not.toContainText('https://example.com/reviews/')
+
+      await page.context().route('https://example.com/reviews/*', route => route.fulfill({ body: 'Review destination' }))
+      for (const [index, review] of [62, 61].entries()) {
+        const link = pastedLinks.nth(index)
+        const popupPromise = page.context().waitForEvent('page', { timeout: 5_000 })
+        if (index === 0) await link.click()
+        else {
+          await link.focus()
+          await expect(link).toBeFocused()
+          await page.keyboard.press('Enter')
+        }
+        const popup = await popupPromise
+        await expect(popup).toHaveURL(`https://example.com/reviews/${review}`)
+        expect(await popup.evaluate(() => window.opener === null)).toBe(true)
+        await popup.close()
+      }
+      await expect(pastedLinks).toHaveText(['Review 62', 'Review 61', 'Review 60'])
+      await expect(page.locator('.code-agent-transcript-user')).toHaveCount(1)
+    }
     // Observe the actual nodes: a final screenshot alone would miss a brief demotion.
     const linksBefore = await answer.getByRole('link').all()
     const linkHandles = await Promise.all(linksBefore.map(link => link.elementHandle()))
