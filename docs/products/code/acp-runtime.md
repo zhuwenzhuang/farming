@@ -56,7 +56,8 @@ an adapter that cannot compose it with the selected runtime must reject it befor
 
 Notices are provider-neutral, fire-and-forget feedback scoped to an exact live
 Session. The Runtime Host retains at most the latest 64 notices, with unique
-client-owned identities. Code and CRT show plain-text titles and optional details;
+client-owned identities; an identical active notice replaces its existing entry
+with a fresh identity rather than stacking duplicates. Code and CRT show plain-text titles and optional details;
 unknown severities receive neutral presentation. Severity never changes Turn,
 permission or failure state. Notices are not chat entries, replay logs or durable
 checkpoints. Fresh notices emitted during session/load remain visible; historical

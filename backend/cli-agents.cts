@@ -125,10 +125,10 @@ const CODEX_LAUNCH_POLICY: AgentLaunchPolicy = {
 
     if (model && !modelOverride && model !== 'config') launchArgs.unshift('--model', model);
     if (effort && effort !== 'config' && !modelOverride && !effortOverride) {
-      launchArgs.unshift('-c', `model_reasoning_effort="${effort}"`);
+      launchArgs.unshift('-c', `model_reasoning_effort=${JSON.stringify(effort)}`);
     }
     if (serviceTier && serviceTier !== 'config' && !modelOverride && !serviceTierOverride) {
-      launchArgs.unshift('-c', `service_tier="${serviceTier}"`);
+      launchArgs.unshift('-c', `service_tier=${JSON.stringify(serviceTier)}`);
     }
     return { explicitPermissionMode, permissionMode, permissionOverride };
   },

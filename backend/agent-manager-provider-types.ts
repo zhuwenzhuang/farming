@@ -668,6 +668,7 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   subagentRetained?: boolean
   subagentSourceRevision?: number;
   preserveProviderSessionProfile?: boolean;
+  terminalRuntimeSwitchProfile?: Record<string, string>;
   projectWorkspace?: string;
   providerHomeId?: string;
   providerHomePath?: string;

@@ -33,7 +33,20 @@ function read(file: string): Buffer {
   try {
     return fs.readFileSync(file);
   } catch (error) {
-    return Buffer.from(`missing:${error instanceof Error ? error.message : String(error)}`);
+    const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : (error instanceof Error ? error.name : 'missing');
+    return Buffer.from(`missing:${code}`);
+  }
+}
+
+function preparedAdapterFiles(backendDir: string): string[] {
+  try {
+    return fs.readdirSync(path.join(backendDir, '..', 'dist', 'acp'))
+      .filter(filename => filename.endsWith('.mjs'))
+      .sort();
+  } catch {
+    return [];
   }
 }
 
@@ -66,6 +79,11 @@ function computeAcpRuntimeHostIdentity(backendDir: string): Readonly<AcpRuntimeH
   for (const filename of ACP_RUNTIME_HOST_RUNTIME_FILES) {
     hash.update(`file:${filename}\n`);
     hash.update(read(path.join(backendDir, filename)));
+    hash.update('\n');
+  }
+  for (const filename of preparedAdapterFiles(backendDir)) {
+    hash.update(`adapter:${filename}\n`);
+    hash.update(read(path.join(backendDir, '..', 'dist', 'acp', filename)));
     hash.update('\n');
   }
   const identity = Object.freeze({

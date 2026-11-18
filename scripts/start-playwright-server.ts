@@ -25,7 +25,7 @@ process.env.FARMING_CONFIG_DIR = configDir;
 process.env.FARMING_DISABLE_AUTH = process.env.FARMING_DISABLE_AUTH || '1';
 if (!useRealCodex) {
   process.env.FARMING_E2E_FAKE_EXECUTABLES = process.env.FARMING_E2E_FAKE_EXECUTABLES || '1';
-  process.env.FARMING_CODEX_BIN = process.env.FARMING_CODEX_BIN || path.join(fixtureBinDir, 'fake-codex');
+  process.env.FARMING_CODEX_BIN = path.join(fixtureBinDir, 'fake-codex');
   process.env.PATH = `${fixtureBinDir}${path.delimiter}${process.env.PATH || ''}`;
 }
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';

@@ -844,13 +844,22 @@ class AcpSessionState {
     const update = acpSessionProviderPolicy(this.provider).normalizeUpdate(rawUpdate);
     if (update.sessionUpdate === 'notice') {
       if (typeof update.title !== 'string' || !update.title.length || typeof update.severity !== 'string') return false;
+      const description = typeof update.description === 'string' ? update.description : undefined;
+      const nextMeta = update._meta && typeof update._meta === 'object' && !Array.isArray(update._meta)
+        ? clone(update._meta) : undefined;
+      const metaKey = nextMeta === undefined ? '' : JSON.stringify(nextMeta);
+      this.notices = this.notices.filter(existing => !(
+        existing.severity === update.severity
+        && existing.title === update.title
+        && existing.description === description
+        && (existing._meta === undefined ? '' : JSON.stringify(existing._meta)) === metaKey
+      ));
       this.notices.push({
         id: randomUUID(),
         severity: update.severity,
         title: update.title,
-        ...(typeof update.description === 'string' ? { description: update.description } : {}),
-        ...(update._meta && typeof update._meta === 'object' && !Array.isArray(update._meta)
-          ? { _meta: clone(update._meta) } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(nextMeta !== undefined ? { _meta: nextMeta } : {}),
       });
       // Bound ephemeral feedback without truncating the conversation or its history.
       if (this.notices.length > 64) this.notices.shift();

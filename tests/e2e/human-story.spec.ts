@@ -57,7 +57,7 @@ async function expectTerminalAgentSelected(page: import('@playwright/test').Page
 }
 
 test.describe('human Farming Agent story', () => {
-  test('defaults the desktop Terminal Composer closed and remembers explicit expansion without hiding it on mobile', async ({ page, workspaceRoot }, testInfo) => {
+  test('defaults the Terminal Composer closed on desktop and mobile even after explicit expansion', async ({ page, workspaceRoot }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     const response = await page.request.post('/farming/api/control/agents', {
       data: { command: 'bash', workspace: workspaceRoot },
@@ -66,6 +66,9 @@ test.describe('human Farming Agent story', () => {
     const payload = await response.json() as { agentId?: string }
     expect(payload.agentId).toBeTruthy()
 
+    await page.addInitScript(() => {
+      if (window === window.top) localStorage.setItem('farming.code.terminalComposerCollapsed.v1', 'false')
+    })
     await openFarming(page, { terminalComposerExpanded: false })
     const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${payload.agentId}"]`)
     await expect(row).toBeVisible()
@@ -105,7 +108,8 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await expect(page.getByTestId('code-composer-input')).toBeVisible()
+    await expect(page.getByTestId('code-composer-input')).toHaveCount(0)
+    await page.getByTestId('code-composer-restore').click()
     await page.locator('.code-composer-collapse-zone').hover()
     await page.getByTestId('code-composer-collapse').click()
     await expect(page.getByTestId('code-composer')).toHaveCount(0)
@@ -117,13 +121,15 @@ test.describe('human Farming Agent story', () => {
     })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('code-composer-input')).toHaveCount(0)
+    await page.getByTestId('code-composer-restore').click()
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
     await expect(page.getByTestId('code-composer-input')).not.toBeFocused()
   })
 
-  test('restores the selected Agent after reloading with multiple live Agents', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
-    await openFarming(page)
+  test('restores the selected Agent after reloading with multiple live Agents', { tag: '@iphone-human' }, async ({ page, workspaceRoot }, testInfo) => {
+    await openFarming(page, { terminalComposerExpanded: false })
     await openNewAgentDialog(page)
     const firstAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
     await openNewAgentDialog(page)
@@ -150,17 +156,30 @@ test.describe('human Farming Agent story', () => {
     await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
 
     const terminalComposerInput = page.getByTestId('code-composer-input')
+    await expect(terminalComposerInput).toHaveCount(0)
+    await page.getByTestId('code-composer-restore').click()
     await terminalComposerInput.fill('terminal draft survives composer collapse')
+    if (!compactLayout) await page.locator('.code-composer-collapse-zone').hover()
+    await page.getByTestId('code-composer-collapse').click()
+    await expect(page.getByTestId('code-composer')).toHaveCount(0)
+    await page.getByTestId('code-composer-restore').click()
+    await selectTerminalAgentOnCompactLayout(page, secondAgentId)
+    await expect(page.getByTestId('code-composer-restore')).toBeVisible()
+    await expect(terminalComposerInput).toHaveCount(0)
     if (compactLayout) {
-      await expect(page.locator('.code-composer-collapse-zone')).toHaveCount(0)
-      await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
-    } else {
-      await expect(page.locator('.code-composer-collapse-zone')).toBeVisible()
-      await page.locator('.code-composer-collapse-zone').hover()
-      await page.getByTestId('code-composer-collapse').click()
-      await expect(page.getByTestId('code-composer')).toHaveCount(0)
-      await page.getByTestId('code-composer-restore').click()
+      const viewport = page.viewportSize()!
+      for (const appearance of ['light', 'dark', 'paper']) {
+        await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+        const screenshot = await page.screenshot({ path: testInfo.outputPath(`terminal-collapsed-${appearance}.png`), animations: 'disabled', scale: 'css' })
+        expect(screenshot.readUInt32BE(16)).toBe(viewport.width)
+        expect(screenshot.readUInt32BE(20)).toBe(viewport.height)
+        await testInfo.attach(`terminal-collapsed-${appearance}`, { body: screenshot, contentType: 'image/png' })
+      }
     }
+    await selectTerminalAgentOnCompactLayout(page, firstAgentId)
+    await expect(page.getByTestId('code-composer-restore')).toBeVisible()
+    await expect(terminalComposerInput).toHaveCount(0)
+    await page.getByTestId('code-composer-restore').click()
     await expect(terminalComposerInput).toHaveValue('terminal draft survives composer collapse')
   })
 

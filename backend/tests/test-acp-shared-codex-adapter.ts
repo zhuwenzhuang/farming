@@ -54,6 +54,7 @@ async function run() {
         FARMING_TEST_MULTI_SESSION: '1',
         FARMING_TEST_CHILD_INVENTORY: '1',
         FARMING_TEST_SESSION_ENVIRONMENT: '1',
+        FARMING_TEST_SHARED_DIAGNOSTIC_ISOLATION: '1',
         FARMING_TEST_UNSUBSCRIBE_FAILURE_FILE: unsubscribeFailureFile,
         FARMING_TEST_REQUEST_LOG_FILE: requestLog,
         FARMING_TEST_PROVIDER_RESUME_GATE_PREFIX: providerResumeGatePrefix,
@@ -72,6 +73,19 @@ async function run() {
     const secondBinding = runtime.bindings.get('shared-codex-b');
     assert.strictEqual(firstBinding.child.pid, secondBinding.child.pid);
     assert.notStrictEqual(first.sessionId, second.sessionId);
+    await waitFor(
+      () => secondBinding.sessionState.notices.length === 1,
+      'scoped startup config notice on shared-codex-b',
+    );
+    assert.deepStrictEqual(
+      secondBinding.sessionState.notices.map(notice => notice.title),
+      ['Scoped config advisory for shared-codex-b'],
+    );
+    assert.deepStrictEqual(
+      firstBinding.sessionState.notices,
+      [],
+      'shared app-server startup diagnostics must stay scoped to the session that triggered them',
+    );
 
     const requests = readRequests(requestLog);
     const starts = requests.filter(request => request.method === 'thread/start');
@@ -334,6 +348,31 @@ async function run() {
       const grandchild = await prepare('shared-codex-grandchild', {
         sessionId: grandchildFork.sessionId, historyMode: 'load',
       });
+      const childBinding = runtime.bindings.get('shared-codex-fork');
+      const grandchildBinding = runtime.bindings.get('shared-codex-grandchild');
+      await waitFor(
+        () => childBinding.sessionState.notices.length === 1,
+        'scoped load config notice on shared-codex-fork',
+      );
+      assert.deepStrictEqual(
+        childBinding.sessionState.notices.map(notice => notice.title),
+        ['Scoped config advisory for shared-codex-fork'],
+      );
+      assert.deepStrictEqual(
+        firstBinding.sessionState.notices,
+        [],
+        'fork creation and sibling loads must never leak unscoped notices onto the parent session',
+      );
+      assert.deepStrictEqual(
+        grandchildBinding.sessionState.notices,
+        [],
+        'paginated fork creation and load must emit zero full-history hydration deprecation notices',
+      );
+      assert.deepStrictEqual(
+        secondBinding.sessionState.notices.map(notice => notice.title),
+        ['Scoped config advisory for shared-codex-b'],
+        'provider restarts and sibling forks must not stack duplicate notices on peer sessions',
+      );
       const forkRequests = readRequests(requestLog);
       for (const source of [first, child]) {
         const fork = forkRequests.find(request => request.method === 'thread/fork'

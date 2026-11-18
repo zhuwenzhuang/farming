@@ -26,10 +26,13 @@ Runtime epoch 从未就绪开始。结构化已渲染状态面板确认身份；
 
 Chat/Terminal 通过真实 Runtime 替换保留已确认对话。身份未确认时切换控件仍可见但禁用；
 停止后的未确认 Agent 可检查，但不声称可恢复。保存配置的恢复和失败回退由共享 ACP 契约负责。
+从运行中的 Chat 切换到 Terminal 时，Farming 用当前 Session 已确认的模型、推理强度和
+速度启动目标 Codex CLI。
 
 共享 Codex Session 释放要求确切 `thread/closed` 确认或显式 `notLoaded`；unsubscribe
 已接收不代表 writer 已释放。失败、断连或超时阻止替换，无关 Session 保持运行。
-Managed app-server 不保留已退订的空闲 thread。
+Managed app-server 不保留已退订的空闲 thread。未携带 `threadId` 的 app-server
+警告与废弃提示只路由给触发请求的 Session，不从分叉、清单读取或辅助线程广播给其他会话。
 
 活动 Turn 的 Fork 使用 Provider `beforeTurnId` 边界，排除未完成输出且保持来源继续运行。
 Provider 分配 Turn 身份前不可用；子环境与所有权隔离遵循共享 Fork 契约。

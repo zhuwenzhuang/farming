@@ -8,12 +8,13 @@ import { integrateCodexPeerMessages } from './vendor/codex-peer-integration';
 import { integrateCodexRelatedHistory } from './vendor/codex-related-integration';
 import { integrateCodexSubagentTurns } from './vendor/codex-subagent-integration';
 import { integrateCodexModelConfig } from './vendor/codex-model-config-integration';
+import { integrateCodexNotices } from './vendor/codex-notice-integration';
 import { integrateCodexQuestions } from './vendor/codex-question-integration';
 
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '2.7.0';
 const expectedUpstreamSha256 = '37900513f38892d482c42dc565b3c987047a6630cefe64b97eb5120e1172dd2f';
-const expectedBundleSha256 = '81e55a999f51180ba4a73d0b16a7c49ad39cd61d38d86157a9c00d817b4429ac';
+const expectedBundleSha256 = '04689aace689450e859413316799b80d178dfcb0639ad91b29da914f8995c28b';
 const expectedPatchedSha256 = '307e18652c91ae92cb230353c940bffce87551feb14547ae8c96d39128cdd51b';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
@@ -69,7 +70,7 @@ async function prepareCodexAcpVendor({ copy = false } = {}): Promise<void> {
         stdin: {
           contents: `import { farmingCodexPeerUpdate, farmingCodexPeerHistory, farmingMergePeerHistory, farmingSyncCodexPeerReceipts } from './scripts/vendor/codex-peer-messages.mjs';\n`
             + `import { farmingReadRelatedHistory } from './scripts/vendor/codex-related-history.mjs';\n`
-            + integrateCodexQuestions(integrateCodexModelConfig(integrateCodexSubagentTurns(integrateCodexRelatedHistory(integrateCodexPeerMessages(fs.readFileSync(sourceEntry, 'utf8')))))),
+            + integrateCodexNotices(integrateCodexQuestions(integrateCodexModelConfig(integrateCodexSubagentTurns(integrateCodexRelatedHistory(integrateCodexPeerMessages(fs.readFileSync(sourceEntry, 'utf8'))))))),
           resolveDir: projectRoot, sourcefile: 'farming-codex-acp.js', loader: 'js',
         },
       });

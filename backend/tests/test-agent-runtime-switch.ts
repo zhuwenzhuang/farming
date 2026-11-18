@@ -200,11 +200,25 @@ function deferred() {
     mcpServers: [],
   });
   const originalGetAcpSession = manager.acpRuntime.getSession.bind(manager.acpRuntime);
+  const originalReadAcpSession = manager.acpRuntime.getSessionForRead.bind(manager.acpRuntime);
   const originalHasAcpBinding = manager.acpRuntime.hasBinding.bind(manager.acpRuntime);
   const originalReconnectAcpAgent = manager.acpRuntime.reconnectAgent.bind(manager.acpRuntime);
   const originalSubmitAcpMessage = manager.acpRuntime.submitMessage.bind(manager.acpRuntime);
   const originalFindRuntimeSwitchSession = manager.findRuntimeSwitchSession.bind(manager);
-  manager.acpRuntime.getSession = () => ({ sessionId, state: 'idle' });
+  manager.acpRuntime.getSession = () => ({
+    sessionId,
+    state: 'idle',
+    configOptions: [{ id: 'model', currentValue: 'gpt-5.5' }],
+  });
+  const readLiveAcpSession = async () => ({
+    sessionId,
+    state: 'idle',
+    configOptions: [
+      { id: 'model', currentValue: 'gpt-6.2-astra' },
+      { id: 'reasoning_effort', currentValue: 'high' },
+      { id: 'fast-mode', currentValue: false },
+    ],
+  });
   manager.acpRuntime.hasBinding = agentId => agentId === 'agent-live-acp-switch';
   manager.acpRuntime.reconnectAgent = async () => ({ reconnected: false });
   let acpComposerSubmissions = 0;
@@ -236,11 +250,21 @@ function deferred() {
   const blockedLiveAcpResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
   assert.match(blockedLiveAcpResult.error, /delivery finished while the runtime switch was waiting/);
   assert.strictEqual(killed, '');
+  manager.acpRuntime.getSessionForRead = async () => { throw new Error('ACP Host disconnected'); };
+  const unreadableProfileResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
+  assert.match(unreadableProfileResult.error, /Could not read the current Chat configuration/);
+  assert.strictEqual(killed, '');
+  manager.acpRuntime.getSessionForRead = readLiveAcpSession;
   const liveAcpResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
   assert.strictEqual(killed, 'agent-live-acp-switch');
   assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
   assert.strictEqual(started.options.agentRecordId, 'agent_record_live_acp_switch');
   assert.strictEqual(started.options.restoreRuntimeAgentIdOnFailure, 'agent-live-acp-switch');
+  assert.deepStrictEqual(started.options.terminalRuntimeSwitchProfile, {
+    model: 'gpt-6.2-astra',
+    reasoningEffort: 'high',
+    serviceTier: 'default',
+  });
   assert.deepStrictEqual(started.options.acpConfigOverrides, [
     { configId: 'fast-mode', value: true },
   ]);
@@ -261,6 +285,7 @@ function deferred() {
     'Chat to Terminal switch must not replay an accepted Composer request',
   );
   manager.acpRuntime.getSession = originalGetAcpSession;
+  manager.acpRuntime.getSessionForRead = originalReadAcpSession;
   manager.acpRuntime.hasBinding = originalHasAcpBinding;
   manager.acpRuntime.reconnectAgent = originalReconnectAcpAgent;
   manager.acpRuntime.submitMessage = originalSubmitAcpMessage;

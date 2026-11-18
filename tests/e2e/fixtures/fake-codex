@@ -24,6 +24,20 @@ elif [[ " $* " == *" resume "* ]]; then
   # launches busy for the follow-up queue stories that intentionally exercise
   # steering while a turn is active.
   idle_footer='Codex · ~/workspace'
+  model=''
+  effort='medium'
+  speed=''
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --model) model="$2"; shift ;;
+      'model_reasoning_effort='*) effort="${1//\"/}"; effort="${effort#*=}" ;;
+      'service_tier="priority"') speed=' fast' ;;
+    esac
+    shift
+  done
+  if [[ -n "$model" ]]; then
+    idle_footer="$model $effort$speed · ~/workspace"
+  fi
   printf '%s\n' "$idle_footer"
 else
   starts_busy=true

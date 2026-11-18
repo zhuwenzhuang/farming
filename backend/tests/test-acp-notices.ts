@@ -69,6 +69,18 @@ test('invalid notices cannot erase feedback and notice floods remain bounded wit
 })
 
 test('confirmed input clears only pre-submission notices; rejection and uncertain delivery retain them', () => {
+  const coalesced = new AcpSessionState({ sessionId: 'one' })
+  assert.equal(coalesced.apply({ sessionId: 'one', update }), true)
+  const initialId = coalesced.notices[0].id
+  assert.equal(coalesced.apply({ sessionId: 'one', update }), true)
+  assert.equal(coalesced.notices.length, 1, 'identical active notices must not stack duplicate banners')
+  assert.notEqual(coalesced.notices[0].id, initialId)
+  const inFlight = coalesced.beginPrompt([{ type: 'text', text: 'Next question' }])
+  assert.equal(coalesced.apply({ sessionId: 'one', update }), true)
+  assert.equal(coalesced.notices.length, 1)
+  coalesced.confirmPromptInput(inFlight)
+  assert.equal(coalesced.notices.length, 1, 'an identical notice re-emitted after submission must survive confirmation')
+
   for (const stopReason of ['error', 'cancelled']) {
     const state = new AcpSessionState({ sessionId: 'one' })
     state.apply({ sessionId: 'one', update })

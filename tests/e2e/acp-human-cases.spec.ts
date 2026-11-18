@@ -79,7 +79,7 @@ function createHumanCaseWorkspace(workspaceRoot: string) {
 
 async function openHumanCaseChat(page: Page, workspace: string) {
   const agentId = await createAcpAgent(page, workspace)
-  await openFarming(page)
+  await openFarming(page, { terminalComposerExpanded: false })
   const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
   if (compactLayout) {
     await expect(page.getByTestId('code-mobile-menu')).toBeVisible()
@@ -1020,14 +1020,23 @@ test.describe('ACP human-like browser matrix', () => {
     expect(fs.existsSync(path.join(workspace, '.adapter-disconnect-replayed'))).toBe(false)
   })
 
-  test('paints the terminal checkpoint after switching from Chat', async ({ page, workspaceRoot }) => {
+  test('paints the Terminal checkpoint and preserves the active Codex Chat profile after switching', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-chat-to-terminal')
     fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(workspace, '.fake-acp-model-matrix'), '')
 
-    const originalAgentId = await createAcpAgent(page, workspace)
-    await openFarming(page)
+    const originalAgentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page, { terminalComposerExpanded: false })
     await agentRow(page, originalAgentId).click()
     await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+    const config = await page.request.patch(`/farming/api/agents/${originalAgentId}/acp-session`, {
+      data: { configOptions: [
+        { configId: 'model', value: 'gpt-6-astra' },
+        { configId: 'reasoning', value: 'xhigh' },
+        { configId: 'fast-mode', value: true },
+      ] },
+    })
+    expect(config.ok(), await config.text()).toBeTruthy()
 
     const switchResponsePromise = page.waitForResponse((response) => {
       if (
@@ -1048,10 +1057,12 @@ test.describe('ACP human-like browser matrix', () => {
 
     const restartedAgentId = payload.restartedAgentId as string
     await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('code-composer-input')).toHaveCount(0)
+    await expect(page.getByTestId('code-composer-restore')).toBeVisible()
     await expect.poll(
       async () => (await terminalRows(page, restartedAgentId, 10)).join('\n'),
       { timeout: 30_000 },
-    ).toContain('Fake Claude Code ready')
+    ).toContain('gpt-6-astra xhigh fast')
     const terminalHost = page.getByTestId('code-agent-terminal-view').locator('.terminal-session-host')
     await expect(terminalHost).toBeVisible()
     await expect(terminalHost).not.toHaveClass(/terminal-checkpoint-installing/)
@@ -2122,7 +2133,8 @@ test.describe('ACP human-like browser matrix', () => {
       expect(switchPayload.restartedAgentId).toBeTruthy()
       agentId = switchPayload.restartedAgentId || agentId
       await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible({ timeout: 30_000 })
-      await expect(page.getByTestId('code-composer-input')).toBeVisible()
+      await expect(page.getByTestId('code-composer-input')).toHaveCount(0)
+      await expect(page.getByTestId('code-composer-restore')).toBeVisible()
       await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
       if (compactLayout) {
         const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')

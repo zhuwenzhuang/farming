@@ -32,6 +32,7 @@ interface ProviderSessionPolicy {
   permissionRestartModes?: readonly string[];
   preserveRequiredCliVersion?: boolean;
   resumeLaunchProfileOverrides?: Readonly<Record<string, string>>;
+  terminalLaunchProfileFromAcp?: (options: readonly Record<string, unknown>[]) => Record<string, string>;
   suppressPermissionOptionWhenDangerousSkip?: boolean;
   freshPermissionRestartCommand?: string;
   identityScope?: 'provider' | 'provider-home';
@@ -702,6 +703,22 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
         reasoningEffort: 'config',
         serviceTier: 'config',
       },
+      terminalLaunchProfileFromAcp: options => {
+        const model = options.find(option => option.id === 'model')?.currentValue;
+        if (typeof model !== 'string' || !model.trim()) return {};
+
+        const effort = options.find(option => (
+          option.id === 'reasoning_effort' || option.category === 'thought_level'
+        ))?.currentValue;
+        const fast = options.find(option => option.id === 'fast-mode')?.currentValue;
+        return {
+          model,
+          ...(typeof effort === 'string' && effort.trim() ? { reasoningEffort: effort } : {}),
+          ...(fast === true || fast === 'on' ? { serviceTier: 'priority' } : {}),
+          ...(fast === false || fast === 'off' ? { serviceTier: 'default' } : {}),
+          ...(typeof fast === 'string' && !['on', 'off'].includes(fast) ? { serviceTier: fast } : {}),
+        };
+      },
       suppressPermissionOptionWhenDangerousSkip: true,
       freshPermissionRestartCommand: 'codex',
       requiresStableTerminalSessionAfterInput: true,
@@ -1328,6 +1345,17 @@ function providerSessionLaunchProfile(
   };
 }
 
+function providerTerminalLaunchProfileFromAcp(
+  provider: unknown,
+  configOptions: unknown,
+): Record<string, string> {
+  const translate = getProviderAdapter(provider)?.sessionPolicy?.terminalLaunchProfileFromAcp;
+  if (!translate || !Array.isArray(configOptions)) return {};
+  return translate(configOptions.filter((option: unknown): option is Record<string, unknown> => (
+    option !== null && typeof option === 'object' && !Array.isArray(option)
+  )));
+}
+
 function providerSessionIdentityScope(
   provider: unknown,
 ): 'provider' | 'provider-home' {
@@ -1519,6 +1547,7 @@ export {
   providerSessionResumeOptions,
   providerSessionIdentityScope,
   providerSessionLaunchProfile,
+  providerTerminalLaunchProfileFromAcp,
   providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,

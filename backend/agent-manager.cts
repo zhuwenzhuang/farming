@@ -188,6 +188,7 @@ import {
   providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsRuntime,
+  providerTerminalLaunchProfileFromAcp,
   providerTerminalStartupPolicy,
   providerTerminalNotificationRequiresIdle,
   providerTreatsLegacyAcpRequestAsChat,
@@ -5267,7 +5268,10 @@ class AgentManager extends EventEmitter {
       preserveProviderSessionProfile,
     );
     if (launchProvider) {
-      configuredLaunchProfiles[launchProvider] = launchProfile;
+      configuredLaunchProfiles[launchProvider] = {
+        ...launchProfile,
+        ...options.terminalRuntimeSwitchProfile,
+      };
     }
     const runtimeLaunchProfile = providerAcpRuntimeProfile(launchProvider, launchProfile);
     const launch = resolveLaunchCommand(command, {
@@ -8596,6 +8600,26 @@ class AgentManager extends EventEmitter {
           providerHomePath: agent.providerHomePath || '',
         });
     if (!command) return { error: 'Failed to build provider resume command' };
+    let terminalRuntimeSwitchProfile: ProviderStartOptions['terminalRuntimeSwitchProfile'];
+    if (nextRuntimeKind === 'terminal' && liveAcpSession) {
+      // The lifecycle mirror can lag configuration-only updates from the Host.
+      let snapshot: Record<string, unknown>;
+      try {
+        snapshot = await this.acpRuntime.getSessionForRead(agentId, {
+          includeEntries: false,
+          includeUpdates: false,
+        });
+      } catch (error) {
+        return { error: `Could not read the current Chat configuration for the runtime switch: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      if (snapshot.sessionId !== sessionId) {
+        return { error: 'Chat session changed while preparing the runtime switch. Retry the runtime switch.' };
+      }
+      if (['working', 'waiting-for-permission', 'interrupting'].includes(String(snapshot.state || ''))) {
+        return { error: 'Interrupt the active Agent turn before switching Chat and Terminal.' };
+      }
+      terminalRuntimeSwitchProfile = providerTerminalLaunchProfileFromAcp(provider, snapshot.configOptions);
+    }
     const preserved = {
       followUp: agent.followUp === true,
       chatTurn: isChatTurnState(agent.chatTurn) ? agent.chatTurn : null,
@@ -8758,7 +8782,7 @@ class AgentManager extends EventEmitter {
       cancelResourceOwnerReplacement();
       return killResult;
     }
-    const switched = await startReplacement(restartOptions);
+    const switched = await startReplacement({ ...restartOptions, terminalRuntimeSwitchProfile });
     if (switched.restartedAgentId && !switched.error) {
       const resourceTransferError = completeResourceOwnerReplacement(switched.restartedAgentId);
       restorePreservedState(switched.restartedAgentId);

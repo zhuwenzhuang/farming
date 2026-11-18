@@ -36,11 +36,15 @@ Chat/Terminal switching preserves the proven conversation through real runtime
 replacement. Its control remains visible but disabled while identity is unconfirmed.
 A stopped unconfirmed Agent remains inspectable without claiming resumability.
 The shared ACP contract owns saved configuration restoration and failure rollback.
+When switching from live Chat to Terminal, the target Codex CLI receives the
+active Session's confirmed model, reasoning effort and speed as launch overrides.
 
 Releasing a shared Codex Session requires exact `thread/closed` acknowledgement
 or explicit `notLoaded`; unsubscribe acceptance alone does not release its writer.
 Failure, disconnect or timeout blocks replacement while unrelated Sessions remain live.
-The managed app-server does not retain unsubscribed idle threads.
+The managed app-server does not retain unsubscribed idle threads. Unscoped
+app-server warnings and deprecation notices route only to the Session request
+that triggered them and never fan out from forks, inventory reads or helper threads.
 
 Active-Turn Fork uses the provider's `beforeTurnId` boundary, excluding unfinished
 output while leaving the source running. It is unavailable until the provider

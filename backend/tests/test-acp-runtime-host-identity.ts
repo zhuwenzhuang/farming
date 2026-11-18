@@ -19,10 +19,22 @@ function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-identity-'));
   try {
     const first = fixture(path.join(root, 'first'), 'projection-v1');
+    const identicalElsewhere = fixture(path.join(root, 'identical-elsewhere'), 'projection-v1');
     const changedProjection = fixture(path.join(root, 'changed-projection'), 'projection-v2');
     const changedSanitizer = fixture(path.join(root, 'changed-sanitizer'), 'projection-v1');
     fs.writeFileSync(path.join(changedSanitizer, 'codex-transcript-sanitizer.cjs'), 'sanitizer-v2');
+    const withAdapterV1 = fixture(path.join(root, 'with-adapter-v1'), 'projection-v1');
+    const withAdapterV2 = fixture(path.join(root, 'with-adapter-v2'), 'projection-v1');
+    fs.mkdirSync(path.join(root, 'with-adapter-v1', 'dist', 'acp'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'with-adapter-v2', 'dist', 'acp'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'with-adapter-v1', 'dist', 'acp', 'codex-acp-2.7.0.mjs'), 'adapter-v1');
+    fs.writeFileSync(path.join(root, 'with-adapter-v2', 'dist', 'acp', 'codex-acp-2.7.0.mjs'), 'adapter-v2');
 
+    assert.strictEqual(
+      acpRuntimeHostIdentity(first).buildId,
+      acpRuntimeHostIdentity(identicalElsewhere).buildId,
+      'missing optional runtime files must not embed checkout paths in the Host build identity',
+    );
     assert.notStrictEqual(
       acpRuntimeHostIdentity(first).buildId,
       acpRuntimeHostIdentity(changedProjection).buildId,
@@ -32,6 +44,11 @@ function run() {
       acpRuntimeHostIdentity(first).buildId,
       acpRuntimeHostIdentity(changedSanitizer).buildId,
       'changing the transcript sanitizer must rotate the Runtime Host build identity',
+    );
+    assert.notStrictEqual(
+      acpRuntimeHostIdentity(withAdapterV1).buildId,
+      acpRuntimeHostIdentity(withAdapterV2).buildId,
+      'changing a prepared ACP adapter bundle must rotate the Runtime Host build identity',
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

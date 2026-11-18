@@ -390,6 +390,46 @@ async function run() {
         })}\n`);
       }
       const result = await resultFor(request.method, request.params);
+      if ((request.method === 'thread/resume' || request.method === 'thread/fork')
+        && result?.thread?.historyMode === 'paginated' && request.params?.excludeTurns !== true) {
+        await enqueueResponse({
+          method: 'deprecationNotice',
+          params: {
+            summary: 'Full-history hydration is deprecated for paginated threads; use `excludeTurns: true`, then page with `thread/turns/list` and `thread/items/list`.',
+            details: null,
+          },
+        });
+      }
+      if (request.method === 'thread/read' && result?.thread?.historyMode === 'paginated'
+        && request.params?.includeTurns === true) {
+        await enqueueResponse({
+          method: 'deprecationNotice',
+          params: {
+            summary: 'Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.',
+            details: null,
+          },
+        });
+      }
+      if (process.env.FARMING_TEST_SHARED_DIAGNOSTIC_ISOLATION === '1') {
+        const agentId = request.params?.config?.shell_environment_policy?.set?.FARMING_AGENT_ID;
+        if (request.method === 'skills/list' || (request.method === 'thread/start' && request.params?.ephemeral === true)) {
+          await enqueueResponse({
+            method: 'configWarning',
+            params: { summary: `Unscoped shared ${request.method} diagnostic`, details: null },
+          });
+        } else if (request.method === 'thread/fork') {
+          await enqueueResponse({
+            method: 'deprecationNotice',
+            params: { summary: 'Unscoped fork creation diagnostic', details: null },
+          });
+        } else if ((request.method === 'thread/start' || request.method === 'thread/resume')
+          && (agentId === 'shared-codex-b' || agentId === 'shared-codex-fork')) {
+          await enqueueResponse({
+            method: 'configWarning',
+            params: { summary: `Scoped config advisory for ${agentId}`, details: null },
+          });
+        }
+      }
       if (requestLogFile && process.env.FARMING_TEST_SESSION_ENVIRONMENT === '1'
         && ['thread/start', 'thread/resume', 'thread/fork'].includes(request.method)) {
         fs.appendFileSync(requestLogFile, `${JSON.stringify({
