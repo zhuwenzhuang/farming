@@ -709,7 +709,7 @@ test('folds active-Agent Browser previews into the shared activity dock and open
     data: { browserExtensionEnabled: true },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await openFarming(page)
+  await openFarming(page, { terminalComposerExpanded: false })
   const agentResponse = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace },
   })
@@ -719,6 +719,14 @@ test('folds active-Agent Browser previews into the shared activity dock and open
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await expect(agentRow).toBeVisible({ timeout: 30_000 })
   await agentRow.click()
+
+  const terminalHost = page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`)
+  const terminalSize = () => terminalHost.evaluate((el, id) => ({
+    height: el.getBoundingClientRect().height,
+    rows: window.__farmingTerminalTest?.getBufferDiagnostics(id)?.rows ?? 0,
+  }), agentId)
+  await expect.poll(async () => (await terminalSize()).rows).toBeGreaterThan(1)
+  const originalSize = await terminalSize()
 
   const createResponse = await page.request.post('/farming/api/browsers', {
     data: {
@@ -757,6 +765,11 @@ test('folds active-Agent Browser previews into the shared activity dock and open
   await expect(previewCards).toHaveCount(2)
   await expect(previewCards.locator('.farming-browser-activity-frame')).toHaveCount(0)
   await expect.poll(activePreviewResourceIds).toEqual([])
+  const pane = await terminalHost.boundingBox()
+  const folded = await preview.boundingBox()
+  expect(Math.abs(folded!.y - pane!.y)).toBeLessThan(32)
+  expect(Math.abs(folded!.x + folded!.width - pane!.x - pane!.width)).toBeLessThan(32)
+  expect(await terminalSize()).toEqual(originalSize)
   const resourcesToggle = agentRow.getByTestId('code-agent-children-toggle')
   await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'false')
   const firstBrowserCard = preview.locator(`[data-browser-resource-id="${createdBrowser.id}"]`)
@@ -781,12 +794,13 @@ test('folds active-Agent Browser previews into the shared activity dock and open
   expect(previewBox?.width).toBeLessThanOrEqual(290)
   expect(previewBox?.height).toBeGreaterThan(190)
   expect(previewBox?.height).toBeLessThan(250)
-  const previewScreenshot = testInfo.outputPath('agent-browser-activity-preview.png')
-  await page.getByTestId('code-main').screenshot({ path: previewScreenshot })
-  await testInfo.attach('agent-browser-activity-preview', {
-    path: previewScreenshot,
-    contentType: 'image/png',
-  })
+  expect(await terminalSize()).toEqual(originalSize)
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => { document.body.dataset.appearance = value; document.documentElement.dataset.appearance = value }, appearance)
+    await testInfo.attach(`agent-browser-activity-preview-${appearance}`, {
+      body: await page.getByTestId('code-main').screenshot(), contentType: 'image/png',
+    })
+  }
   await firstBrowserCard.locator('.farming-browser-activity-title').press('Escape')
   await expect(previewCards.locator('.farming-browser-activity-frame')).toHaveCount(0)
   await expect.poll(activePreviewResourceIds).toEqual([])

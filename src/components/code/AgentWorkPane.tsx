@@ -1,6 +1,6 @@
 import type { AgentGoal } from '../../../shared/agent-goal'
 import { memo, useCallback, useLayoutEffect, useRef } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
@@ -27,6 +27,7 @@ interface AgentWorkPaneProps {
   mounted: boolean
   active: boolean
   runtimeSwitchVisible: boolean
+  terminalActivity?: ReactNode
   viewportLayoutKey: string
   switching: boolean
   switchingKind: 'permission' | 'runtime' | null
@@ -68,6 +69,7 @@ export const AgentWorkPane = memo(function AgentWorkPane({
   mounted,
   active,
   runtimeSwitchVisible,
+  terminalActivity,
   viewportLayoutKey,
   switching,
   switchingKind,
@@ -195,6 +197,7 @@ export const AgentWorkPane = memo(function AgentWorkPane({
           />
         </div>
       ) : null}
+      {active && !chatMode && terminalActivity}
       {chatMode && mounted ? (
         <div
           key="chat"

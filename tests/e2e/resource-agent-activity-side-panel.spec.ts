@@ -161,7 +161,7 @@ test('keeps another Browser preview above the Composer beside the current Browse
   })
   expect(geometry.panelWidth).toBeGreaterThanOrEqual(798)
   expect(geometry.panelWidth).toBeLessThanOrEqual(801)
-  expect(geometry.dockPosition).toBe('relative')
+  expect(geometry.dockPosition).toBe('absolute')
   expect(geometry.dockInsidePanel).toBe(true)
   expect(geometry.cardComposerGap).toBeGreaterThanOrEqual(5)
 

@@ -3,6 +3,50 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+test('pasting an image into the terminal opens its draft and keeps clipboard text out of the PTY', async ({ page, workspaceRoot }) => {
+  const response = await page.request.post('/farming/api/control/agents', { data: {
+    command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'terminal',
+  } })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json()
+  await openFarming(page, { terminalComposerExpanded: false })
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const terminal = page.locator('.terminal-session-host .xterm-helper-textarea')
+  const input = page.getByTestId('code-composer-input')
+  const image = page.getByTestId('code-composer-attachment-preview')
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await terminal.focus()
+  await page.evaluate(() => navigator.clipboard.writeText('terminal text'))
+  const inputCount = () => page.evaluate(id => window.__farmingTerminalTest?.getInputCount(id), agentId)
+  const beforeText = await inputCount()
+  await page.keyboard.press('ControlOrMeta+v')
+  await expect.poll(inputCount).toBeGreaterThan(beforeText!)
+  await expect(input).toHaveCount(0)
+  await page.getByTestId('code-composer-restore').click()
+  await input.fill('Existing draft: ')
+  await page.locator('.code-composer-collapse-zone').hover()
+  await page.getByTestId('code-composer-collapse').click()
+  await terminal.focus()
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    const blob = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!)))
+    await navigator.clipboard.write([new ClipboardItem({
+      'image/png': blob, 'text/plain': new Blob(['caption'], { type: 'text/plain' }),
+    })])
+  })
+  const beforeImage = await inputCount()
+  await page.keyboard.press('ControlOrMeta+v')
+  await expect(input).toBeFocused()
+  await expect(image).toHaveCount(1)
+  await expectValue(input, 'Existing draft: caption')
+  await terminal.evaluate(el => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
+  await page.getByTestId('code-terminal-context-menu').getByRole('menuitem', { name: /Paste|粘贴/ }).click()
+  await expect(image).toHaveCount(2)
+  await expect(input).toBeFocused()
+  await expectValue(input, 'Existing draft: captioncaption')
+  expect(await inputCount()).toBe(beforeImage)
+})
+
 for (const mode of ['chat', 'terminal'] as const) {
   test(`${mode} attachment intake preserves mixed paste, previews, history and explicit errors`, async ({ page, workspaceRoot }, testInfo) => {
     const workspace = path.join(workspaceRoot, `attachment-intake-${mode}`)

@@ -610,6 +610,23 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
   min-height: 0;
 }
 
+.code-agent-work-pane > .code-agent-activity-dock {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 7;
+  max-height: min(28dvh, 220px, 50%);
+  margin: 0;
+}
+
+.code-agent-work-pane.runtime-switchable > .code-agent-activity-dock {
+  top: 52px;
+}
+
+.code-agent-work-pane:has(.code-terminal-search) > .code-agent-activity-dock {
+  visibility: hidden;
+}
+
 .code-main.related-session-open > .code-agent-activity-dock,
 .code-subagent-panel > .code-agent-activity-dock {
   width: auto;
@@ -707,9 +724,14 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:focus-within:has(.code-
       resize: none;
     }
 
-  body.code-mode.code-compact-layout .code-agent-activity-dock {
+  body.code-mode.code-compact-layout :is(.code-main, .code-subagent-panel) > .code-agent-activity-dock {
       width: auto;
       margin: 4px 7px var(--mobile-composer-reserved-height, 80px);
+    }
+
+  body.code-mode.code-compact-layout .code-agent-work-pane > .code-agent-activity-dock {
+      top: 4px;
+      right: 7px;
     }
 
   body.code-mode.code-compact-layout .code-main:has(> .code-agent-activity-dock) > .code-terminal-grid {

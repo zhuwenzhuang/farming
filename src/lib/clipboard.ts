@@ -1,3 +1,5 @@
+import type {} from '../types/desktop'
+
 export interface TerminalClipboardProvider {
   readText: (selection: string) => Promise<string> | string
   writeText: (selection: string, text: string) => Promise<void> | undefined
@@ -20,6 +22,34 @@ export async function readClipboardText() {
     return ''
   }
   return ''
+}
+
+export async function readDesktopClipboardImage() {
+  const bytes = await window.farmingDesktop?.readClipboardImage?.()
+  if (!bytes) return null
+  const data = new DataTransfer()
+  data.items.add(new File([new Uint8Array(bytes)], 'Pasted image.png', { type: 'image/png' }))
+  return data
+}
+
+/** The terminal menu has no browser paste event, so read its image and text together. */
+export async function readTerminalMenuPaste(): Promise<string | DataTransfer> {
+  if (navigator.clipboard?.read) {
+    try {
+      const items = await navigator.clipboard.read()
+      const data = new DataTransfer()
+      for (const item of items) {
+        const type = item.types.find(type => type.startsWith('image/'))
+        if (type) data.items.add(new File([await item.getType(type)], 'Pasted image.' + type.slice(6), { type }))
+        if (item.types.includes('text/plain')) data.setData('text/plain', await (await item.getType('text/plain')).text())
+      }
+      return data.files.length ? data : data.getData('text/plain')
+    } catch {
+      // Some browsers grant text-only clipboard access.
+    }
+  }
+  const text = await readClipboardText()
+  return text || await readDesktopClipboardImage().catch(() => null) || ''
 }
 
 export function fallbackCopyText(text: string) {

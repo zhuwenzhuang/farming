@@ -1,6 +1,7 @@
 import { type ComposerInputElement } from './composer-input-element'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
+import { readDesktopClipboardImage } from '@/lib/clipboard'
 import type { ComposerContextReference } from './composer-message'
 
 export const WORKSPACE_REFERENCE_MIME = 'application/x-farming-workspace-reference'
@@ -34,11 +35,8 @@ export function useComposerTransfer({ active, agentId, workspace, textareaRef, c
       const data = event.clipboardData
       if (data?.files.length || data?.getData('text/plain') || data?.getData('text/uri-list') || !window.farmingDesktop?.readClipboardImage || !event.isTrusted) return
       event.preventDefault()
-      void window.farmingDesktop.readClipboardImage().then(bytes => {
-        if (!alive || sequence !== nativeSequence || !bytes) return
-        const transferData = new DataTransfer()
-        transferData.items.add(new File([new Uint8Array(bytes)], 'Pasted image.png', { type: 'image/png' }))
-        transfer(transferData)
+      void readDesktopClipboardImage().then(data => {
+        if (alive && sequence === nativeSequence && data) transfer(data)
       }).catch(caught => { if (alive) setError(caught instanceof Error ? caught.message : 'Clipboard image unavailable.') })
     }
     const keydown = (event: Event) => {

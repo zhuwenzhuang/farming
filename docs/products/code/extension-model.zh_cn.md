@@ -47,7 +47,8 @@ Viewer 并回到完整 Agent 界面。Project-owned Resource 和没有存活 Sou
 Viewer 时继续生效。不具备展示条件的 Viewer 只隐藏窄栏，不能清除该 Preference。
 在窄栏支持的全部宽度范围内，Transcript Turn 使用带紧凑 Inset 的可用内容宽度，不保留完整
 Agent Surface 的居中阅读栏宽度。Composer 保留完整 Agent Surface 的收起交互。
-Activity Preview 参与窄栏的纵向布局，不得覆盖 Composer；已经在相邻 Viewer 中打开的
+Chat 的 Activity Preview 位于 Composer 上方。在 Terminal 中，Dock 悬浮于终端右上角，
+如有 Runtime 切换按钮则位于其下方。展开或关闭预览时，PTY 尺寸及底部提示符区域保持稳定。已经在相邻 Viewer 中打开的
 Browser 不再重复显示为 Activity Preview。窄栏分隔线支持指针与键盘调整；Workspace
 变窄时会先回收窄栏宽度，不让相邻 Viewer 低于其支持的最小宽度。
 手动调整前，窄栏默认占主工作区可用宽度的 40%，目标范围为 480–600 CSS 像素，

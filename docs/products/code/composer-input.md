@@ -192,6 +192,10 @@ file paste targets the last focused visible conversation and yields to text
 editors, terminals, menus and dialogs. Desktop may supply an image from its native
 clipboard only for an explicit paste with no browser text or files.
 
+Pasting an image into a writable Terminal opens and focuses that Agent's Composer.
+Its existing draft receives the image and any accompanying clipboard text.
+Sending is explicit. A text-only paste stays in the Terminal.
+
 Intake reserves each item's identity and order before asynchronous processing.
 Items transition from processing to ready or a visible error within a bounded
 deadline. Processing and failed items block submission; removing an item cancels

@@ -9,7 +9,7 @@ import {
   type TerminalLinkInteractionController,
 } from '@/lib/terminal-link-interaction'
 import type { TerminalAttachmentOperation } from '@/lib/terminal-attachment-coordinator'
-import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
+import { readDesktopClipboardImage, readTerminalMenuPaste, writeClipboardText } from '@/lib/clipboard'
 import { isTouchInputViewport } from '@/lib/responsive-mode'
 import { TerminalTouchInteractionController } from '@/lib/terminal-touch-interaction-controller'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
@@ -217,7 +217,13 @@ export class TerminalSessionInteractionController {
     }, { disabled: !selection })
     const pasteButton = createTerminalContextMenuItem(terminalContextMenuLabel('paste'), () => {
       const focusRevision = this.#ports.focusRevision()
-      void readClipboardText().then(text => this.#paste(text)).finally(() => {
+      const operation = this.#ports.attachmentOperation()
+      void readTerminalMenuPaste().then(payload => {
+        if (menu !== this.#contextMenuEl || !this.#ports.isCurrentAttachmentOperation(operation)) return
+        if (typeof payload === 'string') this.#paste(payload)
+        else this.#ports.hostEl.dispatchEvent(new ClipboardEvent('paste', { clipboardData: payload, bubbles: true, cancelable: true }))
+      }).finally(() => {
+        if (this.#contextMenuEl !== menu) return
         const restoreFocus = this.#ports.mayRestoreFocus(menu, focusRevision)
         this.hideContextMenu()
         if (!isTouchInputViewport() && restoreFocus) this.#ports.focusInput()
@@ -384,6 +390,19 @@ export class TerminalSessionInteractionController {
       event.clipboardData?.setData('text/plain', text)
     }
     this.#listen(this.#ports.hostEl, 'copy', copy as EventListener, true)
+    const paste = (event: ClipboardEvent) => {
+      if (!event.isTrusted || event.defaultPrevented || event.clipboardData?.types.length
+        || !window.farmingDesktop?.readClipboardImage || !this.#ports.isAttached() || this.#ports.input.disabled()) return
+      const operation = this.#ports.attachmentOperation()
+      const revision = this.#ports.focusRevision()
+      void readDesktopClipboardImage().then(data => {
+        if (data && !this.#isDisposed() && this.#ports.isCurrentAttachmentOperation(operation)
+          && this.#ports.focusRevision() === revision && this.#ports.hostEl.contains(document.activeElement)) {
+          this.#ports.hostEl.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+        }
+      }).catch(() => {})
+    }
+    this.#listen(this.#ports.hostEl, 'paste', paste as EventListener, true)
     this.#listen(document, 'copy', copy as EventListener, true)
 
     const copyKeydown = (event: KeyboardEvent) => {

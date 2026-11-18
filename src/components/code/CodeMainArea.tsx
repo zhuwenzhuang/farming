@@ -1,4 +1,5 @@
 import type { ComposerInputElement } from './composer-input-element'
+import { flushSync } from 'react-dom'
 import { CollaborationAgentIcon } from './CollaborationAgentIcon'
 import { MobileUnreadNavigation } from './MobileUnreadNavigation'
 import type { UnreadAgentTarget } from './mobile-unread-navigation'
@@ -37,7 +38,8 @@ import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
 import type { AcpAvailableCommand } from './acp/types'
-import type { ComposerContextReference } from './composer-message'
+import { clipboardAttachmentFiles, isImageFile, type ComposerContextReference } from './composer-message'
+import { normalizeAttachmentMime } from './composer-intake'
 import { canForkAgentConversation } from './capabilities'
 import { AgentOpeningPane } from './AgentOpeningPane'
 import type { AgentOpeningState } from './useAgentOpeningController'
@@ -1156,6 +1158,47 @@ export function CodeMainArea({
     })
   }
 
+  const activityDock = agentSurfaceVisible && (visibleGoal || visibleActivePlan || activeBrowserPreviews.length > 0) ? (
+    <section
+      className="code-agent-activity-dock"
+      data-testid="code-agent-activity-dock"
+      aria-label="Agent activity"
+      onKeyDown={event => {
+        if (event.key !== 'Escape' || expandedAgentActivity === null) return
+        event.stopPropagation()
+        setExpandedAgentActivity(null)
+      }}
+    >
+      {visibleGoal ? <AgentGoalActivityPreview goal={visibleGoal}
+        expanded={expandedAgentActivity === 'goal'}
+        onToggle={() => setExpandedAgentActivity(current => current === 'goal' ? null : 'goal')} /> : null}
+      {visibleActivePlan ? (
+        <AgentPlanActivityPreview
+          plan={visibleActivePlan}
+          expanded={expandedAgentActivity === 'plan'}
+          onToggle={() => setExpandedAgentActivity(current => current === 'plan' ? null : 'plan')}
+        />
+      ) : null}
+      {activeBrowserPreviews.length > 0 ? (
+        <BrowserActivityPreview
+          resources={activeBrowserPreviews}
+          language={language}
+          expandedResourceId={expandedBrowserResourceId}
+          onToggle={resource => setExpandedAgentActivity(current => {
+            const key = `browser:${resource.id}`
+            return current === key ? null : key
+          })}
+          onOpen={onOpenBrowserResource}
+          onDismiss={resource => setDismissedBrowserPreviewKeys(current => {
+            const next = new Set(current)
+            next.add(`${resource.id}:${resource.generation}`)
+            return next
+          })}
+        />
+      ) : null}
+    </section>
+  ) : null
+
   return (
     <SubagentNavigation.Provider value={readOnly ? null : requestSubagent}>
     <RelatedSessionNavigation.Provider value={selectRelatedSession}>
@@ -1353,6 +1396,23 @@ export function CodeMainArea({
         className="code-terminal-grid panes-1"
         data-testid="code-terminal-grid"
         hidden={!agentSurfaceVisible}
+        onPasteCapture={event => {
+          const host = event.target instanceof Element && event.target.closest<HTMLElement>('.terminal-session-host')
+          if (!host || host.dataset.agentId !== activeTerminalId || !agentSurfaceVisible || acpComposerActive
+            || host.closest('[hidden], [aria-hidden="true"]')
+            || readOnly || !composerProps.active || event.defaultPrevented) return
+          const data = event.clipboardData
+          if (!clipboardAttachmentFiles(data).some(file => isImageFile(normalizeAttachmentMime(file)))) return
+          // The browser grants access to the clipboard files only during the paste event.
+          if (composerCollapsed) flushSync(() => updateComposerCollapsed(false))
+          const input = composerProps.textareaRef.current
+          if (!input || input.disabled) return
+          event.preventDefault()
+          event.stopPropagation()
+          input.focus({ preventScroll: true })
+          if (composerCollapsed) input.setSelectionRange(input.value.length, input.value.length)
+          input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+        }}
       >
         {!activeAgent ? (
           <div className="code-empty-workspace code-empty-home-state" data-testid="code-empty-workspace">
@@ -1417,6 +1477,7 @@ export function CodeMainArea({
             mounted={(agentSurfaceVisible || resourceWorkspaceVisible) && agent.id === activeTerminalId}
             active={agentSurfaceVisible && agent.id === activeTerminalId && (!relatedSessionVisible || relatedSessionFits || !compactRelatedActive)}
             runtimeSwitchVisible={!resourceAgentPanelVisible}
+            terminalActivity={!acpComposerActive && agent.id === activeTerminalId ? activityDock : undefined}
             viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
             switching={agent.id === permissionSwitchingAgentId}
             switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
@@ -1451,46 +1512,7 @@ export function CodeMainArea({
         enabled={unreadNavigationEnabled && agentWorkspaceVisible && Boolean(activeAgent) && !relatedSessionVisible}
         surfaceRef={unreadSurfaceRef} onOpen={onOpenUnreadTarget} onBack={onUnreadBack} language={language} />}
 
-      {agentSurfaceVisible && (visibleGoal || visibleActivePlan || activeBrowserPreviews.length > 0) ? (
-        <section
-          className="code-agent-activity-dock"
-          data-testid="code-agent-activity-dock"
-          aria-label="Agent activity"
-          onKeyDown={event => {
-            if (event.key !== 'Escape' || expandedAgentActivity === null) return
-            event.stopPropagation()
-            setExpandedAgentActivity(null)
-          }}
-        >
-          {visibleGoal ? <AgentGoalActivityPreview goal={visibleGoal}
-            expanded={expandedAgentActivity === 'goal'}
-            onToggle={() => setExpandedAgentActivity(current => current === 'goal' ? null : 'goal')} /> : null}
-          {visibleActivePlan ? (
-            <AgentPlanActivityPreview
-              plan={visibleActivePlan}
-              expanded={expandedAgentActivity === 'plan'}
-              onToggle={() => setExpandedAgentActivity(current => current === 'plan' ? null : 'plan')}
-            />
-          ) : null}
-          {activeBrowserPreviews.length > 0 ? (
-            <BrowserActivityPreview
-              resources={activeBrowserPreviews}
-              language={language}
-              expandedResourceId={expandedBrowserResourceId}
-              onToggle={resource => setExpandedAgentActivity(current => {
-                const key = `browser:${resource.id}`
-                return current === key ? null : key
-              })}
-              onOpen={onOpenBrowserResource}
-              onDismiss={resource => setDismissedBrowserPreviewKeys(current => {
-                const next = new Set(current)
-                next.add(`${resource.id}:${resource.generation}`)
-                return next
-              })}
-            />
-          ) : null}
-        </section>
-      ) : null}
+      {acpComposerActive && activityDock}
 
       {agentSurfaceVisible ? (
         composerCollapsed ? (

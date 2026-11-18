@@ -56,8 +56,10 @@ without clearing that preference.
 Across the pane's supported width range, Transcript turns use the available
 content width with compact insets instead of retaining the full Agent surface's
 centered reading column. The Composer retains its full-surface collapse
-interaction. Activity previews participate in the pane's vertical layout and
-must not overlap the Composer; a Browser already open in the adjacent Viewer is
+interaction. Chat activity previews sit above the Composer. In Terminal, the
+dock overlays the upper-right of the terminal pane below any runtime switch.
+Expanding or dismissing a preview preserves the PTY dimensions and prompt area.
+A Browser already open in the adjacent Viewer is
 not repeated as an activity preview. The pane divider supports pointer and
 keyboard resizing, and a workspace resize clamps the pane before the adjacent
 Viewer falls below its supported minimum width.
