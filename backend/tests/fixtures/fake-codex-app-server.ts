@@ -8,6 +8,7 @@ const sessionId = '019f0000-0000-7000-8000-000000000999';
 const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
 const userInputResultFile = process.env.FARMING_TEST_USER_INPUT_RESULT_FILE || '';
+const asyncQuestion = process.env.FARMING_TEST_ASYNC_QUESTION === '1';
 const incomingInputs = process.env.FARMING_TEST_INCOMING_INPUTS === '1';
 const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
@@ -322,7 +323,7 @@ async function resultFor(method, params) {
     } };
     return { goal: null, revision: 0 };
   }
-  if (incomingInputs && method === 'turn/steer') return { turnId: params.expectedTurnId };
+  if ((incomingInputs || asyncQuestion) && method === 'turn/steer') return { turnId: params.expectedTurnId };
   if (goalCompletionGate && method === 'turn/steer') {
     if (params.expectedTurnId !== 'goal-continuation') throw new Error('Steer targeted the wrong turn');
     return { turnId: 'goal-continuation' };
@@ -418,6 +419,14 @@ async function run() {
         result,
       });
       if (request.method === 'turn/steer' && steerEchoOrder === 'after') await emitSteerEcho();
+      if (asyncQuestion && request.method === 'turn/steer') {
+        const { threadId, expectedTurnId: turnId, clientUserMessageId: clientId, input: content } = request.params;
+        fs.writeFileSync(userInputResultFile, JSON.stringify(request.params));
+        await enqueueResponse({ method: 'item/completed', params: { threadId, turnId,
+          item: { type: 'userMessage', id: 'async-native-receipt', clientId, content } } });
+        await enqueueResponse({ method: 'turn/completed', params: { threadId,
+          turn: { id: turnId, items: [], status: 'completed', error: null } } });
+      }
       if (request.method === 'thread/unsubscribe' && result.status === 'unsubscribed' && !earlyClose) {
         // Unsubscribe responds before the owning app-server releases its writer.
         if (closeGatePrefix) {
@@ -478,6 +487,12 @@ async function run() {
       }
       if (userInputResultFile && request.method === 'turn/start' && !request.params.outputSchema) {
         await enqueueResponse({ method: 'turn/started', params: { threadId: request.params.threadId, turn: result.turn } });
+        if (asyncQuestion) {
+          await enqueueResponse({ method: 'item/completed', params: { threadId: request.params.threadId, turnId: result.turn.id,
+            item: { id: 'async-question', type: 'agentMessage', text: 'Sign in to continue', phase: 'commentary',
+              delivery: 'async', questions: [{ title: 'Ready to continue?', options: [] }] } } });
+          return;
+        }
         await enqueueResponse({ id: 'fixture-user-input', method: 'item/tool/requestUserInput', params: {
           threadId: request.params.threadId, turnId: result.turn.id, itemId: 'question', autoResolutionMs: null,
           questions: [{ id: 'choice', header: 'Choice', question: 'Choose a target', isOther: true, isSecret: false,

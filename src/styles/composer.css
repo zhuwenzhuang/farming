@@ -3946,11 +3946,12 @@ body.code-mode.code-compact-layout .code-composer-approval.orange {
   color: var(--code-text);
   overflow: hidden;
 }
-.code-acp-question-result { padding: 10px 12px; font-size: 12px; }
+.code-acp-question-result { padding: 10px 12px; font-size: 12px; overflow-wrap: anywhere; }
 .code-acp-question-result > div { display: flex; align-items: center; gap: 8px; }
 .code-acp-question-result svg { width: 16px; height: 16px; flex-shrink: 0; }
 .code-acp-question-result small { margin-left: auto; color: var(--code-text-subtle); white-space: nowrap; }
-.code-acp-question-result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.code-acp-question-result section > div { margin-top: 8px; color: var(--code-text-muted); }
+.code-acp-question-result p { margin: 4px 0 0; white-space: pre-wrap; }
 .code-acp-request input:focus { outline: none; box-shadow: none; border-color: var(--code-border); }
 
 /* Quoted text is context, separate from the editable question. */

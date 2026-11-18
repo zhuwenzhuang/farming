@@ -29,4 +29,13 @@ assert.equal(settled.turns[1]?.processItems.some(item => item.question), false)
 const settledRestore = AcpSessionState.fromCheckpoint(state.exportCheckpoint())!
 assert.equal(settledRestore.pendingQuestionEntries.size, 0, 'settled history must not create a live pending request')
 assert.equal(projectAcpTranscript(settledRestore.snapshot()).turns[0]?.processItems[1]?.question?.status, 'answered')
+question.answer = '{"question_0":"Please send the URL","count":0,"confirmed":false}'
+const legacy = projectAcpTranscript(state.snapshot()).turns[0]?.processItems[1]?.question
+assert.equal(legacy?.message, 'Which scope?')
+assert.equal(legacy?.answer, '')
+assert.deepEqual(legacy?.fields, [
+  { label: '', answer: 'Please send the URL' },
+  { label: 'count', answer: '0' },
+  { label: 'confirmed', answer: 'false' },
+])
 console.log('ACP question chronology and checkpoint tests passed')

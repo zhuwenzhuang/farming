@@ -205,7 +205,7 @@ export function AcpElicitationCard({ request, onRespond, copy, draft, onValuesCh
       {request.requestedSchema?.title || request.origin === 'subagent' || acceptedUrl ? <header><strong>{title}</strong>{request.origin === 'subagent' ? <span>{copy.subagent}</span> : null}</header> : null}
       <div className="code-acp-elicitation-heading">
         {onLater ? <QuestionGlyph /> : null}
-        <p className="code-acp-elicitation-message">{request.message}</p>
+        <p className="code-acp-elicitation-message">{request.messageIsInstructions ? copy.questionAsyncHint : request.message}</p>
         {deferred.length > 0 ? <button type="button" className="code-acp-questions-toggle"
           aria-label={copy.questionDetails} title={copy.questionDetails} aria-expanded={Boolean(draft?.detailsExpanded)}
           aria-controls={`${request.requestId}-details`} onClick={() => onDetailsChange?.(!draft?.detailsExpanded)}><PencilGlyph /></button> : null}

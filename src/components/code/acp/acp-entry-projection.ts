@@ -86,7 +86,7 @@ export interface AgentTranscriptProcessItem {
   terminals?: AgentTranscriptTerminal[]
   subagentSessionId?: string
   subagentTranscript?: AgentTranscript
-  question?: { requestId: string; message: string; status: string; answer: string }
+  question?: { requestId: string; message: string; status: string; answer: string; fields: Array<{ label: string; answer: string }> }
   collaboration?: AgentTranscriptCollaboration
   peerReceipt?: AcpPeerMessage
   peerMessage?: AcpPeerMessage
@@ -669,12 +669,32 @@ function compactionTitle(status: unknown): string {
   return 'Compacting context'
 }
 
+function transcriptQuestion(entry: AcpRecord): NonNullable<AgentTranscriptProcessItem['question']> {
+  const fields = list(entry.fields).map(record).map(field => ({
+    label: stringValue(field.label), answer: stringValue(field.answer),
+  }))
+  let answer = stringValue(entry.answer)
+  // Older checkpoints stored a serialized form response and no field titles.
+  if (!fields.length && answer.trimStart().startsWith('{')) {
+    try {
+      const values = Object.entries(record(JSON.parse(answer)))
+      for (const [name, value] of values) {
+        fields.push({ label: /^question_\d+$/.test(name) ? '' : name,
+          answer: Array.isArray(value) ? value.join('\n') : stringValue(value) })
+      }
+      answer = ''
+    } catch { /* Preserve a plain-text answer beginning with a brace. */ }
+  }
+  return { requestId: stringValue(entry.id), status: stringValue(entry.status), fields, answer,
+    message: entry.messageIsInstructions === true && fields[0]?.label ? fields[0].label : stringValue(entry.message) }
+}
+
 function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   if (entry.type === 'status') {
     return { id: stringValue(entry.id), type: 'progress', title: stringValue(entry.title), detail: [stringValue(entry.title), stringValue(entry.description)].filter(Boolean).join('\n\n'), status: stringValue(entry.status) }
   }
   if (entry.type === 'question') {
-    const question = { requestId: stringValue(entry.id), message: stringValue(entry.message), status: stringValue(entry.status), answer: stringValue(entry.answer) }
+    const question = transcriptQuestion(entry)
     return { id: question.requestId, type: 'question', title: question.message, status: question.status, question }
   }
   if (entry.type === 'error') {
@@ -898,6 +918,10 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean, parti
 export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?: number } = {}): AgentTranscript {
   const session = record(sessionValue)
   const sessionEntries = list(session.entries)
+  const answerMessageIds = new Set(sessionEntries.map(record)
+    .filter(entry => entry.type === 'question' && entry.status === 'answered' && !entry.internal
+      && typeof entry.answerMessageId === 'string' && entry.answerMessageId)
+    .map(entry => entry.answerMessageId))
   const historicalPlanEntry = [...sessionEntries].reverse().map(record).find(entry => entry.type === 'plan')
   const hasPlanSnapshot = Object.prototype.hasOwnProperty.call(session, 'plan')
   const planValue = hasPlanSnapshot ? session.plan : historicalPlanEntry?.plan
@@ -921,6 +945,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   for (const value of continuousAssistantEntries(sessionEntries)) {
     const entry = record(value)
     if (entry.internalScope === 'entry') continue
+    if (entry.type === 'message' && entry.role === 'user' && answerMessageIds.has(entry.messageId)) continue
     if (isUnavailableAcpPeerReceipt(entry)) {
       if (current?.internal) flush()
       const entryId = stringValue(entry.id) || String(++sequence)

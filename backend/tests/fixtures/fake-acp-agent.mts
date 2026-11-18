@@ -2796,6 +2796,27 @@ class FakeAgent {
       } });
       return { stopReason: 'end_turn' };
     }
+    if (promptText === '核对登录入口') {
+      const answerMessageId = crypto.randomUUID();
+      const title = '请在已打开的页面完成登录，登录后告诉我。';
+      const response = await client.request('elicitation/create', {
+        sessionId: params.sessionId, mode: 'form', message: 'Answer while the turn is running.',
+        requestedSchema: { type: 'object', properties: { question_0: { type: 'string', title } } },
+        _meta: { farming: { answerMessageId, messageIsInstructions: true } },
+      });
+      const values = response.action === 'accept' ? response.content : undefined;
+      const answer = values && typeof values === 'object' && 'question_0' in values ? values.question_0 : '';
+      for (const messageId of [answerMessageId, crypto.randomUUID()]) {
+        await client.notify('session/update', { sessionId: params.sessionId, update: {
+          sessionUpdate: 'session_message', messageId, _meta: { farming: { messageRole: 'user' } },
+          content: [{ type: 'text', text: `> ${title}\n\n${answer}` }],
+        } });
+      }
+      await client.notify('session/update', { sessionId: params.sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已收到回复。' },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('pending question design fixture') || promptText === '补充登录流程测试') {
       await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '我会先检查现有测试结构，并补齐核心用例。\n\n' },

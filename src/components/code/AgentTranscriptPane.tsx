@@ -1501,6 +1501,7 @@ function toggleTranscriptDisclosureWithStableAnchor(anchor: HTMLElement, toggle:
 
 function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcessItem; copy: CodeCopy }) {
   const text = (item.detail || item.title || '').trim()
+  const quote = !item.document && /^((?:>[^\n]*\n)+)\n([\s\S]+)$/.exec(text)
   const images = item.images || []
   const audios = item.audios || []
   const files = item.files || []
@@ -1509,7 +1510,13 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
   return (
     <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
       <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
-        {text ? <div className="code-agent-transcript-steer-content"><AgentTranscriptInputText document={item.document} text={text} /></div> : null}
+        {text ? <div className="code-agent-transcript-steer-content">
+          {quote ? <details className="code-agent-transcript-context">
+            <summary><span>{copy.quoteContextLabel}</span><ChevronRightGlyph /></summary>
+            <div className="detail"><AgentTranscriptInputText text={quote[1]!.trimEnd().replace(/^> ?/gm, '')} /></div>
+          </details> : null}
+          <AgentTranscriptInputText document={item.document} text={quote ? quote[2]! : text} />
+        </div> : null}
         <AgentTranscriptUserImages images={images} />
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />

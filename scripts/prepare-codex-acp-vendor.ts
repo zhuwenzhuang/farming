@@ -8,11 +8,12 @@ import { integrateCodexPeerMessages } from './vendor/codex-peer-integration';
 import { integrateCodexRelatedHistory } from './vendor/codex-related-integration';
 import { integrateCodexSubagentTurns } from './vendor/codex-subagent-integration';
 import { integrateCodexModelConfig } from './vendor/codex-model-config-integration';
+import { integrateCodexQuestions } from './vendor/codex-question-integration';
 
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '2.7.0';
 const expectedUpstreamSha256 = '37900513f38892d482c42dc565b3c987047a6630cefe64b97eb5120e1172dd2f';
-const expectedBundleSha256 = '30f7abaf761470cd99d2bed1509c023c9bba936ecccc43e176c90c8be99e6b6c';
+const expectedBundleSha256 = 'c043cf8cce31a7e921e965f7a042042618e026779780953a7735a62ead4731d7';
 const expectedPatchedSha256 = 'e168bf799f75303ee3c6a97ce0b63d1ddac459080bab95cf9d0dc5a56c5d55f6';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
@@ -68,7 +69,7 @@ async function prepareCodexAcpVendor({ copy = false } = {}): Promise<void> {
         stdin: {
           contents: `import { farmingCodexPeerUpdate, farmingCodexPeerHistory, farmingMergePeerHistory, farmingSyncCodexPeerReceipts } from './scripts/vendor/codex-peer-messages.mjs';\n`
             + `import { farmingReadRelatedHistory } from './scripts/vendor/codex-related-history.mjs';\n`
-            + integrateCodexModelConfig(integrateCodexSubagentTurns(integrateCodexRelatedHistory(integrateCodexPeerMessages(fs.readFileSync(sourceEntry, 'utf8'))))),
+            + integrateCodexQuestions(integrateCodexModelConfig(integrateCodexSubagentTurns(integrateCodexRelatedHistory(integrateCodexPeerMessages(fs.readFileSync(sourceEntry, 'utf8')))))),
           resolveDir: projectRoot, sourcefile: 'farming-codex-acp.js', loader: 'js',
         },
       });

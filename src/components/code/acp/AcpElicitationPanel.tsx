@@ -56,7 +56,7 @@ export function AcpElicitationPanel({ agentId, requests, requestId, running, onR
     <section className="code-acp-questions" data-testid="code-acp-questions" tabIndex={-1} aria-label={copy.questionCount(1)}>
       <header className="code-acp-questions-header" hidden={!collapsed}>
         <QuestionGlyph />
-        <span>{request.message}</span>
+        <span>{(request.messageIsInstructions && Object.values(request.requestedSchema?.properties || {})[0]?.title) || request.message}</span>
         {running ? <small data-testid="code-acp-questions-running">{copy.questionRunning}</small> : null}
         <button ref={expandRef} type="button" className="code-acp-questions-toggle" aria-expanded={!collapsed}
           aria-label={collapsed ? copy.questionExpand : copy.questionCollapse}

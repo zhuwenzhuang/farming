@@ -15,7 +15,11 @@ export function AcpTranscriptQuestion({ question, copy }: { question: NonNullabl
     {pending ? <AcpElicitationPanel agentId={agentId} requests={requests} requestId={question.requestId} running={false}
       onRespond={(id, action, content) => respondToAcpElicitation(agentId, id, action, content)} copy={copy} /> : <div className="code-acp-question-result">
       <div><QuestionGlyph /><span>{question.message}</span><small>{question.status === 'answered' ? copy.questionAnswered : question.status === 'skipped' ? copy.questionSkipped : question.status === 'pending' ? copy.questionUnavailable : copy.questionClosed}</small></div>
-      {question.answer ? <pre>{question.answer}</pre> : null}
+      {question.fields?.map((field, index) => <section key={index}>
+        {field.label && (index > 0 || field.label !== question.message) ? <div>{field.label}</div> : null}
+        {question.status === 'answered' ? <p>{field.answer || '—'}</p> : null}
+      </section>)}
+      {question.answer ? <p>{question.answer}</p> : null}
     </div>}
   </div>
 }

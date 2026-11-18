@@ -47,6 +47,7 @@ export interface CodeCopy {
   questionClosed: string
   questionDetails: string
   questionPending: string
+  questionAsyncHint: string
   questionCount: (count: number) => string
   questionLater: string
   questionSkip: string
@@ -831,6 +832,7 @@ const EN_COPY: CodeCopy = {
   questionClosed: 'This request has ended',
   questionDetails: 'Optional details',
   questionPending: 'Awaiting answer',
+  questionAsyncHint: 'You can answer while this turn is running.',
   questionCount: count => `${count} pending question${count === 1 ? '' : 's'}`,
   questionLater: 'Answer later',
   questionSkip: 'Skip',
@@ -1652,6 +1654,7 @@ const ZH_COPY: CodeCopy = {
   questionClosed: '该提问已结束',
   questionDetails: '补充要求',
   questionPending: '待回答',
+  questionAsyncHint: '可在本轮结束前回答。',
   questionCount: count => `${count} 个待回答问题`,
   questionLater: '稍后回答',
   questionSkip: '跳过',

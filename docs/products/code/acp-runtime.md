@@ -251,6 +251,10 @@ request cancellation settle once; only the live pending set authorizes responses
 Questions remain in chronological history after settlement. Restored records
 without a live resolver are read-only. “Later” collapses a question; it does not
 answer or expire it. Unknown answer delivery is never replayed.
+Question history retains the original field labels and their corresponding answers,
+including the displayed choice labels. If an adapter delivers an answer through
+a user message, its exact message identity links that receipt to the answered
+card. Independent messages remain visible even when their text is identical.
 
 Goal metadata is provider-owned and read-only. Omission preserves it; explicit
 null clears it; invalid data cannot erase valid state. Completion retains one

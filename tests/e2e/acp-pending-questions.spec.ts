@@ -110,9 +110,51 @@ for (const provider of ['codex', 'claude'] as const) {
       for (const summary of await page.getByTestId('code-agent-transcript-process-summary').all()) await summary.click()
       await expect(page.getByTestId('code-acp-question-history')).toHaveCount(2)
       await expect(page.getByTestId('code-acp-question-history').first()).toContainText('已回答')
+      await expect(history.locator('section').filter({ hasText: '测试范围' })).toContainText('包含异常与边界情况')
+      await expect(history.locator('section').filter({ hasText: '其他要求' })).toContainText('优先覆盖会话过期')
       await expect(page.getByTestId('code-acp-question-history').last()).toContainText('已跳过')
     })
   }
+}
+
+for (const appearance of ['light', 'dark', 'paper'] as const) {
+  test(`restores the async question and only the independent quoted reply (${appearance})`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.request.post('/farming/api/settings', { data: { language: 'zh', appearance } })
+    const response = await page.request.post('/farming/api/control/agents', { data: {
+      command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat',
+    } })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json()
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"] .code-agent-name`)
+    await row.click()
+    await page.getByTestId('code-acp-composer-input').fill('核对登录入口')
+    await page.getByTestId('code-acp-composer-send').click()
+    const title = '请在已打开的页面完成登录，登录后告诉我。'
+    const answer = '发下网址？我没看到'
+    const form = page.getByTestId('code-acp-elicitation')
+    await form.getByRole('textbox', { name: title }).fill(answer)
+    await form.getByRole('button', { name: '提交回答' }).click()
+    await expect(page.getByText('已收到回复。', { exact: true })).toBeVisible()
+    for (const restored of [false, true]) {
+      if (restored) { await page.reload(); await row.click() }
+      const summary = page.getByTestId('code-agent-transcript-process-summary')
+      if (await summary.getAttribute('aria-expanded') === 'false') await summary.click()
+      const card = page.getByTestId('code-acp-question-history')
+      await expect(card).toHaveCount(1)
+      await expect(card.getByText(title, { exact: true })).toBeVisible()
+      await expect(card.getByText(answer, { exact: true })).toBeVisible()
+      await expect(card).not.toContainText('question_0')
+      const followup = page.getByTestId('code-agent-transcript-steer')
+      await expect(followup).toHaveCount(1)
+      await expect(followup.getByText(answer, { exact: true })).toBeVisible()
+      await expect(followup.getByText(title, { exact: true })).toBeHidden()
+      await followup.locator('summary').click()
+      await expect(followup.getByText(title, { exact: true })).toBeVisible()
+      await followup.locator('summary').click()
+      if (restored) await testInfo.attach('restored question', { body: await page.screenshot(), contentType: 'image/png' })
+    }
+  })
 }
 
 test.describe('compact questions', () => {

@@ -619,6 +619,23 @@ function validateElicitationContent(request: UnknownRecord, content: unknown) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function questionFields(request: ElicitationRequest, content?: unknown) {
+  const properties = recordValue(request.requestedSchema?.properties);
+  const answers = recordValue(content);
+  return Object.entries(properties).map(([name, definition]) => {
+    const property = recordValue(definition);
+    const choices = property.oneOf ?? recordValue(property.items).anyOf;
+    const label = typeof property.title === 'string' && property.title ? property.title : name;
+    const value = answers[name];
+    const display = (item: unknown) => {
+      const choice = Array.isArray(choices) && choices.find(option => option?.const === item);
+      return typeof choice?.title === 'string' ? choice.title : String(item);
+    };
+    return { label, ...(Object.hasOwn(answers, name)
+      ? { answer: Array.isArray(value) ? value.map(display).join('\n') : display(value) } : {}) };
+  });
+}
+
 function interactiveRuntimeState(binding: AcpBinding, fallback: string = '') {
   if (binding.pendingPermissions.size > 0) return 'waiting-for-permission';
   if (binding.activeTurn?.phase === 'running') return 'working';
@@ -3449,15 +3466,22 @@ class AcpRuntime extends EventEmitter {
       ? cloned.requestId
       : undefined;
     delete cloned.requestId;
+    const presentation = recordValue(recordValue(cloned._meta).farming);
     const pending = {
       ...cloned,
       ...(protocolRequestId !== undefined ? { protocolRequestId } : {}),
+      messageIsInstructions: presentation.messageIsInstructions === true,
       requestId,
       origin: isRequestScoped ? 'request' : isPrimarySession ? 'agent' : 'subagent',
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
-    binding.sessionState.pushEntry({ id: requestId, type: 'question', message: String(pending.message || ''), status: 'pending' });
+    binding.sessionState.pushEntry({
+      id: requestId, type: 'question', status: 'pending', message: String(pending.message || ''),
+      fields: questionFields(pending),
+      ...(pending.messageIsInstructions ? { messageIsInstructions: true } : {}),
+      ...(typeof presentation.answerMessageId === 'string' ? { answerMessageId: presentation.answerMessageId } : {}),
+    });
     this.emitSession(binding);
     this.scheduleCheckpoint(binding);
     binding.state = interactiveRuntimeState(binding, binding.state);
@@ -3484,7 +3508,7 @@ class AcpRuntime extends EventEmitter {
     const question = binding.sessionState.pendingQuestionEntries.get(id);
     if (question) {
       question.status = normalizedAction === 'accept' ? 'answered' : normalizedAction === 'decline' ? 'skipped' : 'closed';
-      question.answer = response.action === 'accept' && pending.mode === 'form' ? JSON.stringify(response.content) : '';
+      if (response.action === 'accept' && pending.mode === 'form') question.fields = questionFields(pending, response.content);
       binding.sessionState.touchEntry(question);
       this.emitSession(binding);
       this.scheduleCheckpoint(binding);

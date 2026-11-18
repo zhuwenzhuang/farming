@@ -177,6 +177,7 @@ export interface AcpPendingElicitation {
   toolCallId?: string | null
   mode: 'form' | 'url' | string
   message: string
+  messageIsInstructions?: boolean
   elicitationId?: string
   url?: string
   status?: string

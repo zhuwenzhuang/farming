@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import readline from 'node:readline';
 
-async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 'recovery'): Promise<void> {
+async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 'async' | 'recovery'): Promise<void> {
   const root = path.join(__dirname, '..', '..');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-upgrade-'));
   const resultFile = path.join(tmp, 'answer.json');
@@ -16,6 +16,7 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
     cwd: root, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CODEX_HOME: tmp, CODEX_PATH: path.join(__dirname, 'fixtures/fake-codex-app-server.ts'),
       FARMING_TEST_ACTIVE_WRITER: kind === 'writer' ? '1' : '0',
+      FARMING_TEST_ASYNC_QUESTION: kind === 'async' ? '1' : '0',
       FARMING_TEST_USER_INPUT_RESULT_FILE: kind === 'writer' ? '' : resultFile,
       FARMING_TEST_REQUEST_LOG_FILE: requestLog, FARMING_TEST_SESSION_ENVIRONMENT: '1',
       FARMING_TEST_ACCOUNT_READ_GATE_FILE: accountReadGate },
@@ -23,6 +24,8 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk.toString(); });
   let nextId = 1;
+  let answerMessageId = '';
+  let echoedMessageId = '';
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
   let schema: Record<string, { oneOf?: { const: string }[]; _meta?: Record<string, unknown> }> | undefined;
   child.once('exit', (code, signal) => {
@@ -42,8 +45,15 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   const lines = readline.createInterface({ input: child.stdout });
   lines.on('line', line => {
     const message = JSON.parse(line);
+    if (message.params?.update?.sessionUpdate === 'session_message') echoedMessageId = message.params.update.messageId;
     if (message.method === 'elicitation/create') {
       schema = message.params.requestedSchema.properties;
+      if (kind === 'async') {
+        answerMessageId = message.params._meta?.farming?.answerMessageId;
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: message.id,
+          result: { action: 'accept', content: { question_0: 'Please send the URL' } } }) + '\n');
+        return;
+      }
       const noteName = Object.entries(schema || {}).find(([, field]) => field._meta?.codex
         && (field._meta.codex as { role: string }).role === 'user_note')?.[0];
       assert.ok(noteName, 'alternative answers must retain the generic note field');
@@ -111,6 +121,14 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
     }
     await request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'Choose a target' }] });
     assert.ok(schema, 'the pinned adapter must issue a real ACP elicitation');
+    if (kind === 'async') {
+      assert.ok(answerMessageId);
+      const steer = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+      assert.equal(steer.clientUserMessageId, answerMessageId);
+      assert.equal(echoedMessageId, answerMessageId);
+      assert.match(steer.input[0].text, /Please send the URL/);
+      return;
+    }
     if (kind === 'recovery') {
       const requests = fs.readFileSync(requestLog, 'utf8').trim().split('\n').map(line => JSON.parse(line));
       assert.equal(requests.filter(item => item.method === 'initialize').length, 2,
@@ -141,6 +159,6 @@ async function scenario(kind: 'writer' | 'air' | 'air-native' | 'standard' | 're
   }
 }
 (async () => {
-  for (const kind of ['writer', 'air', 'air-native', 'standard', 'recovery'] as const) await scenario(kind);
+  for (const kind of ['writer', 'air', 'air-native', 'standard', 'async', 'recovery'] as const) await scenario(kind);
   console.log('Codex ACP upgrade: active writer rejection, AIR/standard choice round trips and crash recovery passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
