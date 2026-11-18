@@ -45,7 +45,8 @@ The managed app-server does not retain unsubscribed idle threads.
 Active-Turn Fork uses the provider's `beforeTurnId` boundary, excluding unfinished
 output while leaving the source running. It is unavailable until the provider
 has assigned the Turn identity. Child environment and ownership isolation follow
-the shared Fork contract.
+the shared Fork contract. Creating a fork omits inline history. Opening the fork
+reads its inherited messages from the new Session using the provider's history mode.
 
 ## Adapter And Native Controls
 

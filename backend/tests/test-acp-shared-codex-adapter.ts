@@ -335,6 +335,11 @@ async function run() {
         sessionId: grandchildFork.sessionId, historyMode: 'load',
       });
       const forkRequests = readRequests(requestLog);
+      for (const source of [first, child]) {
+        const fork = forkRequests.find(request => request.method === 'thread/fork'
+          && request.params.threadId === source.sessionId);
+        assert.strictEqual(fork?.params.excludeTurns, true, 'creating a fork must omit inline history');
+      }
       for (const [session, owner] of [
         [first, 'shared-codex-a'], [second, 'shared-codex-b'],
         [child, 'shared-codex-fork'], [grandchild, 'shared-codex-grandchild'],
@@ -350,6 +355,9 @@ async function run() {
         const loaded = forkRequests.findIndex(request => request.method === 'thread/resume'
           && request.params.threadId === session.sessionId);
         assert(released >= 0 && released < loaded, 'release the fork before loading its new owner');
+        assert.strictEqual(forkRequests[loaded].params.excludeTurns, true);
+        assert(forkRequests.slice(loaded + 1).some(request => request.method === 'thread/items/list'
+          && request.params.threadId === session.sessionId), 'load the fork history from its own pages');
       }
       assert(!forkRequests.some(request => request.method === 'thread/unsubscribe'
         && [first.sessionId, second.sessionId].includes(request.params.threadId)),

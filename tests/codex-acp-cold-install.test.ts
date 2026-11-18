@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const upstreamSha = '37900513f38892d482c42dc565b3c987047a6630cefe64b97eb5120e1172dd2f';
-const patchedSha = 'e168bf799f75303ee3c6a97ce0b63d1ddac459080bab95cf9d0dc5a56c5d55f6';
+const patchedSha = '307e18652c91ae92cb230353c940bffce87551feb14547ae8c96d39128cdd51b';
 const hash = (file: string): string => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 test('a cold Codex ACP installation applies the reviewed patch through the product installer', () => {

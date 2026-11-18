@@ -33,6 +33,7 @@ Managed app-server 不保留已退订的空闲 thread。
 
 活动 Turn 的 Fork 使用 Provider `beforeTurnId` 边界，排除未完成输出且保持来源继续运行。
 Provider 分配 Turn 身份前不可用；子环境与所有权隔离遵循共享 Fork 契约。
+创建分叉时只请求会话元数据。打开分叉后，按 Provider 的历史模式从新会话读取继承的消息。
 
 ## Adapter 与原生控件
 
