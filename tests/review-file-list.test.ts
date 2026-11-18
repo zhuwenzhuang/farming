@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  REVIEW_SIZE_BAR_MAX_WIDTH,
+  reviewDiffFilePaths,
   reviewFileListDisplayFiles,
   reviewFileListReviewableFiles,
   reviewFileListSections,
   reviewFileListStats,
   reviewFileListToolbarModel,
+  reviewSizeBarGeometry,
   reviewAdjacentFilePath,
   reviewFileCommentPaths,
   reviewFileRowModel,
@@ -59,10 +62,9 @@ test('derives Gerrit-style file row review controls from one state source', () =
     pending: false,
     reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: null,
   })
   assert.deepEqual(reviewFileRowModel(reviewState, catalog['Patchset 2'][1], { mutationPending: true }), {
-    action: { ariaLabel: 'Mark as unreviewed', disabled: true, label: 'MARK UNREVIEWED', nextReviewed: false, visibility: 'on-row-interaction' },
+    action: { ariaLabel: 'Mark as unreviewed', disabled: true, label: 'Reviewed', nextReviewed: false, visibility: 'always' },
     added: 1,
     binary: false,
     changeLabel: 'A',
@@ -76,7 +78,6 @@ test('derives Gerrit-style file row review controls from one state source', () =
     pending: false,
     reviewed: true,
     reviewStatusLoaded: true,
-    reviewedLabel: 'Reviewed',
   })
 })
 
@@ -118,7 +119,6 @@ test('file row model preserves Gerrit-style file metadata', () => {
     previousPath: 'assets/old-logo.png',
     reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: null,
     size: 2048,
     sizeDelta: 512,
   })
@@ -170,7 +170,6 @@ test('file row model exposes lazy diff loading status explicitly', () => {
     pending: false,
     reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: null,
   })
 })
 
@@ -202,7 +201,6 @@ test('file row model exposes lazy diff pending and failure state', () => {
     pending: false,
     reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: null,
   })
 
   const failed = transitionReviewState(loading, {
@@ -227,7 +225,6 @@ test('file row model exposes lazy diff pending and failure state', () => {
     pending: false,
     reviewed: false,
     reviewStatusLoaded: true,
-    reviewedLabel: null,
   })
 })
 
@@ -243,7 +240,7 @@ test('file row model tracks optimistic pending state and multi-file UI status ch
   assert.equal(row.reviewed, true)
   assert.notEqual(row.action, null)
   if (!row.action) throw new Error('expected loaded review action')
-  assert.equal(row.action.label, 'MARK UNREVIEWED')
+  assert.equal(row.action.label, 'Reviewed')
   assert.deepEqual(reviewStatusChangesForFiles(pending, catalog['Patchset 2'], true), [])
   assert.deepEqual(reviewStatusChangesForFiles(pending, catalog['Patchset 2'], false), [
     { path: 'src/review.ts', reviewed: false },
@@ -461,7 +458,6 @@ test('file row model keeps reviewed controls unknown until reviewed files are lo
     pending: false,
     reviewed: null,
     reviewStatusLoaded: false,
-    reviewedLabel: null,
   })
   assert.deepEqual(reviewStatusChangesForFiles(unknownState, catalog['Patchset 2'], true), [])
   assert.deepEqual(reviewFileListToolbarModel(unknownState, catalog['Patchset 2']), {
@@ -478,4 +474,41 @@ test('file row model keeps reviewed controls unknown until reviewed files are lo
     reviewedStatusLoaded: false,
     reviewableCount: 2,
   })
+})
+
+test('derives Gerrit-style shared folder prefix dimming and 61px bidirectional size bars', () => {
+  assert.deepEqual(
+    reviewDiffFilePaths('src/components/review/ReviewPage.tsx', 'src/components/review/ReviewEndpointPicker.tsx'),
+    {
+      fileName: 'ReviewPage.tsx',
+      matchingFolders: 'src/components/review/',
+      newFolders: '',
+    },
+  )
+  assert.deepEqual(
+    reviewDiffFilePaths('src/lib/review/state.ts', 'src/components/review/ReviewPage.tsx'),
+    {
+      fileName: 'state.ts',
+      matchingFolders: 'src/',
+      newFolders: 'lib/review/',
+    },
+  )
+  assert.deepEqual(reviewDiffFilePaths('/COMMIT_MSG', 'src/review.ts'), {
+    fileName: 'Commit message',
+    matchingFolders: '',
+    newFolders: '',
+  })
+
+  const mixedFiles: ReviewFile[] = [
+    file({ added: 20, kind: 'modified', path: 'src/a.ts', removed: 10 }),
+    file({ added: 1, kind: 'modified', path: 'src/b.ts', removed: 0 }),
+  ]
+  const stats = reviewFileListStats(mixedFiles)
+  const full = reviewSizeBarGeometry(mixedFiles[0]!, stats)
+  const tiny = reviewSizeBarGeometry(mixedFiles[1]!, stats)
+  assert.ok(full.additionX > full.deletionX + full.deletionWidth)
+  assert.ok(full.additionX + full.additionWidth <= REVIEW_SIZE_BAR_MAX_WIDTH + 0.01)
+  assert.equal(tiny.deletionWidth, 0)
+  assert.ok(tiny.additionWidth >= 1.5)
+  assert.equal(tiny.additionX, full.additionX)
 })

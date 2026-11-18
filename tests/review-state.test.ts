@@ -4,10 +4,12 @@ import {
   commentsForFile,
   commentsForFilePaths,
   createReviewState,
+  DEFAULT_REVIEW_PREFERENCES,
   isFileReviewed,
   isReviewFileDiffLoading,
   normalizeReviewDiffMode,
   normalizeReviewPreferences,
+  normalizeStoredReviewPreferences,
   reconcileReviewStateWithCatalog,
   reviewCommentPathForSide,
   reviewCommentSideForUnifiedCell,
@@ -15,6 +17,7 @@ import {
   reviewFileState,
   reviewPatchsetSummary,
   reviewStateForPatchset,
+  serializeReviewPreferences,
   transitionReviewState,
   type ReviewCatalog,
   type ReviewFile,
@@ -1276,7 +1279,7 @@ test('single-file auto review waits for the Gerrit-style reviewed file list', ()
   assert.deepEqual(reviewStateForPatchset(hydrated.state, 'Patchset 20').autoReviewPaths, [])
 })
 
-test('expand-all and collapsed files are not auto-reviewed after reviewed files load', () => {
+test('reviewed hydration marks an individually opened and collapsed file but skips bulk expansion', () => {
   const state = createReviewState({
     catalog,
     patchRange: { basePatchset: 'Base', patchset: 'Patchset 20' },
@@ -1298,15 +1301,18 @@ test('expand-all and collapsed files are not auto-reviewed after reviewed files 
 
   const opened = transitionReviewState(state, { path: 'clis/dataflow.py', type: 'toggle-file-expanded' }, catalog)
   const collapsed = transitionReviewState(opened.state, { path: 'clis/dataflow.py', type: 'toggle-file-expanded' }, catalog)
-  assert.deepEqual(reviewStateForPatchset(collapsed.state, 'Patchset 20').autoReviewPaths, [])
+  assert.deepEqual(reviewStateForPatchset(collapsed.state, 'Patchset 20').autoReviewPaths, ['clis/dataflow.py'])
   const hydratedCollapsed = transitionReviewState(collapsed.state, {
     patchset: 'Patchset 20',
     reviewedPaths: [],
     revision: 1,
     type: 'hydrate-reviewed-status',
   }, catalog)
-  assert.deepEqual(hydratedCollapsed.effects, [])
-  assert.deepEqual(reviewFileState(hydratedCollapsed.state, 'clis/dataflow.py'), { loaded: true, pending: false, status: 'unreviewed' })
+  assert.deepEqual(hydratedCollapsed.effects, [{
+    type: 'save-reviewed-status', patchset: 'Patchset 20', revision: 1,
+    changes: [{ path: 'clis/dataflow.py', reviewed: true }],
+  }])
+  assert.deepEqual(reviewStateForPatchset(hydratedCollapsed.state, 'Patchset 20').expandedPaths, [])
 })
 
 test('review state accepts Gerrit special file paths without allowing arbitrary absolute paths', () => {
@@ -1343,6 +1349,7 @@ test('automatic review waits for both successful diff and reviewed hydration, in
   const files: ReviewCatalog = { 'Patchset 20': [file({ added: 1, removed: 1, kind: 'modified', path: 'lazy.ts', diffLoaded: false })] }
   let state = createReviewState({ catalog: files, patchRange: { basePatchset: 'Base', patchset: 'Patchset 20' }, preferences: initialState(true).preferences })
   state = transitionReviewState(state, { path: 'lazy.ts', type: 'toggle-file-expanded' }, files).state
+  state = transitionReviewState(state, { type: 'set-all-files-expanded', expanded: false, paths: ['lazy.ts'] }, files).state
   state = transitionReviewState(state, { type: 'hydrate-reviewed-status', patchset: 'Patchset 20', revision: 0, reviewedPaths: [] }, files).state
   assert.equal(isFileReviewed(state, 'lazy.ts'), false)
   state = transitionReviewState(state, { type: 'fail-file-diff-load', patchset: 'Patchset 20', path: 'lazy.ts', error: 'offline' }, files).state
@@ -1393,4 +1400,22 @@ test('choosing manual review cancels queued automatic marks without cancelling t
   const enabled = transitionReviewState(saved.state, { preferences: initialState(true).preferences, type: 'set-preferences' }, catalog)
   assert.deepEqual(enabled.effects, [])
   assert.equal(isFileReviewed(enabled.state, second), false)
+})
+
+test('migrates legacy 11-key unconfirmed preference dumps while honoring saved manualReview', () => {
+  const legacyDump = {
+    ...DEFAULT_REVIEW_PREFERENCES,
+    autoMarkReviewed: false,
+  }
+  assert.equal(normalizeStoredReviewPreferences(legacyDump).autoMarkReviewed, true)
+  assert.equal(normalizeStoredReviewPreferences({ autoMarkReviewed: false }).autoMarkReviewed, false)
+  const manualSerialized = serializeReviewPreferences({
+    ...DEFAULT_REVIEW_PREFERENCES,
+    autoMarkReviewed: false,
+  })
+  assert.equal(manualSerialized.manualReview, true)
+  assert.equal(normalizeStoredReviewPreferences(manualSerialized).autoMarkReviewed, false)
+  const automaticSerialized = serializeReviewPreferences(DEFAULT_REVIEW_PREFERENCES)
+  assert.equal(automaticSerialized.manualReview, false)
+  assert.equal(normalizeStoredReviewPreferences(automaticSerialized).autoMarkReviewed, true)
 })

@@ -381,13 +381,34 @@ function booleanOr(value: unknown, fallback: boolean) {
   return typeof value === 'boolean' ? value : fallback
 }
 
+export type StoredReviewPreferences = ReviewPreferences & {
+  manualReview?: boolean
+}
+
+const LEGACY_PREFERENCE_KEYS = [
+  'autoMarkReviewed',
+  'context',
+  'fitToScreen',
+  'fontSize',
+  'ignoreWhitespace',
+  'intralineDifference',
+  'lineLength',
+  'showTabs',
+  'showTrailingWhitespace',
+  'syntaxHighlighting',
+  'tabSize',
+] as const
+
 export function normalizeReviewPreferences(value: unknown): ReviewPreferences {
   const candidate = value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Partial<ReviewPreferences>
+    ? value as Partial<StoredReviewPreferences>
     : {}
   const context = boundedNumber(candidate.context, DEFAULT_REVIEW_PREFERENCES.context, 3, 100)
+  const autoMarkReviewed = typeof candidate.manualReview === 'boolean'
+    ? !candidate.manualReview
+    : booleanOr(candidate.autoMarkReviewed, DEFAULT_REVIEW_PREFERENCES.autoMarkReviewed)
   return {
-    autoMarkReviewed: booleanOr(candidate.autoMarkReviewed, DEFAULT_REVIEW_PREFERENCES.autoMarkReviewed),
+    autoMarkReviewed,
     context: [3, 10, 25, 100].includes(context) ? context : DEFAULT_REVIEW_PREFERENCES.context,
     fitToScreen: booleanOr(candidate.fitToScreen, DEFAULT_REVIEW_PREFERENCES.fitToScreen),
     fontSize: boundedNumber(candidate.fontSize, DEFAULT_REVIEW_PREFERENCES.fontSize, 10, 20),
@@ -400,6 +421,33 @@ export function normalizeReviewPreferences(value: unknown): ReviewPreferences {
     showTrailingWhitespace: booleanOr(candidate.showTrailingWhitespace, DEFAULT_REVIEW_PREFERENCES.showTrailingWhitespace),
     syntaxHighlighting: booleanOr(candidate.syntaxHighlighting, DEFAULT_REVIEW_PREFERENCES.syntaxHighlighting),
     tabSize: boundedNumber(candidate.tabSize, DEFAULT_REVIEW_PREFERENCES.tabSize, 2, 16),
+  }
+}
+
+export function normalizeStoredReviewPreferences(value: unknown): ReviewPreferences {
+  const candidate = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Partial<StoredReviewPreferences>
+    : {}
+  // Older builds unconditionally wrote all default keys on mount with autoMarkReviewed: false
+  // and without a manualReview marker. Migrate those stale unconfirmed dumps back to auto-mark,
+  // while honoring explicit manualReview booleans or minimal test overrides.
+  const isLegacyDefaultDump = typeof candidate.manualReview !== 'boolean'
+    && candidate.autoMarkReviewed === false
+    && LEGACY_PREFERENCE_KEYS.every(key => key in candidate)
+  if (isLegacyDefaultDump) {
+    return normalizeReviewPreferences({
+      ...candidate,
+      autoMarkReviewed: DEFAULT_REVIEW_PREFERENCES.autoMarkReviewed,
+    })
+  }
+  return normalizeReviewPreferences(candidate)
+}
+
+export function serializeReviewPreferences(preferences: ReviewPreferences): StoredReviewPreferences {
+  const normalized = normalizeReviewPreferences(preferences)
+  return {
+    ...normalized,
+    manualReview: !normalized.autoMarkReviewed,
   }
 }
 
@@ -813,8 +861,7 @@ function transitionReviewStateCore(state: ReviewState, action: ReviewAction, cat
         ...current,
         autoReviewPaths: expanded && state.preferences.autoMarkReviewed
           ? updatePathList(current.autoReviewPaths, action.path, true)
-          : autoReviewReady(state, catalog, action.path) ? current.autoReviewPaths
-            : updatePathList(current.autoReviewPaths, action.path, false),
+          : current.autoReviewPaths,
         diffLoadErrors: expanded ? omitRecordKey(current.diffLoadErrors, action.path) : current.diffLoadErrors,
         expandedPaths: updatePathList(current.expandedPaths, action.path, expanded),
         pendingDiffPaths: uniquePaths([...current.pendingDiffPaths, ...diffLoadPaths]),
@@ -834,7 +881,6 @@ function transitionReviewStateCore(state: ReviewState, action: ReviewAction, cat
             ? validPaths.reduce((errors, path) => omitRecordKey(errors, path), current.diffLoadErrors)
             : current.diffLoadErrors,
           expandedPaths: action.expanded ? validPaths : [],
-          autoReviewPaths: action.expanded ? current.autoReviewPaths : current.autoReviewPaths.filter(path => autoReviewReady(state, catalog, path)),
           pendingDiffPaths: uniquePaths([...current.pendingDiffPaths, ...diffLoadPaths]),
         })),
       }

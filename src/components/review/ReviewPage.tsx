@@ -1,4 +1,5 @@
 import { useInteractionLayer } from '@/hooks/useInteractionLayer'
+import { writeClipboardText } from '@/lib/clipboard'
 import { replaceInteractionHistoryState } from '@/lib/interaction-layer'
 import { COMPACT_VIEWPORT_QUERY, isCompactViewport } from '@/lib/responsive-mode'
 import { Fragment, memo, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -29,17 +30,31 @@ import { CodeSelect } from '@/components/CodeSelect'
 import { ReviewEndpointPicker } from './ReviewEndpointPicker'
 import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { completeReviewFileDiffLoad, createReviewDiffQueue, failReviewFileDiffLoad } from '@/lib/review/effects'
-import { reviewAdjacentFilePath, reviewAdjacentUnreviewedFilePath, reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
+import {
+  REVIEW_SIZE_BAR_MAX_WIDTH,
+  reviewAdjacentFilePath,
+  reviewAdjacentUnreviewedFilePath,
+  reviewDiffFilePaths,
+  reviewFileListSections,
+  reviewFileListStats,
+  reviewFileRowModel,
+  reviewSizeBarGeometry,
+  type ReviewFileListStats,
+  type ReviewFileRowAction,
+} from '@/lib/review/file-list'
 import { acpReviewCaptureRequestFromSearch, reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
 import { createReviewStateFromSnapshot, reviewCatalogFromSnapshot, reviewCatalogWithFile, reviewCatalogWithUnmodifiedPaths, reviewSnapshotRequestKey, type ReviewComparison, type ReviewDiffSnapshotRequest } from '@/lib/review/snapshot'
 import {
   commentsForFilePaths,
   createReviewState,
   DEFAULT_REVIEW_PREFERENCES,
+  isReviewSpecialFilePath,
   normalizeReviewPreferences,
+  normalizeStoredReviewPreferences,
   reviewCommentPathForSide,
   reviewCommentSideForUnifiedCell,
   reviewStateForPatchset,
+  serializeReviewPreferences,
   transitionReviewState,
   type ReviewComment,
   type ReviewCommentRange,
@@ -57,6 +72,8 @@ import {
 } from '@/lib/review/state'
 import { createAcpReviewSession, createReviewSession, deleteReviewComment, loadReviewComments, loadReviewComparisonSources, loadReviewDiffSnapshot, loadReviewFileContext, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_FIXTURE_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewComparisonSource, type ReviewComparisonSources, type ReviewContextRange, type ReviewSessionRevision } from '@/lib/review/api'
 
+import type { ReviewFileRowModel } from '@/lib/review/file-list'
+
 type DiffMode = ReviewDiffMode
 type IgnoreWhitespace = ReviewPreferences['ignoreWhitespace']
 type CommentSide = ReviewCommentSide
@@ -66,6 +83,12 @@ type CommentTarget = {
   path: string
   range?: ReviewCommentRange
   side: CommentSide
+}
+type SelectionActionTarget = CommentTarget & {
+  filePath: string
+  left: number
+  placement: 'above' | 'below'
+  top: number
 }
 
 type DiffPreferences = ReviewPreferences
@@ -257,7 +280,7 @@ function readStoredDiffPreferences() {
   if (typeof window === 'undefined') return DEFAULT_DIFF_PREFERENCES
   try {
     const value: unknown = JSON.parse(window.localStorage.getItem(DIFF_PREFERENCES_STORAGE_KEY) || '{}')
-    return normalizeReviewPreferences(value)
+    return normalizeStoredReviewPreferences(value)
   } catch {
     return DEFAULT_DIFF_PREFERENCES
   }
@@ -325,12 +348,20 @@ function basename(path: string) {
   return segments[segments.length - 1] || path
 }
 
-function ReviewPath({ path, previous = false }: { path: string; previous?: boolean }) {
-  const separator = path.lastIndexOf('/')
-  return <span className={`${previous ? 'review-file-previous-path' : 'review-file-name'}${separator >= 0 ? ' review-path-with-directory' : ''}`} title={previous ? `Previous path: ${path}` : path} aria-label={path}>
-    {separator >= 0 ? <span className="review-path-directory">{path.slice(0, separator)}</span> : null}
-    <span className="review-path-basename">{separator >= 0 ? path.slice(separator) : path}</span>
-  </span>
+function ReviewPath({ path, previous = false, previousRowPath }: { path: string; previous?: boolean; previousRowPath?: string }) {
+  const { fileName, matchingFolders, newFolders } = reviewDiffFilePaths(path, previous ? undefined : previousRowPath)
+  const hasDirectory = Boolean(matchingFolders || newFolders)
+  return (
+    <span
+      className={`${previous ? 'review-file-previous-path' : 'review-file-name'}${hasDirectory ? ' review-path-with-directory' : ''}`}
+      title={previous ? `Previous path: ${path}` : path}
+      aria-label={path}
+    >
+      {matchingFolders ? <span className="review-path-directory review-path-matching">{matchingFolders}</span> : null}
+      {newFolders ? <span className="review-path-directory review-path-new">{newFolders}</span> : null}
+      <span className="review-path-basename">{fileName}</span>
+    </span>
+  )
 }
 
 function comparisonLabel(id: string) {
@@ -362,18 +393,15 @@ function ReviewStatus({
   action,
   pending,
   reviewed,
-  reviewedLabel,
   onToggle,
 }: {
   action: ReviewFileRowAction | null
   pending: boolean
   reviewed: boolean | null
-  reviewedLabel: 'Reviewed' | null
   onToggle: () => void
 }) {
   return (
     <div className={`review-review-status ${reviewed ? 'reviewed' : ''} ${pending ? 'pending' : ''}`}>
-      {reviewedLabel ? <span className="review-reviewed-label">{reviewedLabel}</span> : null}
       {action ? (
         <button
           type="button"
@@ -385,27 +413,40 @@ function ReviewStatus({
           title={pending ? 'Saving review status' : action.ariaLabel}
           onClick={onToggle}
         >
-          {pending ? 'SAVING…' : action.label}
+          <span className="review-review-status-label">{pending ? 'SAVING…' : action.label}</span>
+          <span className="review-review-status-compact" aria-hidden="true">
+            {pending ? '…' : <CheckGlyph />}
+          </span>
         </button>
       ) : (
-        <span className="review-review-loading">Reviewed status loading</span>
+        <span className="review-review-loading" title="Reviewed status loading">Loading…</span>
       )}
     </div>
   )
 }
 
-function ChangeBar({ file, maxChangeSize }: { file: ReviewFile; maxChangeSize: number }) {
+function ChangeBar({ file, stats }: { file: ReviewFile; stats: ReviewFileListStats }) {
   if (file.binary) return <span className="review-change-bar binary" aria-label="Binary file" />
-  const width = (value: number) => value === 0 ? 0 : Math.max(2, Math.round((value / maxChangeSize) * 72))
+  if (isReviewSpecialFilePath(file.path) || (stats.maxAdded === 0 && stats.maxDeleted === 0)) {
+    return <span className="review-change-bar empty" aria-hidden="true" />
+  }
+  const geometry = reviewSizeBarGeometry(file, stats)
   return (
     <span className="review-change-bar" aria-label={`+${file.added} −${file.removed}`}>
-      <i className="added" style={{ width: `${width(file.added)}px` }} />
-      <i className="deleted" style={{ width: `${width(file.removed)}px` }} />
+      <svg width={REVIEW_SIZE_BAR_MAX_WIDTH} height="8" viewBox={`0 0 ${REVIEW_SIZE_BAR_MAX_WIDTH} 8`} aria-hidden="true">
+        {geometry.deletionWidth > 0 ? (
+          <rect className="deleted" x={geometry.deletionX} y="0" width={geometry.deletionWidth} height="8" rx="1" />
+        ) : null}
+        {geometry.additionWidth > 0 ? (
+          <rect className="added" x={geometry.additionX} y="0" width={geometry.additionWidth} height="8" rx="1" />
+        ) : null}
+      </svg>
     </span>
   )
 }
 
 function FileStats({ file }: { file: ReviewFile }) {
+  if (isReviewSpecialFilePath(file.path)) return <span className="review-file-stats" aria-hidden="true" />
   if (file.binary) {
     const sizeDelta = typeof file.sizeDelta === 'number' && Number.isInteger(file.sizeDelta)
       ? file.sizeDelta
@@ -416,7 +457,12 @@ function FileStats({ file }: { file: ReviewFile }) {
       </span>
     )
   }
-  return <span className="review-file-stats">{file.added ? <span className="added">+{file.added}</span> : null}{file.removed ? <span className="removed">−{file.removed}</span> : null}</span>
+  return (
+    <span className="review-file-stats">
+      <span className="removed">{file.removed ? `−${file.removed}` : ''}</span>
+      <span className="added">{file.added ? `+${file.added}` : ''}</span>
+    </span>
+  )
 }
 
 export function diffLanguageForPath(path: string) {
@@ -467,7 +513,7 @@ const CodeCell = memo(function CodeCell({
 })
 
 function LineNumber({ line, side }: { line?: number; side: CommentSide }) {
-  return line ? <button type="button" className="review-line-number" data-review-line={line} data-review-side={side} aria-label={`Comment on ${side === 'left' ? 'base' : 'patchset'} line ${line}`}>{line}</button> : <span />
+  return line ? <button type="button" className="review-line-number" data-review-line={line} data-review-side={side} aria-label={`Comment on ${side === 'left' ? 'base' : 'patchset'} line ${line}`}>{line}</button> : <span className="review-line-number-blank" aria-hidden="true" />
 }
 
 function renderCodeHtml(text: string, language: string, preferences: DiffPreferences) {
@@ -514,17 +560,25 @@ function UnifiedRow({
   preferences: DiffPreferences
   renderAttachment?: (line: number, sides: CommentSide[]) => ReactNode
 }) {
+  const displayLine = line ?? baseLine
+  const displaySide: CommentSide = kind === 'deleted' ? 'left' : (line !== undefined ? side : 'left')
+  const baseAttachment = baseLine && side !== 'left' ? renderAttachment?.(baseLine, ['left']) : null
+  const lineAttachment = line ? renderAttachment?.(line, [side]) : null
+  const hasAttachment = Boolean(baseAttachment || lineAttachment)
   return (
-    <>
-      <div className={`review-diff-row unified ${kind}`}>
-        <LineNumber line={side === 'left' ? line : baseLine} side="left" />
-        <LineNumber line={side === 'left' ? undefined : line} side="right" />
-        <span className="review-diff-sign" aria-hidden="true">{kind === 'added' ? '+' : kind === 'deleted' ? '−' : ''}</span>
+    <div className={`review-diff-row unified ${kind}${hasAttachment ? ' has-attachment' : ''}`}>
+      <LineNumber line={displayLine} side={displaySide} />
+      <span className="review-diff-sign" aria-hidden="true">{kind === 'added' ? '+' : kind === 'deleted' ? '−' : ''}</span>
+      <div className="review-diff-cell unified">
         <CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} />
       </div>
-      {baseLine && side !== 'left' ? renderAttachment?.(baseLine, ['left']) : null}
-      {line ? renderAttachment?.(line, [side]) : null}
-    </>
+      {hasAttachment ? (
+        <div className="review-unified-attachments">
+          {baseAttachment}
+          {lineAttachment}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -551,15 +605,21 @@ function SplitRow({
   preferences: DiffPreferences
   renderAttachment?: (line: number, sides: CommentSide[]) => ReactNode
 }) {
+  const leftBlank = leftLine === undefined
+  const rightBlank = rightLine === undefined
   return (
-    <>
-      <div className={`review-diff-row ${kind}`}>
-        <LineNumber line={leftLine} side="left" /><CodeCell intraline={leftIntraline} language={language} line={leftLine} side="left" text={leftText ?? ''} preferences={preferences} />
-        <LineNumber line={rightLine} side="right" /><CodeCell intraline={rightIntraline} language={language} line={rightLine} side="right" text={rightText ?? ''} preferences={preferences} />
+    <div className={`review-diff-row ${kind}`}>
+      <LineNumber line={leftLine} side="left" />
+      <div className={`review-diff-cell left${leftBlank ? ' blank' : ''}`}>
+        {!leftBlank ? <CodeCell intraline={leftIntraline} language={language} line={leftLine} side="left" text={leftText ?? ''} preferences={preferences} /> : <span className="review-diff-blank" aria-hidden="true" />}
+        {leftLine ? renderAttachment?.(leftLine, ['left']) : null}
       </div>
-      {leftLine ? renderAttachment?.(leftLine, leftLine === rightLine ? ['left', 'right'] : ['left']) : null}
-      {rightLine && rightLine !== leftLine ? renderAttachment?.(rightLine, ['right']) : null}
-    </>
+      <LineNumber line={rightLine} side="right" />
+      <div className={`review-diff-cell right${rightBlank ? ' blank' : ''}`}>
+        {!rightBlank ? <CodeCell intraline={rightIntraline} language={language} line={rightLine} side="right" text={rightText ?? ''} preferences={preferences} /> : <span className="review-diff-blank" aria-hidden="true" />}
+        {rightLine ? renderAttachment?.(rightLine, ['right']) : null}
+      </div>
+    </div>
   )
 }
 
@@ -743,6 +803,11 @@ function contextGapAfterFile(
   }
 }
 
+function parseHunkSectionLabel(header: string) {
+  const match = header.match(/^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@(.*)$/)
+  return match?.[1]?.trim() ?? ''
+}
+
 function ContextGapControl({
   gap,
   onExpand,
@@ -752,14 +817,12 @@ function ContextGapControl({
 }) {
   const showPartial = gap.hiddenLines > 10
   const disabled = Boolean(gap.expansion.pending)
+  const sectionLabel = parseHunkSectionLabel(gap.header)
   return (
     <div className="review-diff-hunk interactive" role="group" aria-label={`${gap.hiddenLines} hidden common lines`}>
-      <span>{gap.header}</span>
       <span className="review-context-controls">
         {showPartial && gap.location !== 'top' ? <button type="button" disabled={disabled} aria-label="Show 10 lines above" onClick={() => onExpand('above')}>+10↑</button> : null}
-        {showPartial && gap.location !== 'top' ? <span aria-hidden="true">−</span> : null}
-        <button type="button" disabled={disabled} aria-label={`Show all ${gap.hiddenLines} common lines`} onClick={() => onExpand('all')}>+{gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}</button>
-        {showPartial && gap.location !== 'bottom' ? <span aria-hidden="true">−</span> : null}
+        <button type="button" disabled={disabled} aria-label={`Show all ${gap.hiddenLines} common lines`} title={sectionLabel || undefined} onClick={() => onExpand('all')}>+{gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}</button>
         {showPartial && gap.location !== 'bottom' ? <button type="button" disabled={disabled} aria-label="Show 10 lines below" onClick={() => onExpand('below')}>+10↓</button> : null}
       </span>
       {gap.expansion.error ? <span className="review-context-error" role="alert">{gap.expansion.error}</span> : null}
@@ -864,14 +927,12 @@ function DiffRows({
     })
   }
   const renderGap = (gap: ContextGapDescriptor, hunkIndex: number) => {
-    const expanded = gap.expansion.aboveRows.length > 0 || gap.expansion.belowRows.length > 0
     const showControl = gap.hiddenLines > 3 || Boolean(gap.expansion.error)
     return <>
       {renderRows(gap.baseAboveRows, hunkIndex, 'context')}
       {renderRows(gap.expansion.aboveRows, hunkIndex, 'context')}
       {showControl ? <ContextGapControl gap={gap} onExpand={direction => expandGap(gap, direction)} /> : null}
-      {!showControl && gap.hiddenLines > 0 ? <div className="review-diff-hunk interactive loading" role="status"><span>{gap.header}</span><span>Loading {gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}…</span></div> : null}
-      {!showControl && gap.hiddenLines === 0 && !expanded && gap.location !== 'bottom' ? <div className={`review-diff-hunk ${hunkIndex > 0 ? 'secondary' : ''}`}><span>{gap.header}</span></div> : null}
+      {!showControl && gap.hiddenLines > 0 ? <div className="review-diff-hunk interactive loading" role="status"><span className="review-context-controls"><span>Loading {gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}…</span></span></div> : null}
       {renderRows(gap.expansion.belowRows, hunkIndex, 'context')}
       {renderRows(gap.baseBelowRows, hunkIndex, 'context')}
     </>
@@ -960,6 +1021,12 @@ function CommentEditor({
         placeholder="Leave a review comment…"
         value={draft}
         onChange={event => onDraftChange(event.target.value)}
+        onKeyDown={event => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.nativeEvent.isComposing && !disabled && draft.trim()) {
+            event.preventDefault()
+            onSave()
+          }
+        }}
       />
       <footer>
         <button type="button" disabled={disabled} onClick={onCancel}>DISCARD</button>
@@ -973,11 +1040,13 @@ function CommentThread({
   comment,
   disabled,
   onDelete,
+  onHoverChange,
   onStatusChange,
 }: {
   comment: ReviewComment
   disabled: boolean
   onDelete: () => void
+  onHoverChange?: (hovering: boolean) => void
   onStatusChange: (status: 'open' | 'resolved') => void
 }) {
   const targetName = comment.side === 'right' ? 'Patchset' : comment.side === 'left' ? 'Base' : 'File'
@@ -988,7 +1057,12 @@ function CommentThread({
       : `${targetName} lines ${comment.range.start_line}–${comment.range.end_line}`
     : `${targetName} line ${comment.line}`
   return (
-    <article tabIndex={-1} className={`review-comment-thread ${status}${comment.outdated ? ' outdated' : ''}`}>
+    <article
+      tabIndex={-1}
+      className={`review-comment-thread ${status}${comment.outdated ? ' outdated' : ''}`}
+      onMouseEnter={() => onHoverChange?.(true)}
+      onMouseLeave={() => onHoverChange?.(false)}
+    >
       <header>
         <span>{comment.outdated ? `Outdated · ${targetLabel}` : targetLabel}</span>
         <span className="review-comment-actions">
@@ -1050,8 +1124,20 @@ function commentRangeFromSelection(container: HTMLElement): { line: number; rang
   const anchor = { character: characterOffsetInCell(anchorCell, selection.anchorNode, selection.anchorOffset), line: anchorLine }
   const focus = { character: characterOffsetInCell(focusCell, selection.focusNode, selection.focusOffset), line: focusLine }
   const anchorFirst = anchor.line < focus.line || (anchor.line === focus.line && anchor.character <= focus.character)
+  const startCell = anchorFirst ? anchorCell : focusCell
   const start = anchorFirst ? anchor : focus
-  const end = anchorFirst ? focus : anchor
+  let end = anchorFirst ? focus : anchor
+  // Gerrit fixTripleClickSelection: triple-clicking a line places focus at col 0 of the next line.
+  const startLineTextLength = (startCell.dataset.reviewText ?? startCell.textContent ?? '').length
+  if (start.character === 0 && end.line === start.line + 1 && end.character === 0) {
+    if (startLineTextLength > 0) {
+      end = { character: startLineTextLength, line: start.line }
+    } else {
+      return null
+    }
+  } else if (end.line === start.line + 1 && end.character === 0 && start.character >= startLineTextLength) {
+    return null
+  }
   if (start.line === end.line && start.character === end.character) return null
   return {
     line: end.line,
@@ -1075,6 +1161,61 @@ function textPosition(cell: HTMLElement, offset: number): [Node, number] {
     node = walker.nextNode()
   }
   return [cell, cell.childNodes.length]
+}
+
+function measureSelectionOverlay(
+  inlineDiff: HTMLElement,
+  diffCode: HTMLElement,
+  filePath: string,
+  targetPath: string,
+  selected: { line: number; range: ReviewCommentRange; side: CommentSide },
+): SelectionActionTarget | null {
+  const startCell = diffCode.querySelector<HTMLElement>(
+    `code[data-review-line="${selected.range.start_line}"][data-review-side="${selected.side}"]`,
+  )
+  if (!startCell) return null
+  const range = document.createRange()
+  const startEndCharacter = selected.range.end_line === selected.range.start_line
+    ? selected.range.end_character
+    : (startCell.textContent?.length ?? selected.range.start_character)
+  range.setStart(...textPosition(startCell, selected.range.start_character))
+  range.setEnd(...textPosition(startCell, Math.max(selected.range.start_character, startEndCharacter)))
+  let rangeRect = range.getBoundingClientRect()
+  if (rangeRect.width === 0 && rangeRect.height === 0) {
+    rangeRect = startCell.getBoundingClientRect()
+  }
+  if (rangeRect.width === 0 && rangeRect.height === 0) return null
+  const inlineRect = inlineDiff.getBoundingClientRect()
+  const codeRect = diffCode.getBoundingClientRect()
+  const headerBottom = inlineDiff
+    .closest('.review-file-change')
+    ?.querySelector('.review-file-change-header')
+    ?.getBoundingClientRect().bottom ?? inlineRect.top
+  const tooltipHalfWidth = 82
+  const tooltipHeightEstimate = 34
+  const gap = 6
+  const visibleLeft = Math.max(8, codeRect.left - inlineRect.left + 8)
+  const visibleRight = Math.min(inlineRect.width - 8, codeRect.right - inlineRect.left - 8)
+  const minCenter = visibleLeft + tooltipHalfWidth
+  const maxCenter = visibleRight - tooltipHalfWidth
+  const rawCenter = rangeRect.left + rangeRect.width / 2 - inlineRect.left
+  const left = minCenter <= maxCenter
+    ? Math.min(Math.max(rawCenter, minCenter), maxCenter)
+    : (visibleLeft + visibleRight) / 2
+  const placeBelow = selected.range.start_line <= 1
+    || (rangeRect.top - tooltipHeightEstimate - gap < Math.max(inlineRect.top, headerBottom))
+  const placement: 'above' | 'below' = placeBelow ? 'below' : 'above'
+  const top = placement === 'below'
+    ? rangeRect.bottom - inlineRect.top + gap
+    : rangeRect.top - inlineRect.top - gap
+  return {
+    ...selected,
+    filePath,
+    left,
+    path: targetPath,
+    placement,
+    top,
+  }
 }
 
 function reviewDraftKey(reviewId: string, patchset: string) {
@@ -1205,8 +1346,12 @@ export function ReviewPage() {
   const reviewScrollerRef = useRef<HTMLElement | null>(null)
   const [contextLoadPaths, setContextLoadPaths] = useState<string[]>([])
   const [contextGapExpansions, setContextGapExpansions] = useState<Record<string, ContextGapExpansion>>({})
-  const [selectedCommentTarget, setSelectedCommentTarget] = useState<CommentTarget | null>(null)
+  const [selectedCommentTarget, setSelectedCommentTarget] = useState<SelectionActionTarget | null>(null)
+  const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null)
+  const [copiedPath, setCopiedPath] = useState('')
   const selectionActionRef = useRef<HTMLButtonElement>(null)
+  const selectionChangeTimerRef = useRef<number | null>(null)
+  const copiedPathTimerRef = useRef<number | null>(null)
   const [comparisonSources, setComparisonSources] = useState<ReviewComparisonSources | null>(null)
   const [comparisonSourceError, setComparisonSourceError] = useState('')
   const [comparisonSourcesPending, setComparisonSourcesPending] = useState(false)
@@ -1258,13 +1403,18 @@ export function ReviewPage() {
   const commentTarget = reviewState.commentDraft
   const commentDraft = reviewState.commentDraft?.body ?? ''
   const files = catalog[patchset] ?? []
+  const fileSections = reviewFileListSections(files)
+  const displayFiles = fileSections.displayFiles
+  const fileStats = reviewFileListStats(displayFiles)
   useEffect(() => setSelectedPath(''), [patchset])
   useEffect(() => {
     setSelectedPath(current => catalog[patchset]?.some(file => file.path === current) ? current : '')
   }, [catalog, patchset])
-  const totalAdded = files.reduce((total, file) => total + file.added, 0)
-  const totalRemoved = files.reduce((total, file) => total + file.removed, 0)
-  const maxChangeSize = Math.max(1, ...files.map(file => file.added + file.removed))
+  const measuredFiles = displayFiles.filter(file => !isReviewSpecialFilePath(file.path))
+  const totalAdded = measuredFiles.reduce((total, file) => total + file.added, 0)
+  const totalRemoved = measuredFiles.reduce((total, file) => total + file.removed, 0)
+  const hasBinaryDelta = measuredFiles.some(file => file.binary && typeof file.sizeDelta === 'number')
+  const totalBinaryDelta = measuredFiles.reduce((total, file) => total + (file.binary && typeof file.sizeDelta === 'number' ? file.sizeDelta : 0), 0)
   const applyReviewAction = (action: Parameters<typeof transitionReviewState>[1]) => {
     const transition = transitionReviewState(reviewStateRef.current, action, catalogRef.current)
     if (transition.state === reviewStateRef.current) return
@@ -1551,12 +1701,68 @@ export function ReviewPage() {
   }, [reviewRequestBase, snapshotRetry])
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(DIFF_PREFERENCES_STORAGE_KEY, JSON.stringify(diffPreferences))
-    } catch {
-      // Keep the in-memory diff settings usable when browser storage is unavailable.
+    return () => {
+      if (selectionChangeTimerRef.current !== null) window.clearTimeout(selectionChangeTimerRef.current)
+      if (copiedPathTimerRef.current !== null) window.clearTimeout(copiedPathTimerRef.current)
     }
-  }, [diffPreferences])
+  }, [])
+
+  useEffect(() => {
+    const syncSelectionFromDocument = () => {
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed || !selection.anchorNode || !selection.focusNode) {
+        setSelectedCommentTarget(null)
+        return
+      }
+      const anchorEl = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode.parentElement
+      const diffCode = anchorEl?.closest<HTMLElement>('.review-diff-code')
+      const inlineDiff = diffCode?.closest<HTMLElement>('.review-inline-diff')
+      const fileRow = inlineDiff?.closest<HTMLElement>('.review-file-change[data-file-path]')
+      const filePath = fileRow?.dataset.filePath
+      if (!diffCode || !inlineDiff || !filePath) {
+        setSelectedCommentTarget(null)
+        return
+      }
+      const file = catalogRef.current[patchset]?.find(item => item.path === filePath)
+      if (!file) {
+        setSelectedCommentTarget(null)
+        return
+      }
+      const selected = commentRangeFromSelection(diffCode)
+      if (!selected) {
+        setSelectedCommentTarget(null)
+        return
+      }
+      setSelectedCommentTarget(measureSelectionOverlay(
+        inlineDiff,
+        diffCode,
+        file.path,
+        reviewCommentPathForSide(file, selected.side),
+        selected,
+      ))
+    }
+    const handleSelectionChange = () => {
+      if (selectionChangeTimerRef.current !== null) window.clearTimeout(selectionChangeTimerRef.current)
+      selectionChangeTimerRef.current = window.setTimeout(() => {
+        selectionChangeTimerRef.current = null
+        syncSelectionFromDocument()
+      }, 15)
+    }
+    document.addEventListener('selectionchange', handleSelectionChange)
+    window.addEventListener('scroll', syncSelectionFromDocument, { passive: true })
+    document.body.addEventListener('scroll', syncSelectionFromDocument, { passive: true })
+    window.addEventListener('resize', syncSelectionFromDocument)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+      window.removeEventListener('scroll', syncSelectionFromDocument)
+      document.body.removeEventListener('scroll', syncSelectionFromDocument)
+      window.removeEventListener('resize', syncSelectionFromDocument)
+      if (selectionChangeTimerRef.current !== null) {
+        window.clearTimeout(selectionChangeTimerRef.current)
+        selectionChangeTimerRef.current = null
+      }
+    }
+  }, [patchset])
 
   useEffect(() => {
     if (!reviewId || !catalogRef.current[patchset]) return
@@ -1620,6 +1826,17 @@ export function ReviewPage() {
   useEffect(() => {
     if (!CSS.highlights || typeof Highlight === 'undefined') return
     const ranges: Range[] = []
+    const hoverRanges: Range[] = []
+    const pushRange = (row: HTMLElement, side: CommentSide, rangeSpec: ReviewCommentRange, target: Range[]) => {
+      for (const cell of row.querySelectorAll<HTMLElement>('code[data-review-line]')) {
+        const line = Number(cell.dataset.reviewLine)
+        if (cell.dataset.reviewSide !== side || line < rangeSpec.start_line || line > rangeSpec.end_line) continue
+        const range = document.createRange()
+        range.setStart(...textPosition(cell, line === rangeSpec.start_line ? rangeSpec.start_character : 0))
+        range.setEnd(...textPosition(cell, line === rangeSpec.end_line ? rangeSpec.end_character : cell.textContent?.length ?? 0))
+        target.push(range)
+      }
+    }
     for (const row of document.querySelectorAll<HTMLElement>('.review-file-change[data-file-path]')) {
       const file = catalog[patchset]?.find(file => file.path === row.dataset.filePath)
       if (!file) continue
@@ -1627,19 +1844,19 @@ export function ReviewPage() {
         if (!comment.range || comment.outdated || comment.patchset !== patchset
           || comment.path !== reviewCommentPathForSide(file, comment.side)
           || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left')) continue
-        for (const cell of row.querySelectorAll<HTMLElement>('code[data-review-line]')) {
-          const line = Number(cell.dataset.reviewLine)
-          if (cell.dataset.reviewSide !== comment.side || line < comment.range.start_line || line > comment.range.end_line) continue
-          const range = document.createRange()
-          range.setStart(...textPosition(cell, line === comment.range.start_line ? comment.range.start_character : 0))
-          range.setEnd(...textPosition(cell, line === comment.range.end_line ? comment.range.end_character : cell.textContent?.length ?? 0))
-          ranges.push(range)
-        }
+        pushRange(row, comment.side, comment.range, comment.id === hoveredCommentId ? hoverRanges : ranges)
+      }
+      if (commentTarget?.range && commentTarget.path === reviewCommentPathForSide(file, commentTarget.side)) {
+        pushRange(row, commentTarget.side, commentTarget.range, ranges)
       }
     }
     CSS.highlights.set('review-comment-range', new Highlight(...ranges))
-    return () => { CSS.highlights.delete('review-comment-range') }
-  }, [catalog, patchset, reviewState.comments, patchsetState.expandedPaths, diffPreferences, effectiveDiffMode, contextGapExpansions, reviewSessionActive, reviewView])
+    CSS.highlights.set('review-comment-range-hover', new Highlight(...hoverRanges))
+    return () => {
+      CSS.highlights.delete('review-comment-range')
+      CSS.highlights.delete('review-comment-range-hover')
+    }
+  }, [catalog, patchset, reviewState.comments, commentTarget, hoveredCommentId, patchsetState.expandedPaths, diffPreferences, effectiveDiffMode, contextGapExpansions, reviewSessionActive, reviewView])
 
   const expandedPathsSignature = patchsetState.expandedPaths.join('\0')
   useLayoutEffect(() => {
@@ -1699,10 +1916,11 @@ export function ReviewPage() {
     applyReviewAction({ patchset: nextPatchset, type: 'select-patchset' })
   }
 
-  const allVisibleExpanded = files.length > 0 && files.every(file => expandedPaths.has(file.path))
-  const toggleExpanded = (path: string, control: HTMLElement) => {
+  const allVisibleExpanded = displayFiles.length > 0 && displayFiles.every(file => expandedPaths.has(file.path))
+  const anyFileHasComments = displayFiles.some(file => commentsForFilePaths(reviewState, reviewFileRowModel(reviewState, file).commentPaths).length > 0)
+  const toggleExpanded = (path: string, control: HTMLElement | null) => {
     if (reviewStateForPatchset(reviewStateRef.current, patchset).expandedPaths.includes(path)) {
-      const header = control.closest<HTMLElement>('.review-file-change-header')
+      const header = control?.closest<HTMLElement>('.review-file-change-header')
       if (header) {
         const scroller = document.scrollingElement
         if (scroller instanceof HTMLElement) {
@@ -1715,6 +1933,18 @@ export function ReviewPage() {
     applyReviewAction({ path, type: 'toggle-file-expanded' })
   }
 
+  const copyFilePath = (path: string) => {
+    void writeClipboardText(path).then(copied => {
+      if (!copied) return
+      setCopiedPath(path)
+      if (copiedPathTimerRef.current !== null) window.clearTimeout(copiedPathTimerRef.current)
+      copiedPathTimerRef.current = window.setTimeout(() => {
+        copiedPathTimerRef.current = null
+        setCopiedPath('')
+      }, 1200)
+    })
+  }
+
   const openPreferences = () => {
     setDraftPreferences(diffPreferences)
     setShowPreferences(true)
@@ -1725,6 +1955,11 @@ export function ReviewPage() {
     const diffShapeChanged = previous.context !== next.context
       || previous.ignoreWhitespace !== next.ignoreWhitespace
     applyReviewAction({ preferences: next, type: 'set-preferences' })
+    try {
+      window.localStorage.setItem(DIFF_PREFERENCES_STORAGE_KEY, JSON.stringify(serializeReviewPreferences(next)))
+    } catch {
+      // Keep the in-memory diff settings usable when browser storage is unavailable.
+    }
     setShowPreferences(false)
     if (diffShapeChanged) setContextGapExpansions({})
     if (
@@ -1745,11 +1980,11 @@ export function ReviewPage() {
   }
 
   const copyCommit = () => {
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText('34a15ae').catch(() => {})
-    }
-    setCommitCopied(true)
-    window.setTimeout(() => setCommitCopied(false), 1200)
+    void writeClipboardText('34a15ae').then(copied => {
+      if (!copied) return
+      setCommitCopied(true)
+      window.setTimeout(() => setCommitCopied(false), 1200)
+    })
   }
   const expandRemoteContext = (path: string, context: number) => {
     const request = reviewDiffRequestRef.current
@@ -1974,12 +2209,12 @@ export function ReviewPage() {
     if (!reviewSessionRevision || view === reviewView) return
     setSessionRequest(reviewSessionRevision, view)
   }
-  const navigationPath = selectedPath || reviewingPath || files[0]?.path || ''
+  const navigationPath = selectedPath || reviewingPath || displayFiles[0]?.path || ''
   const previousFile = reviewAdjacentFilePath(files, navigationPath, 'previous')
   const nextFile = reviewAdjacentFilePath(files, navigationPath, 'next')
   const nextUnreviewedFile = patchsetState.reviewedLoaded && reviewAdjacentUnreviewedFilePath(reviewState, files, navigationPath)
   const navigateFile = (direction: 'next' | 'previous', unreviewed = false) => {
-    const current = selectedPath || reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || files[0]?.path
+    const current = selectedPath || reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || displayFiles[0]?.path
     if (!current) return
     const path = unreviewed
       ? reviewAdjacentUnreviewedFilePath(reviewStateRef.current, files, current, direction)
@@ -2042,9 +2277,40 @@ export function ReviewPage() {
     <main className="review-root" data-testid="review-page" onKeyDown={event => {
       if (event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing
         || (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"]'))) return
-      if (event.key === ']') { event.preventDefault(); navigateFile('next') }
-      if (event.key === '[') { event.preventDefault(); navigateFile('previous') }
-      if (event.key.toLowerCase() === 'n' || event.key.toLowerCase() === 'p') { event.preventDefault(); navigateContent(event.shiftKey ? 'comment' : 'hunk', event.key.toLowerCase() === 'n' ? 'next' : 'previous') }
+      const lowerKey = event.key.toLowerCase()
+      if (event.key === ']') { event.preventDefault(); navigateFile('next'); return }
+      if (event.key === '[') { event.preventDefault(); navigateFile('previous'); return }
+      if (lowerKey === 'n' || lowerKey === 'p') {
+        event.preventDefault()
+        navigateContent(event.shiftKey ? 'comment' : 'hunk', lowerKey === 'n' ? 'next' : 'previous')
+        return
+      }
+      if (event.shiftKey && lowerKey === 'i') {
+        event.preventDefault()
+        applyReviewAction({ expanded: !allVisibleExpanded, paths: displayFiles.map(file => file.path), type: 'set-all-files-expanded' })
+        return
+      }
+      if (event.shiftKey) return
+      if (lowerKey === 'r') {
+        const activePath = selectedPath || reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || displayFiles[0]?.path
+        const targetFile = displayFiles.find(file => file.path === activePath)
+        if (!targetFile) return
+        const rowModel = reviewFileRowModel(reviewStateRef.current, targetFile, { mutationPending: reviewMutationPending })
+        if (!rowModel.action || rowModel.action.disabled) return
+        event.preventDefault()
+        toggleReviewed(targetFile.path, rowModel.action.nextReviewed)
+        return
+      }
+      if (lowerKey === 'o'
+        || (event.key === 'Enter' && !(event.target instanceof HTMLElement && event.target.closest('button, a, summary')))) {
+        const activePath = selectedPath || reviewingPath || document.activeElement?.closest<HTMLElement>('[data-file-path]')?.dataset.filePath || displayFiles[0]?.path
+        if (!activePath) return
+        const header = Array.from(document.querySelectorAll<HTMLElement>('.review-file-change'))
+          .find(row => row.dataset.filePath === activePath)
+          ?.querySelector<HTMLElement>('.review-file-change-header') ?? null
+        event.preventDefault()
+        toggleExpanded(activePath, header)
+      }
     }}>
       <section className="review-files" aria-label="Changed files">
         <header className="review-files-toolbar">
@@ -2117,7 +2383,7 @@ export function ReviewPage() {
             </> : null}
             <button type="button" onClick={() => applyReviewAction({
               expanded: !allVisibleExpanded,
-              paths: files.map(file => file.path),
+              paths: displayFiles.map(file => file.path),
               type: 'set-all-files-expanded',
             })}>{allVisibleExpanded ? 'COLLAPSE ALL' : 'EXPAND ALL'}</button>
             <span className="review-toolbar-separator" />
@@ -2177,20 +2443,45 @@ export function ReviewPage() {
             ]}
             onChange={value => { if (value === 'previous' || value === 'next') navigateFile(value); else if (value === 'unreviewed') navigateFile('next', true); else if (value === 'hunk' || value === 'comment') navigateContent(value, 'next') }} />
         </div>
-        <div className="review-files-list">
+        <div className="review-files-list" data-has-comments={anyFileHasComments ? 'true' : undefined}>
           {reviewLoadError ? <p className="review-working-copy-message" role="alert">{reviewLoadLabel}: {reviewLoadError} {reviewRequestBase ? <button type="button" className="code-rich-content-retry" onClick={() => { if (!guardDraft()) setSnapshotRetry(value => value + 1) }}>RETRY</button> : null}</p> : null}
-          {externalReview && !reviewLoadError && files.length === 0 ? <p className="review-working-copy-message" role="status">{emptyReviewMessage}</p> : null}
-          {files.map(file => {
+          {externalReview && !reviewLoadError && displayFiles.length === 0 ? <p className="review-working-copy-message" role="status">{emptyReviewMessage}</p> : null}
+          {displayFiles.length > 0 ? (
+            <div className="review-file-list-header" aria-hidden="true">
+              <span className="review-file-col-status" />
+              <span className="review-file-col-path">File</span>
+              <span className="review-file-col-comments">Comments</span>
+              <span className="review-file-col-size">Size</span>
+              <span className="review-file-col-stats">Delta</span>
+              <span className="review-file-col-reviewed">Reviewed</span>
+              <span className="review-file-col-expand" />
+            </div>
+          ) : null}
+          {displayFiles.map((file, fileIndex) => {
+            const isFirstUnmodified = fileSections.showUnmodifiedSeparator && fileIndex === fileSections.modifiedFiles.length
+            const previousRowPath = fileIndex > 0 && !isFirstUnmodified ? displayFiles[fileIndex - 1]?.path : undefined
             const rowModel = reviewFileRowModel(reviewState, file, { mutationPending: reviewMutationPending })
             const fileComments = commentsForFilePaths(reviewState, rowModel.commentPaths)
+            const openCommentsCount = fileComments.filter(comment => !comment.status || comment.status === 'open').length
             const outdatedComments = fileComments.filter(comment => comment.outdated || (reviewSessionActive && reviewView === 'fixes' && comment.side === 'left'))
             const commentPathForSide = (side: CommentSide) => reviewCommentPathForSide(file, side)
+            const syncSelectionOverlay = (diffCode: HTMLElement) => {
+              const inlineDiff = diffCode.closest<HTMLElement>('.review-inline-diff')
+              if (!inlineDiff) return
+              const selected = commentRangeFromSelection(diffCode)
+              if (!selected) {
+                setSelectedCommentTarget(current => current?.filePath === file.path ? null : current)
+                return
+              }
+              setSelectedCommentTarget(measureSelectionOverlay(
+                inlineDiff,
+                diffCode,
+                file.path,
+                commentPathForSide(selected.side),
+                selected,
+              ))
+            }
             const renderLineAttachment = (line: number, sides: CommentSide[]) => {
-              const selectedTarget = selectedCommentTarget
-                && selectedCommentTarget.path === commentPathForSide(selectedCommentTarget.side)
-                && selectedCommentTarget.line === line
-                && sides.includes(selectedCommentTarget.side)
-                ? selectedCommentTarget : null
               const activeTarget = commentTarget
                 && commentTarget.path === commentPathForSide(commentTarget.side)
                 && commentTarget.line === line
@@ -2203,10 +2494,9 @@ export function ReviewPage() {
                   && sides.includes(comment.side)
                   && comment.path === commentPathForSide(comment.side)
               })
-              if (!activeTarget && !selectedTarget && lineComments.length === 0) return null
+              if (!activeTarget && lineComments.length === 0) return null
               return (
-                <div className={!activeTarget && lineComments.length === 0 ? 'review-selection-attachment' : 'review-line-attachment'} data-review-comment-line={line}>
-                  {selectedTarget ? <span className="code-content-toolbar review-selection-toolbar" data-review-side={selectedTarget.side}><button ref={selectionActionRef} type="button" className="code-content-toolbar-text review-selection-comment" onClick={() => startComment(selectedTarget.path, selectedTarget.line, selectedTarget.side, selectedTarget.range)}>Comment on selection</button></span> : null}
+                <div className="review-line-attachment" data-review-comment-line={line}>
                   {activeTarget ? (
                     <CommentEditor
                       disabled={commentMutationPending}
@@ -2223,119 +2513,228 @@ export function ReviewPage() {
                       disabled={commentMutationPending}
                       key={comment.id}
                       onDelete={() => applyReviewAction({ id: comment.id, type: 'delete-comment' })}
+                      onHoverChange={hovering => setHoveredCommentId(hovering ? comment.id : current => current === comment.id ? null : current)}
                       onStatusChange={status => changeCommentStatus(comment, status)}
                     />
                   ))}
                 </div>
               )
             }
+            const statusTooltip = rowModel.changeLabel === 'M' ? 'Modified'
+              : rowModel.changeLabel === 'A' ? 'Added'
+                : rowModel.changeLabel === 'D' ? 'Deleted'
+                  : rowModel.changeLabel === 'R' ? 'Renamed'
+                    : rowModel.changeLabel === 'C' ? 'Copied'
+                      : rowModel.changeLabel === 'U' ? 'Unmodified'
+                        : rowModel.changeLabel
             return (
-              <article className={`review-file-change ${rowModel.expanded ? 'expanded' : ''} ${reviewingPath === file.path ? 'reviewing' : ''} ${selectedPath === file.path ? 'selected' : ''}`} key={file.path} data-testid="review-file-row" data-change-kind={file.kind} data-file-path={file.path}>
-                <header className="review-file-change-header" onFocusCapture={() => setSelectedPath(file.path)}>
-                  <button
-                    type="button"
-                    className="review-file-select"
-                    aria-current={selectedPath === file.path ? 'true' : undefined}
+              <Fragment key={file.path}>
+                {isFirstUnmodified ? (
+                  <div className="review-unmodified-separator" role="separator">
+                    <span>Files with existing comments (unmodified)</span>
+                  </div>
+                ) : null}
+                <article className={`review-file-change ${rowModel.expanded ? 'expanded' : ''} ${reviewingPath === file.path ? 'reviewing' : ''} ${selectedPath === file.path ? 'selected' : ''}`} data-testid="review-file-row" data-change-kind={file.kind} data-file-path={file.path}>
+                  <header
+                    className="review-file-change-header"
+                    onFocusCapture={() => setSelectedPath(file.path)}
                     onCopy={event => {
                       const selection = window.getSelection()
                       if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return
                       const range = selection.getRangeAt(0)
-                      const ancestor = range.commonAncestorContainer
-                      const element = ancestor instanceof Element ? ancestor : ancestor.parentElement
-                      const path = element?.closest('.review-file-name, .review-file-previous-path')
-                      if (!path || !event.currentTarget.contains(path)) return
-                      // Flex layout inserts a visual line break between directory and basename.
-                      // Copy the selected text nodes, not those layout separators.
-                      event.clipboardData.setData('text/plain', range.toString())
+                      const pathElements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('.review-file-name, .review-file-previous-path'))
+                        .filter(el => range.intersectsNode(el))
+                      if (!pathElements.length) return
+                      const copied = pathElements.map(el => {
+                        const elementRange = document.createRange()
+                        elementRange.selectNodeContents(el)
+                        if (range.compareBoundaryPoints(Range.START_TO_START, elementRange) > 0) {
+                          elementRange.setStart(range.startContainer, range.startOffset)
+                        }
+                        if (range.compareBoundaryPoints(Range.END_TO_END, elementRange) < 0) {
+                          elementRange.setEnd(range.endContainer, range.endOffset)
+                        }
+                        return elementRange.toString()
+                      }).filter(Boolean).join('\n')
+                      if (!copied) return
+                      event.clipboardData.setData('text/plain', copied)
                       event.preventDefault()
                     }}
-                    onClick={event => {
-                      const selection = window.getSelection()
-                      if (selection && !selection.isCollapsed) return
-                      toggleExpanded(file.path, event.currentTarget)
-                    }}
                   >
-                    <span className="review-file-status">{rowModel.changeLabel}</span>
-                    <span className="review-file-paths">
-                      <ReviewPath path={file.path} />
-                      {file.previousPath ? <ReviewPath path={file.previousPath} previous /> : null}
-                    {file.oldMode && file.newMode && file.oldMode !== file.newMode ? <span className="review-file-metadata" title="File mode changed">{file.oldMode} → {file.newMode}</span> : null}
-                  {fileComments.length ? <span className="review-file-metadata" title={`${fileComments.length} comments`}>{fileComments.filter(comment => !comment.status || comment.status === 'open').length} unresolved · {fileComments.length} comments</span> : null}
-                    </span>
-                    <ChangeBar file={file} maxChangeSize={maxChangeSize} />
-                    <FileStats file={file} />
-                  </button>
-                  <ReviewStatus action={rowModel.action} pending={rowModel.pending} reviewed={rowModel.reviewed} reviewedLabel={rowModel.reviewedLabel} onToggle={() => {
-                    if (!rowModel.action) return
-                    toggleReviewed(file.path, rowModel.action.nextReviewed)
-                  }} />
-                  <button type="button" className="review-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={event => toggleExpanded(file.path, event.currentTarget)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
-                </header>
-                {rowModel.expanded ? (
-                  <section className={`review-inline-diff ${effectiveDiffMode} ${fitDiffToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
-                    {outdatedComments.length ? <div className="review-outdated-comments">
-                      {reviewView === 'fixes' && outdatedComments.some(comment => comment.side === 'left') ? <p>Comments on the original base (see Final change)</p> : null}
-                      {outdatedComments.map(comment => <CommentThread
-                        comment={comment}
-                        disabled={commentMutationPending}
-                        key={comment.id}
-                        onDelete={() => applyReviewAction({ id: comment.id, type: 'delete-comment' })}
-                        onStatusChange={status => changeCommentStatus(comment, status)}
-                      />)}
-                    </div> : null}
-                    {file.submoduleError ? <div className="review-diff-status" role="alert">{file.submoduleError}</div> : null}
-                    <div className="review-diff-columns"><span>{effectiveDiffMode === 'split' ? reviewSessionActive && reviewView === 'fixes' ? 'Previous revision' : 'Base' : 'Change'}</span>{effectiveDiffMode === 'split' ? <span>{reviewSessionActive ? `Revision ${reviewSessionRevision?.number}` : 'Candidate'}</span> : null}</div>
-                    {rowModel.diffStatus !== 'loaded' || rowModel.diffLoadPending || rowModel.diffLoadError ? (
-                      <DiffStatusMessage row={rowModel} onRetry={() => applyReviewAction({ path: file.path, type: 'retry-file-diff' })} />
-                    ) : (
-                      <>
-                        <div
-                          className="review-diff-code"
-                          tabIndex={0}
-                          style={{ fontSize: `${diffPreferences.fontSize}px`, tabSize: diffPreferences.tabSize, minWidth: fitDiffToScreen ? undefined : `${Math.round(diffPreferences.lineLength * diffPreferences.fontSize * 0.62)}px` }}
-                          onMouseDown={event => {
-                            const cell = codeCellForSelectionNode(event.target as Node, event.currentTarget)
-                            if (cell) event.currentTarget.dataset.selectionSide = cell.dataset.reviewSide
-                          }}
-                          onCopy={event => {
-                            if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
-                            const text = selectedDiffText(event.currentTarget, effectiveDiffMode)
-                            if (text === null) return
-                            event.clipboardData.setData('text/plain', text)
-                            event.preventDefault()
-                          }}
-                          onKeyDown={event => {
-                            if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
-                            if (event.key !== 'c' || event.metaKey || event.ctrlKey || event.altKey) return
-                            const selected = commentRangeFromSelection(event.currentTarget)
-                            if (!selected) return
-                            event.preventDefault()
-                            startComment(commentPathForSide(selected.side), selected.line, selected.side, selected.range)
-                          }}
+                    <button
+                      type="button"
+                      className="review-file-select"
+                      aria-label={file.path}
+                      aria-current={selectedPath === file.path ? 'true' : undefined}
+                      onClick={event => {
+                        const selection = window.getSelection()
+                        if (selection && !selection.isCollapsed) return
+                        toggleExpanded(file.path, event.currentTarget)
+                      }}
+                    >
+                      <span className="review-file-status" data-kind={file.kind} title={statusTooltip}>{rowModel.changeLabel}</span>
+                    </button>
+                    <div
+                      className="review-file-paths"
+                      onClick={event => {
+                        if (event.target instanceof Element && event.target.closest('button')) return
+                        const selection = window.getSelection()
+                        if (selection && !selection.isCollapsed) return
+                        toggleExpanded(file.path, event.currentTarget)
+                      }}
+                    >
+                      <span className="review-file-path-line">
+                        <ReviewPath path={file.path} previousRowPath={previousRowPath} />
+                        <button
+                          type="button"
+                          className={`review-copy-path-btn ${copiedPath === file.path ? 'copied' : ''}`}
+                          aria-label={`Copy path ${file.path}`}
+                          title={copiedPath === file.path ? 'Copied' : 'Copy file path'}
                           onClick={event => {
-                            if (!(event.target instanceof Element)) return
-                            const codeCell = event.target.closest<HTMLElement>('.review-line-number')
-                            if (!codeCell) return
-                            const line = Number(codeCell.dataset.reviewLine)
-                            const side = codeCell.dataset.reviewSide
-                            if (!Number.isFinite(line) || (side !== 'left' && side !== 'right' && side !== 'unified')) return
-                            startComment(commentPathForSide(side), line, side)
-                          }}
-                          onMouseUp={event => {
-                            const selected = commentRangeFromSelection(event.currentTarget)
-                            if (!selected) return
-                            setSelectedCommentTarget({ ...selected, path: commentPathForSide(selected.side) })
+                            event.stopPropagation()
+                            copyFilePath(file.path)
                           }}
                         >
-                          <DiffRows contextKeyPrefix={`${reviewId}:${patchset}`} contextGapExpansions={contextGapExpansions} file={file} mode={effectiveDiffMode} preferences={diffPreferences} renderAttachment={renderLineAttachment} onExpandContext={(gap, direction, range) => expandFileContext(file, gap, direction, range)} onExpandSkippedContext={(_gapKey, _hunkIndex, context) => expandRemoteContext(file.path, context)} />
+                          {copiedPath === file.path ? <CheckGlyph /> : <CopyGlyph />}
+                        </button>
+                        {file.oldMode && file.newMode && file.oldMode !== file.newMode ? <span className="review-file-metadata" title="File mode changed">{file.oldMode} → {file.newMode}</span> : null}
+                      </span>
+                      {file.previousPath ? <ReviewPath path={file.previousPath} previous /> : null}
+                    </div>
+                    <span className="review-file-comments-col" title={fileComments.length ? `${openCommentsCount} unresolved · ${fileComments.length} comments` : undefined}>
+                      {fileComments.length ? (
+                        <span className="review-file-metadata">
+                          <span className="review-file-comments-full">
+                            {openCommentsCount ? `${openCommentsCount} unresolved · ` : ''}{fileComments.length} {fileComments.length === 1 ? 'comment' : 'comments'}
+                          </span>
+                          <span className="review-file-comments-compact" aria-hidden="true">
+                            {openCommentsCount ? `${openCommentsCount}u ` : ''}{fileComments.length}c
+                          </span>
+                        </span>
+                      ) : null}
+                    </span>
+                    <ChangeBar file={file} stats={fileStats} />
+                    <FileStats file={file} />
+                    <ReviewStatus action={rowModel.action} pending={rowModel.pending} reviewed={rowModel.reviewed} onToggle={() => {
+                      if (!rowModel.action) return
+                      toggleReviewed(file.path, rowModel.action.nextReviewed)
+                    }} />
+                    <button type="button" className="review-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={event => toggleExpanded(file.path, event.currentTarget)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
+                  </header>
+                  {rowModel.expanded ? (
+                    <section className={`review-inline-diff ${effectiveDiffMode} ${fitDiffToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
+                      {outdatedComments.length ? <div className="review-outdated-comments">
+                        {reviewView === 'fixes' && outdatedComments.some(comment => comment.side === 'left') ? <p>Comments on the original base (see Final change)</p> : null}
+                        {outdatedComments.map(comment => <CommentThread
+                          comment={comment}
+                          disabled={commentMutationPending}
+                          key={comment.id}
+                          onDelete={() => applyReviewAction({ id: comment.id, type: 'delete-comment' })}
+                          onHoverChange={hovering => setHoveredCommentId(hovering ? comment.id : current => current === comment.id ? null : current)}
+                          onStatusChange={status => changeCommentStatus(comment, status)}
+                        />)}
+                      </div> : null}
+                      {file.submoduleError ? <div className="review-diff-status" role="alert">{file.submoduleError}</div> : null}
+                      {(file.previousPath || (file.oldMode && file.newMode && file.oldMode !== file.newMode)) ? (
+                        <div className="review-diff-file-header">
+                          {file.previousPath ? <span>Renamed from {file.previousPath}</span> : null}
+                          {file.oldMode && file.newMode && file.oldMode !== file.newMode ? <span>File mode {file.oldMode} → {file.newMode}</span> : null}
                         </div>
-                      </>
-                    )}
-                  </section>
-                ) : null}
-              </article>
+                      ) : null}
+                      {rowModel.diffStatus !== 'loaded' || rowModel.diffLoadPending || rowModel.diffLoadError ? (
+                        <DiffStatusMessage row={rowModel} onRetry={() => applyReviewAction({ path: file.path, type: 'retry-file-diff' })} />
+                      ) : (
+                        <>
+                          <div
+                            className="review-diff-code"
+                            tabIndex={0}
+                            style={{ fontSize: `${diffPreferences.fontSize}px`, tabSize: diffPreferences.tabSize, minWidth: fitDiffToScreen ? undefined : `${Math.round(diffPreferences.lineLength * diffPreferences.fontSize * 0.62)}px` }}
+                            onMouseDown={event => {
+                              const cell = codeCellForSelectionNode(event.target as Node, event.currentTarget)
+                              if (cell) event.currentTarget.dataset.selectionSide = cell.dataset.reviewSide
+                            }}
+                            onScroll={event => {
+                              if (selectedCommentTarget?.filePath === file.path) syncSelectionOverlay(event.currentTarget)
+                            }}
+                            onCopy={event => {
+                              if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
+                              const text = selectedDiffText(event.currentTarget, effectiveDiffMode)
+                              if (text === null) return
+                              event.clipboardData.setData('text/plain', text)
+                              event.preventDefault()
+                            }}
+                            onKeyDown={event => {
+                              if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
+                              if (event.key !== 'c' || event.metaKey || event.ctrlKey || event.altKey) return
+                              const selected = commentRangeFromSelection(event.currentTarget)
+                              if (!selected) return
+                              event.preventDefault()
+                              startComment(commentPathForSide(selected.side), selected.line, selected.side, selected.range)
+                            }}
+                            onClick={event => {
+                              if (!(event.target instanceof Element)) return
+                              const codeCell = event.target.closest<HTMLElement>('.review-line-number')
+                              if (!codeCell) return
+                              const line = Number(codeCell.dataset.reviewLine)
+                              const side = codeCell.dataset.reviewSide
+                              if (!Number.isFinite(line) || (side !== 'left' && side !== 'right' && side !== 'unified')) return
+                              startComment(commentPathForSide(side), line, side)
+                            }}
+                            onMouseUp={event => syncSelectionOverlay(event.currentTarget)}
+                          >
+                            <DiffRows contextKeyPrefix={`${reviewId}:${patchset}`} contextGapExpansions={contextGapExpansions} file={file} mode={effectiveDiffMode} preferences={diffPreferences} renderAttachment={renderLineAttachment} onExpandContext={(gap, direction, range) => expandFileContext(file, gap, direction, range)} onExpandSkippedContext={(_gapKey, _hunkIndex, context) => expandRemoteContext(file.path, context)} />
+                          </div>
+                          {selectedCommentTarget?.filePath === file.path ? (
+                            <button
+                              ref={selectionActionRef}
+                              type="button"
+                              className="review-selection-comment"
+                              aria-label="Comment on selection"
+                              data-placement={selectedCommentTarget.placement}
+                              data-review-side={selectedCommentTarget.side}
+                              style={{ left: `${selectedCommentTarget.left}px`, top: `${selectedCommentTarget.top}px` }}
+                              onMouseDown={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                startComment(selectedCommentTarget.path, selectedCommentTarget.line, selectedCommentTarget.side, selectedCommentTarget.range)
+                              }}
+                              onClick={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                startComment(selectedCommentTarget.path, selectedCommentTarget.line, selectedCommentTarget.side, selectedCommentTarget.range)
+                              }}
+                            >
+                              Press c to comment
+                            </button>
+                          ) : null}
+                        </>
+                      )}
+                    </section>
+                  ) : null}
+                </article>
+              </Fragment>
             )
           })}
+          {displayFiles.length > 0 ? (
+            <div className="review-files-totals" aria-label="Changed files summary">
+              <span className="review-file-col-status" />
+              <span className="review-file-col-path">{measuredFiles.length} {measuredFiles.length === 1 ? 'file' : 'files'}</span>
+              <span className="review-file-col-comments" />
+              <span className="review-file-col-size" />
+              <span className="review-file-stats">
+                {totalRemoved || totalAdded || !hasBinaryDelta ? (
+                  <>
+                    <span className="removed">{totalRemoved ? `−${totalRemoved}` : ''}</span>
+                    <span className="added">{totalAdded ? `+${totalAdded}` : ''}</span>
+                  </>
+                ) : (
+                  <span className="binary">{totalBinaryDelta >= 0 ? `+${formatBytes(totalBinaryDelta)}` : formatBytes(totalBinaryDelta)}</span>
+                )}
+              </span>
+              <span className="review-file-col-reviewed" />
+              <span className="review-file-col-expand" />
+            </div>
+          ) : null}
         </div>
         <div ref={scrollTailRef} className="review-scroll-tail" aria-hidden="true" />
       </section>

@@ -4,9 +4,9 @@ import { isReviewSpecialFilePath, reviewCommentPathsForFile, reviewFileDiffLoadE
 export type ReviewFileRowAction = {
   ariaLabel: 'Mark as reviewed' | 'Mark as unreviewed'
   disabled: boolean
-  label: 'MARK REVIEWED' | 'MARK UNREVIEWED'
+  label: 'MARK REVIEWED' | 'Reviewed'
   nextReviewed: boolean
-  visibility: 'on-row-interaction'
+  visibility: 'always' | 'on-row-interaction'
 }
 
 export type ReviewFileRowModel = {
@@ -30,7 +30,6 @@ export type ReviewFileRowModel = {
   previousPath?: string
   reviewed: boolean | null
   reviewStatusLoaded: boolean
-  reviewedLabel: 'Reviewed' | null
   size?: number
   sizeDelta?: number
 }
@@ -179,9 +178,9 @@ export function reviewFileRowModel(
     : {
         ariaLabel: reviewed ? 'Mark as unreviewed' : 'Mark as reviewed',
         disabled: Boolean(options.mutationPending),
-        label: reviewed ? 'MARK UNREVIEWED' : 'MARK REVIEWED',
+        label: reviewed ? 'Reviewed' : 'MARK REVIEWED',
         nextReviewed: !reviewed,
-        visibility: 'on-row-interaction',
+        visibility: reviewed ? 'always' : 'on-row-interaction',
       } satisfies ReviewFileRowAction
   return {
     action,
@@ -203,7 +202,6 @@ export function reviewFileRowModel(
     pending: status.pending,
     ...(file.previousPath ? { previousPath: file.previousPath } : {}),
     reviewed,
-    reviewedLabel: reviewed === true ? 'Reviewed' : null,
     reviewStatusLoaded: status.loaded,
     ...(Number.isInteger(file.size) ? { size: file.size } : {}),
     ...(Number.isInteger(file.sizeDelta) ? { sizeDelta: file.sizeDelta } : {}),
@@ -295,5 +293,75 @@ export function reviewFileListToolbarModel(
     },
     reviewedStatusLoaded,
     reviewableCount: reviewableFiles.length,
+  }
+}
+
+export function reviewDisplayPath(path?: string) {
+  if (path === '/COMMIT_MSG') return 'Commit message'
+  if (path === '/MERGE_LIST') return 'Merge list'
+  return path ?? ''
+}
+
+/**
+ * Separates a path into shared folder prefix relative to the previous row,
+ * newly differing folders, and basename (aligned with Gerrit's diffFilePaths).
+ */
+export function reviewDiffFilePaths(filePath: string, previousRowPath?: string) {
+  const displayPath = reviewDisplayPath(filePath)
+  const previousDisplayPath = reviewDisplayPath(previousRowPath)
+  const parts = displayPath.split('/')
+  const previousParts = previousDisplayPath.split('/')
+  const firstDifferenceIndex = parts.findIndex((part, index) => previousParts[index] !== part)
+  const splitIndex = firstDifferenceIndex === -1 ? parts.length - 1 : firstDifferenceIndex
+  const matchingSection = parts.slice(0, Math.min(splitIndex, parts.length - 1)).join('/')
+  const newFolderSection = parts.slice(splitIndex, -1).join('/')
+  const fileName = parts[parts.length - 1] ?? displayPath
+  return {
+    fileName,
+    matchingFolders: matchingSection.length > 0 ? `${matchingSection}/` : '',
+    newFolders: newFolderSection.length > 0 ? `${newFolderSection}/` : '',
+  }
+}
+
+export const REVIEW_SIZE_BAR_MAX_WIDTH = 61
+export const REVIEW_SIZE_BAR_GAP_WIDTH = 1
+export const REVIEW_SIZE_BAR_MIN_WIDTH = 1.5
+
+export type ReviewSizeBarGeometry = {
+  additionWidth: number
+  additionX: number
+  deletionWidth: number
+  deletionX: number
+}
+
+/**
+ * Computes bidirectional Gerrit-style change bar coordinates with a shared
+ * center axis across the file list.
+ */
+export function reviewSizeBarGeometry(
+  file: Pick<ReviewFile, 'added' | 'path' | 'removed'>,
+  stats: Pick<ReviewFileListStats, 'maxAdded' | 'maxDeleted'>,
+): ReviewSizeBarGeometry {
+  if (isReviewSpecialFilePath(file.path) || (stats.maxAdded === 0 && stats.maxDeleted === 0)) {
+    return { additionWidth: 0, additionX: 0, deletionWidth: 0, deletionX: 0 }
+  }
+  const totalMax = stats.maxAdded + stats.maxDeleted
+  const ratio = totalMax > 0 ? stats.maxAdded / totalMax : 0
+  const maxAdditionWidth = (REVIEW_SIZE_BAR_MAX_WIDTH - REVIEW_SIZE_BAR_GAP_WIDTH) * ratio
+  const maxDeletionWidth = REVIEW_SIZE_BAR_MAX_WIDTH - REVIEW_SIZE_BAR_GAP_WIDTH - maxAdditionWidth
+  const additionOffset = maxDeletionWidth + REVIEW_SIZE_BAR_GAP_WIDTH
+  const rawAddition = stats.maxAdded > 0 && file.added > 0
+    ? (maxAdditionWidth * file.added) / stats.maxAdded
+    : 0
+  const additionWidth = rawAddition === 0 ? 0 : Math.max(REVIEW_SIZE_BAR_MIN_WIDTH, rawAddition)
+  const rawDeletion = stats.maxDeleted > 0 && file.removed > 0
+    ? (maxDeletionWidth * file.removed) / stats.maxDeleted
+    : 0
+  const deletionWidth = rawDeletion === 0 ? 0 : Math.max(REVIEW_SIZE_BAR_MIN_WIDTH, rawDeletion)
+  return {
+    additionWidth,
+    additionX: additionOffset,
+    deletionWidth,
+    deletionX: maxDeletionWidth - deletionWidth,
   }
 }

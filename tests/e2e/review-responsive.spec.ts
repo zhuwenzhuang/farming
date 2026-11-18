@@ -78,8 +78,9 @@ for (const appearance of ['light', 'dark', 'paper']) {
         expect(page.url()).toBe(url)
         if (compact) {
           expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
-          await expect(diff.locator('.review-diff-row.unified.context').filter({ hasText: 'publishCapturedRevision' }).getByRole('button', { name: 'Comment on base line 6', exact: true })).toBeVisible()
-          await expect(diff.locator('.review-diff-row.unified.context').filter({ hasText: 'publishCapturedRevision' }).getByRole('button', { name: 'Comment on patchset line 8', exact: true })).toBeVisible()
+          const contextRow = diff.locator('.review-diff-row.unified.context').filter({ hasText: 'publishCapturedRevision' })
+          await expect(contextRow.getByRole('button', { name: 'Comment on patchset line 8', exact: true })).toBeVisible()
+          await expect(contextRow.locator('.review-line-number')).toHaveCount(1)
           await expect(diff.locator('.review-diff-row.added .review-diff-sign').first()).toHaveText('+')
           await expect(diff.locator('.review-diff-row.deleted .review-diff-sign').first()).toHaveText('−')
         }

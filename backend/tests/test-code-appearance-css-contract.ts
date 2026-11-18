@@ -438,7 +438,7 @@ const borderPurposeContracts = [
   ['src/styles/main.css', '.connection-status.lost,\n.connection-status.business-unavailable', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/transcript.css', '.code-agent-transcript-result-error,\n.code-agent-transcript-error', 'border', '1px solid var(--code-border-danger)'],
   ['src/styles/main.css', ':is(.code-sidebar-resizer, .code-resource-agent-resizer, .code-related-session-resizer, .code-language-server-resizer)', 'background', 'var(--code-workbench-divider)'],
-  ['src/styles/review.css', '.review-diff-columns span + span', 'border-left', '1px solid var(--code-workbench-divider)'],
+  ['src/styles/review.css', '.review-diff-cell.left', 'border-right', '1px solid var(--code-workbench-divider)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of borderPurposeContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })

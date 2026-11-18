@@ -30,8 +30,8 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
   await expect(review.locator('.review-files-toolbar')).toHaveCSS('position', 'relative')
   await expect(firstFile.getByText('Reviewed', { exact: true })).toBeVisible()
   const firstFileReviewedSwitch = firstFile.getByRole('switch', { name: 'Reviewed' })
-  await expect(firstFileReviewedSwitch).toHaveAttribute('data-action-visibility', 'on-row-interaction')
-  await expect(firstFileReviewedSwitch).toHaveCSS('opacity', '0')
+  await expect(firstFileReviewedSwitch).toHaveAttribute('data-action-visibility', 'always')
+  await expect(firstFileReviewedSwitch).toHaveCSS('opacity', '1')
   await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('font-style', 'normal')
   await expect(firstFile.locator('.review-file-stats .added')).toHaveCSS('color', 'rgb(26, 127, 55)')
   await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('color', 'rgb(180, 35, 45)')
@@ -44,7 +44,8 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
   })
   await firstFile.hover()
   await expect(firstFileReviewedSwitch).toHaveCSS('opacity', '1')
-  await expect(firstFileReviewedSwitch).toContainText('MARK UNREVIEWED')
+  await expect(firstFileReviewedSwitch).toHaveText('Reviewed')
+  await expect(firstFileReviewedSwitch).toHaveAttribute('title', 'Mark as unreviewed')
   await firstFile.locator('.review-file-select').click()
   await expect(firstFileReviewedSwitch).toHaveAttribute('aria-checked', 'true')
   await firstFileReviewedSwitch.click()
@@ -168,8 +169,8 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
 
   await diagnoseDiff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
   const changedLine = diagnoseDiff.locator('.review-diff-row.added:has(code[data-review-line="130"][data-review-side="right"])')
-  const attachment = changedLine.locator('xpath=following-sibling::*[1]')
-  await expect(attachment).toHaveClass(/review-line-attachment/)
+  const attachment = changedLine.locator('.review-line-attachment')
+  await expect(attachment).toBeVisible()
   await attachment.getByLabel('Review comment').fill('Keep the base range explicit.')
   await attachment.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(attachment.getByText('Keep the base range explicit.', { exact: true })).toBeVisible()
@@ -267,14 +268,24 @@ test('marks a single opened file reviewed while expand-all does not mark every f
   await page.goto('/farming/review?fixture=1')
 
   const review = page.getByTestId('review-page')
-  await review.getByRole('button', { name: 'Diff preferences' }).click()
-  await page.getByLabel('Automatically mark opened files reviewed').check()
-  await page.getByRole('button', { name: 'SAVE', exact: true }).click()
   const fetchLogview = review.locator('[data-file-path="clis/fetch_logview.py"]')
   const querySls = review.locator('[data-file-path="clis/query_sls.py"]')
 
-  await fetchLogview.locator('.review-file-select').click()
+  const header = fetchLogview.locator('.review-file-change-header')
+  const gapPosition = await header.evaluate(element => {
+    const row = element.getBoundingClientRect()
+    const stats = element.querySelector('.review-file-stats')!.getBoundingClientRect()
+    const action = element.querySelector('button[role="switch"]')!.getBoundingClientRect()
+    return { x: (stats.right + action.left) / 2 - row.left, y: row.height / 2 }
+  })
+  await header.click({ position: gapPosition })
+  await expect(fetchLogview.locator('.review-inline-diff')).toBeVisible()
+  await header.click({ position: gapPosition })
+  await expect(fetchLogview.locator('.review-inline-diff')).toHaveCount(0)
   await expect(fetchLogview.getByText('Reviewed', { exact: true })).toBeVisible()
+  await expect(fetchLogview.getByRole('switch')).toBeEnabled()
+  await page.reload()
+  await expect(fetchLogview.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
 
   await review.getByRole('button', { name: 'EXPAND ALL' }).click()
   await expect(querySls.getByText('Reviewed', { exact: true })).toHaveCount(0)
@@ -606,7 +617,9 @@ test('captures recent untracked files as an immutable single-column review', asy
   await row.locator('.review-file-select').click()
   const diff = review.getByLabel(`Diff for ${filePath}`)
   await expect(diff).toHaveClass(/unified/)
-  await expect(diff.locator('.review-diff-columns span')).toHaveCount(1)
+  await expect(diff.locator('.review-diff-columns')).toHaveCount(0)
+  await expect(diff.locator('.review-diff-row.unified .review-line-number')).not.toHaveCount(0)
+  await expect(diff.getByText('@@')).toHaveCount(0)
   await expect(diff.getByText('Review this file.', { exact: true })).toBeVisible()
 })
 
@@ -1820,3 +1833,133 @@ for (const appearance of ['light', 'dark', 'paper']) {
     }
   })
 }
+
+test('matches Gerrit selection tooltip placement, legacy preference migration, copy action, shortcuts, and split column comments', async ({ context, page }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.addInitScript(() => {
+    if (window.sessionStorage.getItem('seed-legacy-prefs')) return
+    window.sessionStorage.setItem('seed-legacy-prefs', '1')
+    window.localStorage.setItem('farming.review.diff-preferences', JSON.stringify({
+      autoMarkReviewed: false,
+      context: 10,
+      fitToScreen: true,
+      fontSize: 12,
+      ignoreWhitespace: 'NONE',
+      intralineDifference: true,
+      lineLength: 120,
+      showTabs: true,
+      showTrailingWhitespace: true,
+      syntaxHighlighting: true,
+      tabSize: 8,
+    }))
+  })
+
+  await page.goto('/farming/review?fixture=1')
+  const review = page.getByTestId('review-page')
+
+  // Legacy 11-key autoMarkReviewed: false dump is migrated back to auto-mark on load.
+  const fetchRow = review.locator('[data-file-path="clis/fetch_logview.py"]')
+  await fetchRow.locator('.review-file-select').click()
+  await expect(fetchRow.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+  await fetchRow.locator('.review-file-select').click()
+
+  // Inline copy-path button sits immediately after the filename and copies path without expanding the row.
+  const copyBtn = fetchRow.getByRole('button', { name: 'Copy path clis/fetch_logview.py' })
+  await fetchRow.hover()
+  const fetchNameBox = await fetchRow.locator('.review-file-name').boundingBox()
+  const copyBtnBox = await copyBtn.boundingBox()
+  if (!fetchNameBox || !copyBtnBox) throw new Error('Expected file path and inline copy button boxes')
+  expect(copyBtnBox.x - (fetchNameBox.x + fetchNameBox.width)).toBeLessThanOrEqual(16)
+  await copyBtn.click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('clis/fetch_logview.py')
+  await expect(fetchRow).not.toHaveClass(/expanded/)
+
+  // Dragging across the full path (even overshooting past the filename) selects and copies only the path without expanding.
+  const parseRow = review.locator('[data-file-path="clis/parse_logview.py"]')
+  const parseNameBox = await parseRow.locator('.review-file-name').boundingBox()
+  if (!parseNameBox) throw new Error('Expected parse_logview.py path box')
+  await page.mouse.move(parseNameBox.x + 1, parseNameBox.y + parseNameBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(parseNameBox.x + parseNameBox.width + 30, parseNameBox.y + parseNameBox.height / 2, { steps: 12 })
+  await page.mouse.up()
+  await expect(parseRow).not.toHaveClass(/expanded/)
+  await page.keyboard.press('ControlOrMeta+c')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('clis/parse_logview.py')
+  await page.evaluate(() => window.getSelection()?.removeAllRanges())
+
+  // Explicit manual SAVE persists manualReview: true across reloads.
+  await review.getByRole('button', { name: 'Diff preferences' }).click()
+  await page.getByLabel('Automatically mark opened files reviewed').uncheck()
+  await page.getByRole('button', { name: 'SAVE' }).click()
+  expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem('farming.review.diff-preferences') || '{}').manualReview)).toBe(true)
+
+  await page.reload()
+  const queryRow = review.locator('[data-file-path="clis/query_sls.py"]')
+  await queryRow.locator('.review-file-select').click()
+  await expect(queryRow.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+
+  // Keyboard shortcuts: r toggles Reviewed, o collapses expanded selected row.
+  await page.keyboard.press('r')
+  await expect(queryRow.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+  await page.keyboard.press('o')
+  await expect(queryRow).not.toHaveClass(/expanded/)
+
+  // Split-view comment stays contained inside its half column, and selection tooltip centers above/below selection.
+  const diagnoseRow = review.locator('[data-file-path="clis/diagnose.py"]')
+  const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
+  await expect(diagnoseDiff.locator('.review-diff-columns')).toHaveCount(0)
+  await expect(diagnoseDiff.getByText('@@')).toHaveCount(0)
+
+  const rowWithComment = diagnoseDiff.locator('.review-diff-row:has(code[data-review-line="130"][data-review-side="right"])')
+  await diagnoseDiff.getByRole('button', { name: 'Comment on patchset line 130', exact: true }).click()
+  const rowBox = await rowWithComment.boundingBox()
+  const attachmentBox = await rowWithComment.locator('.review-diff-cell.right .review-line-attachment').boundingBox()
+  if (!rowBox || !attachmentBox) throw new Error('Expected split attachment inside right cell')
+  expect(attachmentBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width * 0.45)
+  expect(attachmentBox.width).toBeLessThanOrEqual(rowBox.width * 0.55)
+  await diagnoseDiff.getByLabel('Review comment').fill('Submit with shortcut')
+  await page.keyboard.press('ControlOrMeta+Enter')
+  await expect(diagnoseDiff.getByText('Submit with shortcut', { exact: true })).toBeVisible()
+
+  // Select text on line 130 (away from top edge) -> tooltip renders centered above selection.
+  const line130Code = diagnoseDiff.locator('code[data-review-line="130"][data-review-side="right"]')
+  const line130Box = await line130Code.boundingBox()
+  if (!line130Box) throw new Error('Line 130 code cell missing')
+  await line130Code.evaluate(element => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    const node = walker.nextNode()
+    if (!node) throw new Error('Text node missing')
+    const range = document.createRange()
+    range.setStart(node, 0)
+    range.setEnd(node, Math.min(8, node.textContent?.length ?? 0))
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+  const tooltip = diagnoseDiff.getByRole('button', { name: 'Comment on selection' })
+  await expect(tooltip).toHaveText('Press c to comment')
+  await expect(tooltip).toHaveAttribute('data-placement', 'above')
+  const tooltipBox = await tooltip.boundingBox()
+  if (!tooltipBox) throw new Error('Selection tooltip box missing')
+  expect(tooltipBox.y + tooltipBox.height).toBeLessThanOrEqual(line130Box.y)
+  expect(tooltipBox.x).toBeLessThan(line130Box.x + line130Box.width * 0.5)
+
+  // Selecting line 1 flips placement below so the tooltip does not collide with sticky header.
+  await diagnoseDiff.getByRole('button', { name: /Show all \d+ common lines/ }).first().click()
+  const firstCode = diagnoseDiff.locator('code[data-review-line="1"][data-review-side="right"]')
+  await expect(firstCode).toBeVisible()
+  await firstCode.evaluate(element => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    const node = walker.nextNode()
+    if (!node) throw new Error('Line 1 text node missing')
+    const range = document.createRange()
+    range.setStart(node, 0)
+    range.setEnd(node, Math.min(6, node.textContent?.length ?? 0))
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+  await expect(tooltip).toHaveAttribute('data-placement', 'below')
+})

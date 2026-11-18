@@ -195,12 +195,17 @@ mode, Review identity, loaded content, reviewed state, or comment drafts; leavin
 it restores the desktop presentation. Layout changes dismiss the selection
 action, while an explicit draft keeps its anchor. Compact layout hides the
 ineffective split control and uses the shared navigation selector. Unified rows
-show original and candidate line numbers with explicit addition/deletion signs;
-common rows retain comments and drafts from both sides at their own coordinates.
+show one line number with an explicit addition/deletion sign (the candidate line
+on common and added rows, the base line on deleted rows), omit redundant column
+or raw hunk headers, and retain comments and drafts from both sides at their
+own coordinates.
 
-File paths prioritize the basename when space is limited; compact rows show an
-abbreviated directory. Current and previous paths retain their full tooltip and
-selectable text. Dragging a path selects text without expanding its diff.
+File paths dim directory prefixes shared with the previous row, display
+untruncated paths at desktop container widths, and abbreviate collapsed rows in
+narrow containers while keeping expanded sticky headers full-width. Current and
+previous paths retain their full tooltip, copy action, and selectable text.
+Dragging a path selects text without expanding its diff.
+Clicking the space between change counts and the Reviewed switch toggles the file diff.
 
 The page retains one selected file after opening or collapsing its diff, or
 focusing its row controls. Adjacent-file navigation starts from that selection.
@@ -230,18 +235,22 @@ latest state after capture. Reopening preserves the exact pair in the URL.
 Diff text uses native selection. Pointer-down chooses the selectable side in a
 split diff; copying takes the selected original source text, excluding line
 numbers, the opposite side, comments and whitespace visualization glyphs.
-Selection remains selected and keeps focus on pointer-up. A selection offers an
-explicit comment action (or `c` shortcut); line-number activation opens a line
-comment. Only explicit comment activation transfers focus to the editor. A new
-pointer selection, Escape or a comparison change dismisses the selection action;
-selection alone never creates a draft or writes review state.
+Selection remains selected and keeps focus on pointer-up. A selection floats a
+`Press c to comment` tooltip centered above the selection (below on line 1 or
+under a sticky header), normalizing triple-click line selections and
+highlighting comment ranges on hover; line-number activation opens a line
+comment inside the owning column. Only explicit comment activation transfers
+focus to the editor, and `Cmd/Ctrl+Enter` submits it. A new pointer selection,
+Escape or a comparison change dismisses the selection action; selection alone
+never creates a draft or writes review state.
 
 Review follows the authoritative Farming Code appearance preference. Its
 canvas, controls, syntax, comments, and diff states consume the shared semantic
 theme roles; the route must not fall back to a fixed Light skin.
 
-Reviewed actions remain visually quiet until row hover, keyboard focus, or
-expansion. Loaded, loading, failed, binary, truncated, and unavailable diff
+One compact column holds the Reviewed switch. Reviewed files show their status
+on the switch itself. Unreviewed files reveal the action on row interaction;
+touch layouts keep it visible. Loaded, loading, failed, binary, truncated, and unavailable diff
 states are explicit. Common-line gaps expand in bounded ranges without moving
 the opposite boundary or discarding the control after failure.
 Context supplied inside a diff hunk counts toward that visible range; it must
@@ -266,8 +275,8 @@ Review pass.
 - Reviewed state defaults to automatic marking, with a manual preference. Existing
   explicit preferences are preserved. Automatic marking requires an
   individually opened file, successful diff loading, and authoritative reviewed
-  hydration. Once eligible, a file remains queued through collapse while another
-  reviewed write completes. Expand all does not mark files reviewed. Unknown write outcomes
+  hydration. Collapsing the file preserves the pending mark while either read or
+  a previous reviewed write completes. Expand all does not mark files reviewed. Unknown write outcomes
   invalidate reviewed status until a successful read restores it.
 - Inline diff loads share a four-request budget. Queued requests from an
   abandoned comparison are dropped and late responses cannot update it. Failed
