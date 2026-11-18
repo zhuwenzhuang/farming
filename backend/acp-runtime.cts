@@ -2207,13 +2207,19 @@ class AcpRuntime extends EventEmitter {
           }
         }
         if (options.serviceTier && options.serviceTier !== 'config') {
-          const fastOption = binding.configOptions.find(option => (
+          const tierOption = binding.configOptions.find(option => option.id === configPolicy?.serviceTier?.configId);
+          const fastOption = tierOption || binding.configOptions.find(option => (
             option.type === 'boolean'
             && /(fast|speed)/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
           ));
           const fastEnabled = (configPolicy?.serviceTier?.enabledValues || ['priority', 'fast']).includes(options.serviceTier);
-          if (fastOption && fastOption.currentValue !== fastEnabled) {
-            await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
+          const value = fastOption?.type === 'select' ? (options.serviceTier === 'fast' ? 'priority' : options.serviceTier) : fastEnabled;
+          if (configPolicy?.serviceTier && options.serviceTier !== 'default' && !fastEnabled
+            && (!fastOption || fastOption.type !== 'select' || !sessionConfigSelectValues(fastOption).includes(options.serviceTier))) {
+            throw new Error(`The current model does not offer service tier ${options.serviceTier}`);
+          }
+          if (fastOption && fastOption.currentValue !== value) {
+            await this.applySessionConfigOption(binding, fastOption.id, value, { emit: false });
           }
           if (fastOption) launchConfigIds.add(fastOption.id);
         }
@@ -4836,7 +4842,7 @@ class AcpRuntime extends EventEmitter {
     if (
       providerAcpConfigPolicy(binding.provider)?.coupleModelAndReasoning === true
       && option?.type === 'select'
-      && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''} ${option.category || ''}`)
+      && this.isSessionModelOverride(binding, { configId, value })
     ) {
       // Let the adapter choose a supported fallback effort from its current
       // snapshot first. The refresh extension requires an explicit effort and
@@ -4883,6 +4889,12 @@ class AcpRuntime extends EventEmitter {
     }
     for (const change of normalizeSessionConfigChanges(changes)) {
       merged.set(change.configId, change);
+    }
+    const tierId = providerAcpConfigPolicy(binding.provider)?.serviceTier?.configId;
+    if (tierId && merged.has(tierId) && changes.some(change => this.isSessionModelOverride(binding, change))) {
+      const tier = binding.configOptions.find(option => option.id === tierId)?.currentValue;
+      if (tier === undefined) merged.delete(tierId);
+      else merged.set(tierId, { configId: tierId, value: tier });
     }
     const configOverrides = [...merged.values()];
     binding.restartOptions = { ...binding.restartOptions, configOverrides };
@@ -4975,7 +4987,13 @@ class AcpRuntime extends EventEmitter {
 
     const retained: SessionConfigChange[] = [];
     const warnings: AcpConfigOverrideWarning[] = [];
-    for (const change of [...modelOverrides, ...remainingOverrides]) {
+    for (const saved of [...modelOverrides, ...remainingOverrides]) {
+      let change = saved;
+      if (saved.configId === providerAcpConfigPolicy(binding.provider)?.serviceTier?.configId) {
+        const type = binding.configOptions.find(option => option.id === saved.configId)?.type;
+        if (type === 'select' && typeof saved.value === 'boolean') change = { ...saved, value: saved.value ? 'priority' : 'default' };
+        if (type === 'boolean' && (saved.value === 'priority' || saved.value === 'default')) change = { ...saved, value: saved.value === 'priority' };
+      }
       const incompatibility = this.sessionConfigOverrideCompatibility(binding, change);
       if (incompatibility) {
         const isModel = this.isSessionModelOverride(binding, change);
@@ -5118,7 +5136,7 @@ class AcpRuntime extends EventEmitter {
     const modelChange = normalized.find(change => {
       const option = configById.get(change.configId);
       return option?.type === 'select'
-        && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''} ${option.category || ''}`);
+        && this.isSessionModelOverride(binding, change);
     });
     const reasoningChange = normalized.find(change => {
       const option = configById.get(change.configId);

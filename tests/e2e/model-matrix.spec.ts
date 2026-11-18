@@ -352,6 +352,46 @@ test('model matrix follows the advertised catalog across generations and appeara
   await expect(matrix).toHaveAttribute('data-advanced', 'closed')
 })
 
+test('Ultrafast is selectable independently of reasoning across appearances', async ({ page, workspaceRoot }, testInfo) => {
+  const agentId = await createAcpAgent(page, workspaceRoot, 'codex')
+  const model = 'gpt-6.2-sol'
+  let tier = 'default'
+  const snapshot = () => {
+    const session = sessionSnapshot({ model, reasoning: 'high', fast: false })
+    return { ...session, configOptions: [
+      { ...session.configOptions[0], options: [{ value: model, name: 'GPT 6.2 Sol' }, ...MODEL_OPTIONS] },
+      session.configOptions[1],
+      { id: 'fast-mode', name: 'Service tier', type: 'select', category: 'model_config', currentValue: tier,
+        options: [{ value: 'default', name: 'Standard' }, { value: 'priority', name: 'Fast' }, { value: 'ultrafast', name: 'Ultrafast' }] },
+    ] }
+  }
+  await page.route(/\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    if (route.request().method() === 'PATCH') {
+      const change = route.request().postDataJSON()
+      expect(change.configId).toBe('fast-mode')
+      tier = change.value
+      await route.fulfill({ json: { sessionId: snapshot().sessionId, configOptions: snapshot().configOptions } })
+    } else await route.fulfill({ json: { session: snapshot() } })
+  })
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.request.post('/farming/api/settings', { data: { appearance, language: 'en' } })
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const picker = page.getByTestId('code-acp-model-picker')
+    await picker.click()
+    const matrix = page.getByTestId('code-model-matrix-picker')
+    const speed = matrix.getByRole('combobox')
+    await speed.selectOption('ultrafast')
+    await expect(picker).toHaveAttribute('title', /Ultrafast/)
+    await expect(picker).toHaveAttribute('data-agent-model-preset', model + ':high')
+    await picker.click()
+    await expect(speed).toHaveValue('ultrafast')
+    await testInfo.attach(appearance, { body: await matrix.screenshot(), contentType: 'image/png' })
+    await speed.selectOption('default')
+    await expect(picker).toHaveAttribute('title', /Standard/)
+  }
+})
+
 test('ACP model controls wait for the initial session configuration to become ready', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-matrix-connecting')
   fs.mkdirSync(workspace, { recursive: true })

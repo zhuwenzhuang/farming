@@ -3,11 +3,12 @@ import type { AcpConfigChange, AcpConfigOption } from './agent-manager-provider-
 export interface AgentHomeDefaults {
   model: string;
   reasoning: string;
-  fast: 'inherit' | 'on' | 'off';
+  fast: 'inherit' | 'on' | 'off' | 'ultrafast';
 }
 
 function optionKind(option: AcpConfigOption): keyof AgentHomeDefaults | null {
   const identity = `${option.id} ${option.category || ''}`;
+  if (/(fast|speed|service[_-]?tier)/i.test(option.id)) return 'fast';
   if (/(^|[\s_-])model([\s_-]|$)/i.test(identity)) return 'model';
   if (/(reasoning|thought|effort)/i.test(identity)) return 'reasoning';
   if (/(fast|speed|service[_-]?tier)/i.test(identity)) return 'fast';
@@ -28,9 +29,11 @@ export function acpHomeDefaultsPatch(
   for (const option of response.configOptions) {
     const kind = optionKind(option);
     // A model switch may normalize its effort; remember that confirmed pair.
-    if (!kind || (!changed.has(option.id) && !(changesModel && kind === 'reasoning' && !response.deferred))) continue;
+    if (!kind || (!changed.has(option.id) && !(changesModel && !response.deferred &&
+      (kind === 'reasoning' || (kind === 'fast' && option.type === 'select'))))) continue;
     const value = response.deferred ? changed.get(option.id) : option.currentValue;
     if (kind === 'fast') {
+      if (value === 'ultrafast') patch.fast = 'ultrafast';
       if (value === true || value === 'priority' || value === 'fast' || value === 'on') patch.fast = 'on';
       if (value === false || value === 'default' || value === 'standard' || value === 'off') patch.fast = 'off';
     } else if (typeof value === 'string' && value.trim()) {

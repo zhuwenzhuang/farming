@@ -12,7 +12,8 @@ async function run() {
     cwd: root, projectWorkspace: root, sessionId, model,
     env: { ...process.env, CODEX_HOME: root,
       CODEX_PATH: path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts'),
-      FARMING_TEST_MULTI_SESSION: '1', FARMING_TEST_MODEL_MATRIX: '1' },
+      FARMING_TEST_MULTI_SESSION: '1', FARMING_TEST_MODEL_MATRIX: '1', FARMING_TEST_INCOMING_INPUTS: '1',
+      FARMING_TEST_REQUEST_LOG_FILE: path.join(root, 'requests.jsonl') },
   });
   // Read back from the real adapter, not only Farming's cached snapshot.
   const readModel = async (agentId: string) => {
@@ -70,6 +71,24 @@ async function run() {
       { configId: 'reasoning_effort', value: 'medium' },
     ]);
     assert.equal(await readModel('model-side'), 'gpt-5.6');
+    await runtime.setSessionConfigOption('model-side', 'model', 'gpt-6.2-sol');
+    // Checkpoints from the two-position picker store Fast as a boolean.
+    const side = runtime.requireBinding('model-side');
+    await runtime.restoreSessionConfigOverrides(side, [
+      { configId: 'model', value: 'gpt-6.2-sol' }, { configId: 'fast-mode', value: true },
+    ]);
+    assert.equal(side.configOptions.find(option => option.id === 'fast-mode')?.currentValue, 'priority');
+    await runtime.setSessionConfigOption('model-side', 'fast-mode', 'ultrafast');
+    await runtime.restartAgentConnection('model-side');
+    const speed = () => runtime.requireBinding('model-side').configOptions.find(option => option.id === 'fast-mode');
+    assert.equal(speed()?.currentValue, 'ultrafast');
+    await runtime.submitMessage('model-side', [{ type: 'text', text: 'Check selected speed' }], { delivery: 'prompt' });
+    const starts = fs.readFileSync(path.join(root, 'requests.jsonl'), 'utf8').trim().split('\n')
+      .map(line => JSON.parse(line)).filter(entry => entry.method === 'turn/start' && !entry.params.outputSchema);
+    assert.equal(starts.at(-1)?.params.serviceTier, 'ultrafast');
+    assert.equal(starts.at(-1)?.params.model, 'gpt-6.2-sol');
+    await runtime.setSessionConfigOption('model-side', 'model', 'gpt-6-astra');
+    assert.equal(speed(), undefined);
   } finally {
     await runtime.dispose();
     fs.rmSync(root, { recursive: true, force: true });

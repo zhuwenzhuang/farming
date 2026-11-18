@@ -1040,7 +1040,7 @@ export function CodeComposer({
                 title={[currentModelLabel, displayedReasoningLabel, displayedSpeedLabel].filter(Boolean).join(' · ')}
                 onClick={onToggleModelMenu}
               >
-                {agentServiceTier === 'priority' && (
+                {['priority', 'ultrafast'].includes(agentServiceTier) && (
                   <span className="code-composer-speed-active" aria-hidden="true">
                     <ComposerSpeedIcon />
                   </span>
@@ -1070,6 +1070,11 @@ export function CodeComposer({
                     currentReasoning={agentReasoningEffort}
                     fastAvailable={showServiceTierPicker && currentServiceTierOptions.some(option => option.value === 'priority')}
                     fast={agentServiceTier === 'priority'}
+                    serviceTiers={showServiceTierPicker && currentServiceTierOptions.some(option => !['priority', 'default'].includes(option.value)) ? {
+                      label: copy.speed, value: agentServiceTier,
+                      options: currentServiceTierOptions.map(option => ({ value: option.value, label: copy.serviceTierLabel(option.value, option.label) })),
+                      onChange: onUpdateServiceTierInline,
+                    } : undefined}
                     disabled={modelProfileDisabled}
                     onSelect={onUpdateModelProfile}
                     onFastChange={value => onUpdateServiceTierInline(value ? 'priority' : 'default')}

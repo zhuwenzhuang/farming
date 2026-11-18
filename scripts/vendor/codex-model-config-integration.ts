@@ -9,7 +9,7 @@ export function integrateCodexModelConfig(source: string): string {
   if (source.split(boundary).length !== 2) {
     throw new Error('Expected one Codex model options boundary');
   }
-  return source.replace(boundary, boundary.replace('description: model.description', `description: model.description,
+  source = source.replace(boundary, boundary.replace('description: model.description', `description: model.description,
     _meta: { farming: { modelConfig: {
       version: 1,
       reasoningOptions: model.supportedReasoningEfforts.map((option) => ({
@@ -17,4 +17,47 @@ export function integrateCodexModelConfig(source: string): string {
         name: capitalize(option.reasoningEffort)
       }))
     } } }`));
+  const replace = (from: string, to: string, count = 1) => {
+    if (source.split(from).length !== count + 1) throw new Error(`Unexpected Codex speed boundary: ${from}`);
+    source = source.replaceAll(from, to);
+  };
+  replace('function modelSupportsFast(model) {', `function modelTierOptions(model) {
+  if (model?.serviceTiers?.length) return model.serviceTiers.map(({ id, name, description }) => ({ value: id, name, description }));
+  return (model?.additionalSpeedTiers ?? []).map(tier => tier === "fast"
+    ? { value: "priority", name: "Fast" } : { value: tier, name: capitalize(tier) });
+}
+function selectedServiceTier(options, tier) {
+  const value = tier === "fast" ? "priority" : tier;
+  return options.some(option => option.value === value) ? value : "default";
+}
+function modelSupportsFast(model) {`);
+  replace('const currentModelSupportsFast = modelSupportsFast(currentModel);', 'const tierOptions = modelTierOptions(currentModel);', 2);
+  replace('fastModeEnabled: serviceTierEnablesFast(sessionMetadata.currentServiceTier),\n      currentModelSupportsFast,',
+    'serviceTier: selectedServiceTier(tierOptions, sessionMetadata.currentServiceTier),\n      tierOptions,', 2);
+  for (const model of ['currentModel', 'model']) {
+    replace(`sessionState.currentModelSupportsFast = modelSupportsFast(${model});`, `sessionState.tierOptions = modelTierOptions(${model});
+      sessionState.serviceTier = selectedServiceTier(sessionState.tierOptions, sessionState.serviceTier);`);
+  }
+  replace(`    if (typeof value === "boolean") {
+      sessionState.fastModeEnabled = value;
+      return;
+    }
+    if (value !== FAST_MODE_ON && value !== FAST_MODE_OFF) {
+      throw RequestError.invalidParams();
+    }
+    sessionState.fastModeEnabled = value === FAST_MODE_ON;`, `    const tier = value === true || value === FAST_MODE_ON ? "priority"
+      : value === false || value === FAST_MODE_OFF ? "default" : value;
+    if (tier !== selectedServiceTier(sessionState.tierOptions, tier)) throw RequestError.invalidParams();
+    sessionState.serviceTier = tier;`);
+  replace('if (sessionState.currentModelSupportsFast) {', `if (sessionState.tierOptions.some(option => option.value !== "priority")) {
+      configOptions.push({ id: FAST_MODE_CONFIG_ID, name: "Service tier", category: FAST_MODE_CATEGORY,
+        type: "select", currentValue: sessionState.serviceTier,
+        options: [{ value: "default", name: "Standard" }, ...sessionState.tierOptions] });
+    } else if (sessionState.tierOptions.length) {`);
+  replace('sessionState.fastModeEnabled,\n        this.booleanConfigOptionsSupported', 'sessionState.serviceTier === "priority",\n        this.booleanConfigOptionsSupported');
+  replace(`resolveFastServiceTier(
+        sessionState.fastModeEnabled,
+        sessionState.currentModelSupportsFast
+      )`, 'sessionState.serviceTier === "default" ? null : sessionState.serviceTier');
+  return source;
 }

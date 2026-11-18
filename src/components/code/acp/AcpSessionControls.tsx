@@ -242,6 +242,8 @@ export function AcpModelControl({
   const model = findSelectOption(session, /(^|[\s_-])model([\s_-]|$)/i)
   const reasoning = findSelectOption(session, /(reasoning|thought)/i)
   const fastMode = findBooleanOption(session, /(fast|speed)/i)
+  const tier = findSelectOption(session, /(^|[\s_-])(fast|speed|service[\s_-]?tier)([\s_-]|$)/i)
+  const selectedTier = currentSelectOption(tier)
   const extraOptions = session.configOptions.filter(option => (
     option !== model
     && option !== reasoning
@@ -276,10 +278,10 @@ export function AcpModelControl({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        title={[currentModel?.name, currentReasoning?.name, fastMode?.currentValue ? fastMode.name : ''].filter(Boolean).join(' · ')}
+        title={[currentModel?.name, currentReasoning?.name, selectedTier?.name || (fastMode?.currentValue ? fastMode.name : '')].filter(Boolean).join(' · ')}
         onClick={onToggle}
       >
-        {fastMode?.currentValue ? <span className="code-composer-speed-active" aria-hidden="true"><SpeedGlyph /></span> : null}
+        {fastMode?.currentValue || (selectedTier && !['off', 'default'].includes(selectedTier.value)) ? <span className="code-composer-speed-active" aria-hidden="true"><SpeedGlyph /></span> : null}
         <span className="code-composer-model-label desktop">{compactModelLabel(currentModel?.name || model?.currentValue || 'Model')}</span>
         <span className="code-composer-model-label mobile">{compactModelLabel(currentModel?.name || model?.currentValue || 'Model')}</span>
         {currentReasoning ? <span className="code-composer-model-picker-muted desktop">{currentReasoning.name}</span> : null}
@@ -294,6 +296,11 @@ export function AcpModelControl({
             currentReasoning={reasoning?.currentValue || ''}
             fastAvailable={Boolean(fastMode)}
             fast={fastMode?.currentValue === true}
+            serviceTiers={tier ? {
+              label: copy.speed, value: tier.currentValue,
+              options: selectOptions(tier).map(option => ({ value: option.value, label: copy.serviceTierLabel(option.value, option.name) })),
+              onChange: value => onSetConfigOption(tier.id, value),
+            } : undefined}
             disabled={disabled}
             onSelect={(modelValue, reasoningValue) => {
               if (model && reasoning) onSetProfile(model.id, modelValue, reasoning.id, reasoningValue)

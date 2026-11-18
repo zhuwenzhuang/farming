@@ -134,6 +134,7 @@ interface ProviderAcpConfigPolicy {
   matchModelByName?: boolean;
   reasoningProfileKey?: string;
   serviceTier?: {
+    configId: string;
     enabledValues: readonly string[];
   };
 }
@@ -720,7 +721,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
         coupleModelAndReasoning: true,
         launchModelAndReasoning: true,
         matchModelByName: true,
-        serviceTier: { enabledValues: ['fast', 'priority'] },
+        serviceTier: { configId: 'fast-mode', enabledValues: ['fast', 'priority'] },
       },
     },
     prepareAcpEnvironment: codexAcpEnvironment,

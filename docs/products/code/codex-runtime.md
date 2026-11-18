@@ -57,6 +57,8 @@ identity; authentication recovery and strict-review notices remain visible.
 Account/project/queue inventories and model configuration are not Agent activity.
 
 The native profile transaction selects exact model, reasoning and speed identities.
+Chat and Terminal offer the service tiers advertised for the selected model.
+Ultrafast is a separate speed tier and can be combined with any supported reasoning effort.
 Admission requires an idle Composer, independently of whether its footer exposes
 a model ID. A display name is never guessed into an ID; unknown identity requires
 the explicit target picker and confirmation transaction.

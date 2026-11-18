@@ -38,7 +38,7 @@ import type {
 type NewAgentDefaults = {
   model: string
   reasoning: string
-  fast: 'inherit' | 'on' | 'off'
+  fast: 'inherit' | 'on' | 'off' | 'ultrafast'
 }
 
 type BrowserExtensionCapability = NonNullable<BrowserCapability['extension']>

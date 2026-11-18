@@ -9,7 +9,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const MAX_CLEANUP_RESERVE_MS = 1_000;
 
-type CodexServiceTier = 'default' | 'priority';
+type CodexServiceTier = 'default' | 'priority' | 'ultrafast';
 
 interface DeadlineOptions {
   deadline?: number;
@@ -30,7 +30,7 @@ interface CodexServiceTierConfirmation {
 
 interface CodexTerminalProfile {
   effort: string;
-  fast: boolean | null;
+  serviceTier: CodexServiceTier | null;
   model: string;
 }
 
@@ -98,9 +98,8 @@ function activeCodexTerminalProfile(
   const profile = {
     model: parsed.model,
     reasoningEffort: parsed.effort,
-    serviceTier: typeof parsed.fast === 'boolean'
-      ? (parsed.fast ? 'priority' : 'default')
-      : (previousServiceTier || 'default'),
+    serviceTier: codexServiceTierConfirmations(agent.output || '').at(-1)?.serviceTier
+      ?? parsed.serviceTier ?? previousServiceTier ?? 'default',
     source: outputProfile ? 'terminal-output' : 'terminal-footer',
   };
   agent.codexTerminalProfile = profile;
@@ -239,15 +238,12 @@ function codexServiceTierConfirmations(
 ): CodexServiceTierConfirmation[] {
   const text = stripAnsi(outputText).replace(/\r/g, '\n');
   return Array.from(text.matchAll(
-    /(?:^|\n)\s*[•●]\s+(?:Service tier set to\s+(priority|default)\b|Fast mode is\s+(on|off)\b|已(开启|关闭)\s*Fast\s*模式)/gi
+    /(?:^|\n)\s*[•●]\s+(?:Service tier set to\s+(priority|ultrafast|default)\b|Fast mode is\s+(on|off)\b|已(开启|关闭)\s*Fast\s*模式|Service tier cleared\b)/gi
   )).map(match => {
-    const fast = match[1]
-      ? normalizedValue(match[1]) === 'priority'
-      : match[2]
-        ? normalizedValue(match[2]) === 'on'
-        : match[3] === '开启';
+    const tier = normalizedValue(match[1] || '');
+    const fast = tier === 'priority' || tier === 'ultrafast' || normalizedValue(match[2] || '') === 'on' || match[3] === '开启';
     return {
-      serviceTier: fast ? 'priority' : 'default',
+      serviceTier: tier === 'ultrafast' ? tier : fast ? 'priority' : 'default',
       fast,
     };
   });
@@ -390,7 +386,7 @@ function codexTerminalProfileFromPreview(
 ): CodexTerminalProfile | null {
   const text = String(previewText || '');
   const matches = Array.from(text.matchAll(
-    /\b([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b(\s+fast\b)?/gi
+    /\b([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b(?:\s+(ultrafast|fast)\b)?/gi
   ));
   const match = matches[matches.length - 1];
   if (!match) return null;
@@ -398,7 +394,7 @@ function codexTerminalProfileFromPreview(
   return {
     model: normalizedValue(match[1]),
     effort: normalizedReasoning(match[2]),
-    fast: match[3] ? true : (confirmedTier ? confirmedTier.fast : false),
+    serviceTier: match[3] ? normalizedValue(match[3]) === 'ultrafast' ? 'ultrafast' : 'priority' : confirmedTier?.serviceTier ?? 'default',
   };
 }
 
@@ -415,7 +411,7 @@ function codexTerminalProfileFromOutput(
   return {
     model: normalizedValue(match[1]),
     effort: normalizedReasoning(match[2]),
-    fast: confirmedTier ? confirmedTier.fast : null,
+    serviceTier: confirmedTier?.serviceTier ?? null,
   };
 }
 
@@ -428,7 +424,7 @@ function profileMatches(
   if (normalizedValue(current.model) !== normalizedValue(target.model)) return false;
   if (normalizedReasoning(current.effort) !== normalizedReasoning(target.effort)) return false;
   if (options.includeFast === true) {
-    return current.fast === (target.serviceTier === 'priority');
+    return current.serviceTier === target.serviceTier;
   }
   return true;
 }
@@ -474,7 +470,10 @@ function validateTargetProfile(
 ): ValidatedCodexTerminalProfile {
   const model = String(profile?.model || '').trim();
   const effort = String(profile?.effort || '').trim();
-  const serviceTier = profile?.serviceTier === 'priority' ? 'priority' : 'default';
+  const serviceTier = profile?.serviceTier === 'config' ? 'default' : profile?.serviceTier || 'default';
+  if (serviceTier !== 'priority' && serviceTier !== 'ultrafast' && serviceTier !== 'default') {
+    throw new Error('Unsupported Codex Terminal service tier');
+  }
   if (!model || model.length > 120 || /[\u0000-\u001f\u007f\s]/.test(model)) {
     throw new Error('A valid Codex model is required');
   }
@@ -693,7 +692,6 @@ async function applyCodexTerminalProfile({
       }
     }
 
-    const wantsFast = target.serviceTier === 'priority';
     if (!current) {
       current = codexTerminalProfileFromPreview(String(await runStep(
         readPreview,
@@ -701,13 +699,13 @@ async function applyCodexTerminalProfile({
       ) || ''));
     }
     if (!current) throw new Error('Codex Terminal stopped reporting its active model');
-    if (current.fast !== wantsFast) {
-      const fastCommand = '/fast';
+    const beforeTierOutput = readOutput ? String(await runStep(readOutput, 'Timed out reading Codex Terminal output') || '') : '';
+    const currentTier = codexServiceTierConfirmations(beforeTierOutput).at(-1)?.serviceTier ?? current.serviceTier;
+    if (currentTier !== target.serviceTier) {
+      const toggleTier = target.serviceTier === 'default' ? currentTier : target.serviceTier;
+      const fastCommand = toggleTier === 'ultrafast' ? '/ultrafast' : '/fast';
       if (typeof readOutput === 'function') {
-        const previousOutput = String(await runStep(
-          readOutput,
-          'Timed out reading Codex Terminal output',
-        ) || '');
+        const previousOutput = beforeTierOutput;
         await runStep(
           () => sendInput(terminalCommand(fastCommand)),
           `Timed out sending ${fastCommand}`,
@@ -722,8 +720,8 @@ async function applyCodexTerminalProfile({
             const explicit = newCodexServiceTierConfirmation(previousOutput, output);
             if (explicit) return explicit;
             const renderedProfile = codexTerminalProfileFromPreview(stripAnsi(output));
-            if (profileMatches(renderedProfile, target, { includeFast: true })) {
-              return { serviceTier: wantsFast ? 'priority' : 'default', fast: wantsFast };
+            if (output !== previousOutput && profileMatches(renderedProfile, target, { includeFast: true })) {
+              return { serviceTier: target.serviceTier };
             }
             return null;
           },
@@ -733,10 +731,10 @@ async function applyCodexTerminalProfile({
           }
         );
         const confirmed = confirmation.result;
-        if (confirmed.fast !== wantsFast) {
-          throw new Error(`Codex did not ${wantsFast ? 'enable' : 'disable'} Fast mode`);
+        if (confirmed.serviceTier !== target.serviceTier) {
+          throw new Error(`Codex did not confirm service tier ${target.serviceTier}`);
         }
-        current = { ...current, fast: confirmed.fast };
+        current = { ...current, serviceTier: confirmed.serviceTier };
       } else {
         await runStep(
           () => sendInput(terminalCommand(fastCommand)),
@@ -748,7 +746,7 @@ async function applyCodexTerminalProfile({
           text => profileMatches(codexTerminalProfileFromPreview(text), target, { includeFast: true }),
           {
             ...waitOptions,
-            timeoutMessage: `Codex did not ${wantsFast ? 'enable' : 'disable'} Fast mode`,
+            timeoutMessage: `Codex did not confirm service tier ${target.serviceTier}`,
           }
         );
         preview = fastApplied.preview;
@@ -762,7 +760,7 @@ async function applyCodexTerminalProfile({
     return {
       model: current.model,
       effort: current.effort,
-      serviceTier: current.fast ? 'priority' : 'default',
+      serviceTier: target.serviceTier,
     };
   } catch (error) {
     while (pickerDepth > 0) {

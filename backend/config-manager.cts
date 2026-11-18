@@ -855,7 +855,7 @@ class ConfigManager {
           newAgentDefaults: {
             model: model && model.length <= 200 && !/[\r\n\0]/.test(model) ? model : 'inherit',
             reasoning: /^[A-Za-z0-9._-]{1,80}$/.test(reasoning) ? reasoning : 'inherit',
-            fast: fast === 'on' || fast === 'off' ? fast : 'inherit',
+            fast: fast === 'on' || fast === 'off' || fast === 'ultrafast' ? fast : 'inherit',
           },
         });
       });
@@ -1346,6 +1346,8 @@ class ConfigManager {
       throw new Error('The Agent Home is no longer configured at its original path.');
     }
     const newAgentDefaults = { ...home.newAgentDefaults, ...patch };
+    if (patch.model && patch.model !== home.newAgentDefaults.model && patch.fast === undefined
+      && home.newAgentDefaults.fast === 'ultrafast') newAgentDefaults.fast = 'inherit';
     if (JSON.stringify(newAgentDefaults) === JSON.stringify(home.newAgentDefaults)) return;
     this.updateSettings({ agentHomes: {
       ...this.settings.agentHomes,
@@ -1366,7 +1368,7 @@ class ConfigManager {
       ...(AGENT_HOME_LAUNCH_PROFILE_OVERRIDES[provider] || {}),
       ...(defaults.model !== 'inherit' ? { model: defaults.model } : {}),
       ...(defaults.reasoning !== 'inherit' ? { [reasoningKey]: defaults.reasoning } : {}),
-      ...(defaults.fast !== 'inherit' ? { serviceTier: defaults.fast === 'on' ? 'priority' : 'default' } : {}),
+      ...(defaults.fast !== 'inherit' ? { serviceTier: defaults.fast === 'ultrafast' ? defaults.fast : defaults.fast === 'on' ? 'priority' : 'default' } : {}),
     };
   }
 

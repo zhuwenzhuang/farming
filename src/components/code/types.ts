@@ -54,7 +54,7 @@ export interface AgentHomeSetting {
   newAgentDefaults?: {
     model: string
     reasoning: string
-    fast: 'inherit' | 'on' | 'off'
+    fast: 'inherit' | 'on' | 'off' | 'ultrafast'
   }
   order?: number
   path: string

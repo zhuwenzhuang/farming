@@ -175,6 +175,7 @@ export function ModelMatrixPicker({
   disabled,
   onSelect,
   onFastChange,
+  serviceTiers,
   advanced,
 }: {
   models: ModelMatrixModelOption[]
@@ -185,6 +186,12 @@ export function ModelMatrixPicker({
   disabled?: boolean
   onSelect: (model: string, reasoning: string) => void
   onFastChange: (fast: boolean) => void
+  serviceTiers?: {
+    label: string
+    value: string
+    options: Array<{ value: string; label: string }>
+    onChange: (value: string) => void
+  }
   advanced: ReactNode
 }) {
   const family = modelMatrixFamily(models, currentModel)
@@ -534,13 +541,19 @@ export function ModelMatrixPicker({
                 onChange={changeUltra}
               />
             </div>
-            <FastBoost
+            {serviceTiers ? <label className="code-model-matrix-fast code-model-matrix-tier">
+              <select aria-label={serviceTiers.label} disabled={disabled} value={serviceTiers.value}
+                onChange={event => serviceTiers.onChange(event.target.value)}>
+                {serviceTiers.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <ChevronDownGlyph aria-hidden="true" />
+            </label> : <FastBoost
               active={fastAvailable && visibleFast}
               available={fastAvailable}
               disabled={disabled}
               unavailableReason="Fast is not offered for this model by the active Codex CLI."
               onChange={changeFast}
-            />
+            />}
             <span className="code-model-matrix-current" aria-live="polite">
               {dragSelection
                 ? `${visibleRow.model.label} · ${visibleReasoning?.label || ''}`

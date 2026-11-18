@@ -2015,6 +2015,7 @@ const ZH_COPY: CodeCopy = {
   serviceTierLabel: (value, fallback) => ({
     default: '标准',
     priority: '快',
+    ultrafast: '极速',
     flex: '弹性',
   }[value] ?? fallback),
   serviceTierDescription: (value, fallback) => ({

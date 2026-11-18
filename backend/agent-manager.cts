@@ -6988,7 +6988,7 @@ class AgentManager extends EventEmitter {
     this.rememberAgentHomeDefaults(agent, {
       model: applied.model,
       reasoning: applied.effort,
-      fast: applied.serviceTier === 'priority' ? 'on' : 'off',
+      fast: applied.serviceTier === 'ultrafast' ? 'ultrafast' : applied.serviceTier === 'priority' ? 'on' : 'off',
     });
     return applied;
   }

@@ -19,6 +19,9 @@ assert.deepEqual(acpHomeDefaultsPatch({ configOptions }, [{ configId: 'permissio
 assert.deepEqual(acpHomeDefaultsPatch({ configOptions }, []), {});
 assert.deepEqual(acpHomeDefaultsPatch(null, [{ configId: 'model', value: 'ignored' }]), {});
 assert.deepEqual(acpHomeDefaultsPatch({ configOptions: [
+  { id: 'fast-mode', category: 'model_config', type: 'select', currentValue: 'ultrafast' },
+] }, [{ configId: 'fast-mode', value: 'ultrafast' }]), { fast: 'ultrafast' });
+assert.deepEqual(acpHomeDefaultsPatch({ configOptions: [
   { id: 'speed', type: 'boolean', currentValue: true },
 ] }, [{ configId: 'speed', value: true }]), { fast: 'on' });
 console.log('Agent Home defaults selection tests passed');

@@ -207,7 +207,7 @@ async function run() {
 
   assert.deepStrictEqual(
     codexTerminalProfileFromPreview('gpt-5.6-sol xhigh fast · ~/git/farming'),
-    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true }
+    { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'priority' }
   );
   assert.deepStrictEqual(
     codexTerminalProfileFromOutput([
@@ -215,17 +215,17 @@ async function run() {
       '• Service tier set to priority',
       'gpt-5.5 xhigh · stale simplified preview',
     ].join('\n')),
-    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true },
+    { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'priority' },
     'explicit PTY confirmations should outrank a stale simplified footer'
   );
   assert.deepStrictEqual(
     codexTerminalProfileFromPreview('• Service tier set to priority\n\ngpt-5.6-sol xhigh · ~/git/farming'),
-    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true },
+    { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'priority' },
     'newer Codex versions confirm Fast separately instead of adding it to the footer'
   );
   assert.deepStrictEqual(
     codexTerminalProfileFromPreview('gpt-5.6-sol xhigh · ~/git/farming'),
-    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: false },
+    { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
     'a footer without a Fast marker reports the default service tier'
   );
   const projectedAgent = {
@@ -627,6 +627,22 @@ async function run() {
   });
 
   const defaultInputs = [];
+  let tierOutput = '• Service tier set to priority';
+  for (const [tier, command, confirmation] of [
+    ['ultrafast', '/ultrafast', 'Service tier set to ultrafast'],
+    ['default', '/ultrafast', 'Service tier cleared'],
+  ]) {
+    const applied = await applyCodexTerminalProfile({
+      profile: { model: 'gpt-6.2-sol', effort: 'high', serviceTier: tier },
+      readPreview: async () => 'gpt-6.2-sol high · /workspace',
+      readOutput: async () => tierOutput,
+      sendInput: async input => {
+        assert.deepEqual(input, [{ type: 'paste', text: command }, '\r']);
+        tierOutput += '\n• ' + confirmation;
+      },
+    });
+    assert.equal(applied.serviceTier, tier);
+  }
   const defaultApplied = await applyCodexTerminalProfile({
     profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
     readPreview: async () => 'gpt-5.6-sol xhigh · /workspace',
