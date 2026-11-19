@@ -7869,6 +7869,12 @@ class AgentManager extends EventEmitter {
   markAgentSessionDead(agentId: AgentId, error: unknown): void {
     const agent = this.agents.get(agentId);
     if (!agent || agent.status === 'dead') return;
+    if (
+      this.runtimeStopTracker.exitEventsSuppressed(agentId)
+      || this.pendingReplacementSnapshots.has(agentId)
+    ) {
+      return;
+    }
     this.terminalInputFences.delete(agentId);
     const message = error instanceof Error
       ? error.message
@@ -12070,25 +12076,11 @@ class AgentManager extends EventEmitter {
     } satisfies AgentManagerStateChange);
   }
 
-  private hasLiveReplacementFor(replacedId: AgentId): boolean {
-    for (const candidate of this.agents.values()) {
-      if (
-        candidate.restartedFromAgentId === replacedId
-        || (Array.isArray(candidate.restartedFromAgentIds) && candidate.restartedFromAgentIds.includes(replacedId))
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   getAgentState(agentId: AgentId, now = Date.now()): AgentPublicState | null {
+    const pending = this.pendingReplacementSnapshots.get(agentId);
+    if (pending) return pending;
     const agent = this.agents.get(agentId);
-    if (!agent) {
-      const pending = this.pendingReplacementSnapshots.get(agentId);
-      if (pending && !this.hasLiveReplacementFor(agentId)) return pending;
-      return null;
-    }
+    if (!agent) return null;
     const lastActivity = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
     const isMain = this.isMainAgentRecord(agentId, agent);
     const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;

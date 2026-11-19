@@ -426,11 +426,14 @@ export { expect }
 export async function openFarming(page: Page, options: { terminalComposerExpanded?: boolean } = {}) {
   // Composer scenarios explicitly open the per-view input when a Terminal
   // appears. Scenarios that test the disclosure itself opt out.
-  const restore = page.locator('[data-testid="code-composer-restore"][data-terminal-composer]')
+  const restoreSelector = '[data-testid="code-composer-restore"][data-terminal-composer]'
+  const restore = page.locator(restoreSelector)
   await page.removeLocatorHandler(restore)
   if (options.terminalComposerExpanded !== false) {
-    await page.addLocatorHandler(restore, async button => {
-      await button.evaluate(element => (element as HTMLButtonElement).click())
+    await page.addLocatorHandler(restore, async () => {
+      await page.evaluate(selector => {
+        document.querySelector<HTMLButtonElement>(selector)?.click()
+      }, restoreSelector)
     })
   }
   await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
@@ -478,10 +481,9 @@ export async function startAgentFromOpenDialog(page: Page, name: string, workspa
     await expect(row).toHaveClass(/active/, { timeout: 30_000 })
   }
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
-  const restoreComposer = page.getByTestId('code-composer-restore')
-  if (await restoreComposer.count()) {
-    await restoreComposer.evaluate(element => (element as HTMLButtonElement).click())
-  }
+  await page.evaluate(() => {
+    document.querySelector<HTMLButtonElement>('[data-testid="code-composer-restore"]')?.click()
+  })
   return agentId
 }
 

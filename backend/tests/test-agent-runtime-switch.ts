@@ -973,6 +973,51 @@ function deferred() {
     'the definitive retry must write exactly once through the new runtime epoch',
   );
 
+  // Mid-stop session-unavailable signals during an intentional replacement must
+  // not mark the outgoing Agent dead or drop its pending state-delta snapshot.
+  const replacingAgent = {
+    id: 'replacing-terminal-agent',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    status: 'running',
+  };
+  raceManager.agents.set(replacingAgent.id, replacingAgent);
+  const outgoingSnapshot = raceManager.getAgentState(replacingAgent.id);
+  assert.strictEqual(outgoingSnapshot?.status, 'running');
+  raceManager.pendingReplacementSnapshots.set(replacingAgent.id, outgoingSnapshot);
+  raceManager.markAgentSessionDead(replacingAgent.id, 'Session not available');
+  assert.strictEqual(
+    raceManager.agents.get(replacingAgent.id).status,
+    'running',
+    'markAgentSessionDead must ignore session-unavailable errors while a replacement is in progress',
+  );
+  raceManager.agents.delete(replacingAgent.id);
+  raceManager.agents.set('replacing-terminal-agent-next', {
+    ...replacingAgent,
+    id: 'replacing-terminal-agent-next',
+    restartedFromAgentId: replacingAgent.id,
+    restartedFromAgentIds: [replacingAgent.id],
+  });
+  assert.strictEqual(
+    raceManager.getAgentState(replacingAgent.id)?.id,
+    replacingAgent.id,
+    'getAgentState must retain the pending snapshot until the replacement commits',
+  );
+  raceManager.pendingReplacementSnapshots.delete(replacingAgent.id);
+  assert.strictEqual(
+    raceManager.getAgentState(replacingAgent.id),
+    null,
+    'getAgentState must report null once the replacement snapshot is cleared',
+  );
+
   raceManager.agents.clear();
   await raceManager.dispose();
   fs.rmSync(codexHome, { recursive: true, force: true });
