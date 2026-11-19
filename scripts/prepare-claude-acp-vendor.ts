@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.108.0';
+const expectedVersion = '0.108.1';
 const expectedSdkVersion = '0.3.326';
-const expectedBundleSha256 = '9a4c9e43b5e94bba1f392e1103e61116f387272f257a813177edd367fd19f669';
+const expectedBundleSha256 = 'de9155e5756fc0bf6fe9f824052e77f6784e52005cb899fda27d7b07af561ffe';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 // Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
