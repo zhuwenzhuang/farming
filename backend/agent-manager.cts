@@ -12070,9 +12070,25 @@ class AgentManager extends EventEmitter {
     } satisfies AgentManagerStateChange);
   }
 
+  private hasLiveReplacementFor(replacedId: AgentId): boolean {
+    for (const candidate of this.agents.values()) {
+      if (
+        candidate.restartedFromAgentId === replacedId
+        || (Array.isArray(candidate.restartedFromAgentIds) && candidate.restartedFromAgentIds.includes(replacedId))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   getAgentState(agentId: AgentId, now = Date.now()): AgentPublicState | null {
     const agent = this.agents.get(agentId);
-    if (!agent) return null;
+    if (!agent) {
+      const pending = this.pendingReplacementSnapshots.get(agentId);
+      if (pending && !this.hasLiveReplacementFor(agentId)) return pending;
+      return null;
+    }
     const lastActivity = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
     const isMain = this.isMainAgentRecord(agentId, agent);
     const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
