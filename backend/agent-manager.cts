@@ -1415,6 +1415,7 @@ class AgentManager extends EventEmitter {
   declare acpTranscriptService: AcpTranscriptService;
   declare transcriptMediaPathPrefix: (agentId: string, sessionId?: string) => string;
   declare acpTranscriptCursorIdentities: Map<AgentId, string>;
+  declare pendingReplacementSnapshots: Map<AgentId, AgentManagerState['agents'][number]>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
   declare archiveCodexSession: ArchiveCodexSessionContract;
@@ -1589,6 +1590,7 @@ class AgentManager extends EventEmitter {
     });
     this.agents = new RuntimeAgentMap();
     this.acpTranscriptCursorIdentities = new Map();
+    this.pendingReplacementSnapshots = new Map();
     this.forkTitleReservations = new Set();
     this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentIdentity = new MainAgentIdentityOwner();
@@ -8761,6 +8763,8 @@ class AgentManager extends EventEmitter {
         return error instanceof Error ? error.message : String(error);
       }
     };
+    const outgoingSnapshot = this.getAgentState(agentId);
+    if (outgoingSnapshot) this.pendingReplacementSnapshots.set(agentId, outgoingSnapshot);
     let killResult: KillAgentResult;
     try {
       killResult = await this.killAgent(agentId, {
@@ -8771,6 +8775,7 @@ class AgentManager extends EventEmitter {
         persistDeleteOperation: false,
       });
     } catch (error) {
+      this.pendingReplacementSnapshots.delete(agentId);
       cancelResourceOwnerReplacement();
       return {
         error: `Failed to stop Agent runtime for the runtime switch: ${
@@ -8779,84 +8784,93 @@ class AgentManager extends EventEmitter {
       };
     }
     if (killResult?.error) {
+      this.pendingReplacementSnapshots.delete(agentId);
       cancelResourceOwnerReplacement();
       return killResult;
     }
-    const switched = await startReplacement({ ...restartOptions, terminalRuntimeSwitchProfile });
-    if (switched.restartedAgentId && !switched.error) {
-      const resourceTransferError = completeResourceOwnerReplacement(switched.restartedAgentId);
-      restorePreservedState(switched.restartedAgentId);
-      this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
-      return {
-        agentId,
-        restarted: true,
-        restartedAgentId: switched.restartedAgentId,
-        agentRuntimeMode: nextMode,
-        ...(resourceTransferError ? {
-          error: `Agent runtime switched, but its resources could not be transferred: ${resourceTransferError}`,
-        } : {}),
-      };
-    }
-    if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
-      const cleanup = await this.killAgent(switched.restartedAgentId, {
-          reason: 'runtime-switch-start-failed',
-          recordHistory: false,
-          emitUpdate: false,
-          lifecycleToken,
-      });
-      if (cleanup?.error) {
-        cancelResourceOwnerReplacement();
+    try {
+      const switched = await startReplacement({ ...restartOptions, terminalRuntimeSwitchProfile });
+      if (switched.restartedAgentId && !switched.error) {
+        const resourceTransferError = completeResourceOwnerReplacement(switched.restartedAgentId);
+        restorePreservedState(switched.restartedAgentId);
+        this.pendingReplacementSnapshots.delete(agentId);
         this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
         return {
           agentId,
+          restarted: true,
           restartedAgentId: switched.restartedAgentId,
-          cleanupUncertain: true,
-          error: `${switched.error || 'Failed to switch Agent runtime'} Replacement cleanup could not be verified: ${cleanup.error}`,
+          agentRuntimeMode: nextMode,
+          ...(resourceTransferError ? {
+            error: `Agent runtime switched, but its resources could not be transferred: ${resourceTransferError}`,
+          } : {}),
         };
       }
-    }
+      if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
+        const cleanup = await this.killAgent(switched.restartedAgentId, {
+            reason: 'runtime-switch-start-failed',
+            recordHistory: false,
+            emitUpdate: false,
+            lifecycleToken,
+        });
+        if (cleanup?.error) {
+          cancelResourceOwnerReplacement();
+          this.pendingReplacementSnapshots.delete(agentId);
+          this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
+          return {
+            agentId,
+            restartedAgentId: switched.restartedAgentId,
+            cleanupUncertain: true,
+            error: `${switched.error || 'Failed to switch Agent runtime'} Replacement cleanup could not be verified: ${cleanup.error}`,
+          };
+        }
+      }
 
-    const restored = await startReplacement(originalOptions);
-    if (restored.restartedAgentId && !restored.error) {
-      const resourceTransferError = completeResourceOwnerReplacement(restored.restartedAgentId);
-      restorePreservedState(restored.restartedAgentId);
-      this.emitStateChange({ agentIds: [agentId, restored.restartedAgentId] });
-      return {
-        agentId,
-        restarted: true,
-        restartedAgentId: restored.restartedAgentId,
-        agentRuntimeMode: originalMode,
-        switchFailed: true,
-        warning: `${switched.error || 'Failed to switch Agent runtime'} Original runtime restored.`,
-        ...(resourceTransferError ? {
-          error: `Original Agent runtime was restored, but its resources could not be transferred: ${resourceTransferError}`,
-        } : {}),
-      };
-    }
-    let restoreCleanupError = '';
-    if (restored.restartedAgentId && this.agents.has(restored.restartedAgentId)) {
-      const cleanup = await this.killAgent(restored.restartedAgentId, {
-        reason: 'runtime-switch-restore-failed',
-        recordHistory: false,
-        emitUpdate: false,
-        lifecycleToken,
+      const restored = await startReplacement(originalOptions);
+      if (restored.restartedAgentId && !restored.error) {
+        const resourceTransferError = completeResourceOwnerReplacement(restored.restartedAgentId);
+        restorePreservedState(restored.restartedAgentId);
+        this.pendingReplacementSnapshots.delete(agentId);
+        this.emitStateChange({ agentIds: [agentId, restored.restartedAgentId] });
+        return {
+          agentId,
+          restarted: true,
+          restartedAgentId: restored.restartedAgentId,
+          agentRuntimeMode: originalMode,
+          switchFailed: true,
+          warning: `${switched.error || 'Failed to switch Agent runtime'} Original runtime restored.`,
+          ...(resourceTransferError ? {
+            error: `Original Agent runtime was restored, but its resources could not be transferred: ${resourceTransferError}`,
+          } : {}),
+        };
+      }
+      let restoreCleanupError = '';
+      if (restored.restartedAgentId && this.agents.has(restored.restartedAgentId)) {
+        const cleanup = await this.killAgent(restored.restartedAgentId, {
+          reason: 'runtime-switch-restore-failed',
+          recordHistory: false,
+          emitUpdate: false,
+          lifecycleToken,
+        });
+        restoreCleanupError = cleanup?.error || '';
+      }
+      cancelResourceOwnerReplacement();
+      this.pendingReplacementSnapshots.delete(agentId);
+      this.emitStateChange({
+        agentIds: [agentId, switched.restartedAgentId, restored.restartedAgentId].filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        ),
       });
-      restoreCleanupError = cleanup?.error || '';
+      return {
+        ...(restoreCleanupError
+          ? { restartedAgentId: restored.restartedAgentId, cleanupUncertain: true }
+          : {}),
+        error: `${switched.error || 'Failed to switch Agent runtime'} Restore also failed: ${
+          restored.error || 'unknown error'
+        }${restoreCleanupError ? ` Cleanup could not be verified: ${restoreCleanupError}` : ''}`,
+      };
+    } finally {
+      this.pendingReplacementSnapshots.delete(agentId);
     }
-    cancelResourceOwnerReplacement();
-    this.emitStateChange({
-      agentIds: [agentId, switched.restartedAgentId, restored.restartedAgentId].filter(
-        (value): value is string => typeof value === 'string' && value.length > 0,
-      ),
-    });
-    return {
-      ...(restoreCleanupError
-        ? { restartedAgentId: restored.restartedAgentId, cleanupUncertain: true }
-        : {}),
-      error: `${switched.error || 'Failed to switch Agent runtime'} Restore also failed: ${
-        restored.error || 'unknown error'
-      }${restoreCleanupError ? ` Cleanup could not be verified: ${restoreCleanupError}` : ''}`,
-    };
   }
 
   findRuntimeSwitchSession(agent: TypedAgentRecord) {
@@ -8989,6 +9003,8 @@ class AgentManager extends EventEmitter {
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
     };
 
+    const outgoingSnapshot = this.getAgentState(agentId);
+    if (outgoingSnapshot) this.pendingReplacementSnapshots.set(agentId, outgoingSnapshot);
     const killResult = await this.killAgent(agentId, {
       reason: 'permission-restart',
       recordHistory: false,
@@ -8996,16 +9012,21 @@ class AgentManager extends EventEmitter {
       lifecycleToken,
       persistDeleteOperation: false,
     });
-    if (killResult?.error) return killResult;
+    if (killResult?.error) {
+      this.pendingReplacementSnapshots.delete(agentId);
+      return killResult;
+    }
 
     return new Promise<AgentRestartResult>((resolve) => {
       const startResult = this.startAgent(command, effectiveAgentWorkspaceRoot(agent) || null, (restartedAgentId: string | null, error?: string | null) => {
         if (error) {
+          this.pendingReplacementSnapshots.delete(agentId);
           this.emitStateChange({ agentIds: [agentId] });
           resolve({ error });
           return;
         }
         if (!restartedAgentId) {
+          this.pendingReplacementSnapshots.delete(agentId);
           this.emitStateChange({ agentIds: [agentId] });
           resolve({ error: 'Failed to restart agent with updated permissions' });
           return;
@@ -9038,6 +9059,7 @@ class AgentManager extends EventEmitter {
             launchPermissionMode: nextMode,
           });
         }
+        this.pendingReplacementSnapshots.delete(agentId);
         this.emitStateChange({ agentIds: [agentId, restartedAgentId] });
         resolve({
           agentId,
@@ -9047,6 +9069,7 @@ class AgentManager extends EventEmitter {
         });
       }, restartOptions);
       Promise.resolve(startResult).catch((error: unknown) => {
+        this.pendingReplacementSnapshots.delete(agentId);
         this.emitStateChange({ agentIds: [agentId] });
         resolve({
           error: error instanceof Error
@@ -12172,6 +12195,16 @@ class AgentManager extends EventEmitter {
     for (const id of this.agents.keys()) {
       const agentState = this.getAgentState(id, now);
       if (agentState) state.agents.push(agentState);
+    }
+    if (this.pendingReplacementSnapshots.size > 0) {
+      for (const [replacedId, snapshot] of this.pendingReplacementSnapshots) {
+        if (this.agents.has(replacedId)) continue;
+        const alreadyReplaced = state.agents.some(agent => (
+          agent.restartedFromAgentId === replacedId
+          || (Array.isArray(agent.restartedFromAgentIds) && agent.restartedFromAgentIds.includes(replacedId))
+        ));
+        if (!alreadyReplaced) state.agents.push(snapshot);
+      }
     }
     
     return state;

@@ -76,6 +76,12 @@ function isTerminalCopyShortcut(event: KeyboardEvent) {
   return !isMac && event.ctrlKey && !event.metaKey
 }
 
+function isTerminalPasteShortcut(event: KeyboardEvent) {
+  if (event.key.toLowerCase() !== 'v' || event.altKey) return false
+  const isMac = navigator.platform.toLowerCase().includes('mac')
+  return !isMac && event.ctrlKey && !event.metaKey
+}
+
 function isTerminalClearShortcut(event: KeyboardEvent) {
   if (event.key.toLowerCase() !== 'k' || event.altKey || event.shiftKey || event.ctrlKey) return false
   return navigator.platform.toLowerCase().includes('mac') && event.metaKey
@@ -437,6 +443,7 @@ export class TerminalSessionInteractionController {
     }
     if (terminal.attachCustomKeyEventHandler) {
       terminal.attachCustomKeyEventHandler(event => {
+        if (isTerminalPasteShortcut(event)) return false
         const before = event.defaultPrevented
         controlKeydown(event)
         return before === event.defaultPrevented
