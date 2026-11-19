@@ -210,6 +210,7 @@ interface AcpBinding {
   deferredModeGeneration: number;
   deferredModeId: string;
   codexInlineVisualizationStreams: Map<string, ReturnType<typeof createCodexInlineVisualizationStreamState>>;
+  preOpenNotices: Array<{ sessionId: string; notification: UnknownRecord; receivedAt: number }>;
   stderr: string; exited: boolean; retryableReconnect: boolean; updatedAt: string;
 }
 interface AcpProcessOwner {
@@ -348,7 +349,7 @@ const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '2.7.0';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
-const CLAUDE_ACP_VERSION = '0.108.0';
+const CLAUDE_ACP_VERSION = '0.108.1';
 const PI_ACP_PACKAGE = 'pi-acp';
 const PI_ACP_VERSION = '0.0.34';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
@@ -1859,6 +1860,7 @@ class AcpRuntime extends EventEmitter {
       deferredModeGeneration: 0,
       deferredModeId: '',
       codexInlineVisualizationStreams: new Map(),
+      preOpenNotices: [],
       stderr: '',
       exited: false,
       retryableReconnect: false,
@@ -2104,26 +2106,34 @@ class AcpRuntime extends EventEmitter {
             if (!opened) throw new Error(`${provider} ACP Agent cannot load or resume session ${requestedSessionId}`);
           }
         } else {
-          sessionResponse = await this.openUnknownRuntimeSession(runtime, binding, () => withTimeout(
-            connection.newSession(binding.sessionRequestOptions),
-            this.sessionSetupTimeoutMs,
-            'ACP session/new'
-          ));
-          this.requireOpenBinding(binding);
-          const returnedSessionId = String(sessionResponse.sessionId || '').trim();
-          if (!isSafeProviderSessionId(returnedSessionId)) {
-            binding.untrustedSessionId = returnedSessionId;
-            throw new Error('ACP session/new returned an invalid resumable session id');
-          }
-          binding.sessionId = returnedSessionId;
-          this.claimRuntimeSession(binding, returnedSessionId);
-          const preOpenAvailableCommands = Array.isArray(binding.sessionState?.availableCommands)
-            ? binding.sessionState.availableCommands
-            : [];
-          binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
-          if (preOpenAvailableCommands.length > 0) {
-            binding.sessionState.availableCommands = JSON.parse(JSON.stringify(preOpenAvailableCommands));
-          }
+          sessionResponse = await this.openUnknownRuntimeSession(runtime, binding, async () => {
+            const response = await withTimeout(
+              connection.newSession(binding.sessionRequestOptions),
+              this.sessionSetupTimeoutMs,
+              'ACP session/new'
+            );
+            this.requireOpenBinding(binding);
+            const returnedSessionId = String(response.sessionId || '').trim();
+            if (!isSafeProviderSessionId(returnedSessionId)) {
+              binding.untrustedSessionId = returnedSessionId;
+              throw new Error('ACP session/new returned an invalid resumable session id');
+            }
+            binding.sessionId = returnedSessionId;
+            this.claimRuntimeSession(binding, returnedSessionId);
+            const preOpenAvailableCommands = Array.isArray(binding.sessionState?.availableCommands)
+              ? binding.sessionState.availableCommands
+              : [];
+            const preOpenNotices = binding.preOpenNotices.filter(item => item.sessionId === returnedSessionId);
+            binding.preOpenNotices = [];
+            binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
+            if (preOpenAvailableCommands.length > 0) {
+              binding.sessionState.availableCommands = JSON.parse(JSON.stringify(preOpenAvailableCommands));
+            }
+            for (const item of preOpenNotices) {
+              binding.sessionState.apply(item.notification, { receivedAt: item.receivedAt });
+            }
+            return response;
+          });
         }
         this.requireOpenBinding(binding);
         const normalizeModes = getProviderAdapter(provider)?.acp.normalizeModes;
@@ -3195,8 +3205,20 @@ class AcpRuntime extends EventEmitter {
             if (child && native.title) child.title = String(native.title);
           }
         const notificationSessionId = String(notification?.sessionId || '');
-        if (native?.sessionUpdate === 'notice' && notificationSessionId !== binding.sessionId
-          && !binding.subagentStates.has(notificationSessionId)) return;
+        if (native?.sessionUpdate === 'notice') {
+          if (!binding.sessionId && binding.runtime?.openingBinding === binding && notificationSessionId) {
+            if (binding.preOpenNotices.length < 64) {
+              binding.preOpenNotices.push({
+                sessionId: notificationSessionId,
+                notification,
+                receivedAt: Date.now(),
+              });
+            }
+            return;
+          }
+          if (notificationSessionId !== binding.sessionId
+            && !binding.subagentStates.has(notificationSessionId)) return;
+        }
         const isPrimarySession = !binding.sessionId || !notificationSessionId || notificationSessionId === binding.sessionId;
         if (isPrimarySession) this.applyNativeTurn(binding, native);
         let targetState = isPrimarySession ? binding.sessionState : binding.subagentStates.get(notificationSessionId);
