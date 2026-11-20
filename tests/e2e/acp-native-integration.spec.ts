@@ -287,3 +287,45 @@ for (const provider of ['agy', 'qwen']) {
     }
   })
 }
+
+test('agy silent handover steering confirms immediately without live user_message_chunk', async ({ page, workspaceRoot }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const workspace = path.join(workspaceRoot, 'acp-native-steer-agy-silent')
+  fs.mkdirSync(workspace, { recursive: true })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'agy', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  try {
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await row.click()
+    const input = page.getByTestId('code-acp-composer-input')
+    const send = page.getByTestId('code-acp-composer-send')
+    await input.fill('native steering hold')
+    await send.click()
+    await expect(page.getByText('Native turn running.', { exact: true })).toBeVisible()
+    for (const change of ['silent native steer 1', 'silent native steer 2']) {
+      await input.fill(change)
+      await send.click()
+      const steer = page.getByTestId('code-acp-pending-followup-steer')
+      await expect(steer).toBeVisible()
+      await steer.click()
+      await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
+      await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
+      await expect(page.getByTestId('code-agent-transcript-steer').filter({ hasText: change })).toHaveCount(1)
+      await expect(send).toHaveAttribute('data-action', 'interrupt')
+    }
+    await expect(page.locator('.code-agent-transcript-turn > .code-agent-transcript-user')).toHaveCount(1)
+    await page.reload()
+    await row.click()
+    await expect(send).toHaveAttribute('data-action', 'interrupt')
+    await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
+    await send.click()
+    await expect(send).not.toHaveAttribute('data-action', 'interrupt')
+    await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
+  } finally {
+    await page.request.delete(`/farming/api/control/agents/${agentId}?recordHistory=0`)
+  }
+})

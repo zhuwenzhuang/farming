@@ -98,6 +98,7 @@ async function run() {
           { type: 'text', text: 'pause after first echo' },
           { type: 'text', text: 'finish native turn' },
         ]);
+        await until(() => binding.activeTurn?.concurrentSteers?.[0]?.echoedBlocks === 1);
         await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'finish native turn' }]), /confirm the previous steer/);
         fs.writeFileSync(path.join(root, 'continue-echo'), 'ready');
         await until(() => binding.activeTurn?.concurrentSteers?.[0]?.echoedBlocks === 2);
@@ -105,6 +106,41 @@ async function run() {
         assert.equal((await partial).stopReason, 'end_turn');
         assert.equal(binding.sessionState.entries.filter(entry => entry.role === 'user' && entry.content?.length === 1
           && entry.content[0].text === 'finish native turn').length, 2, 'repeated text gets its own accepted input after the previous echo closes');
+
+        // Antigravity >= 1.5.11 confirms concurrent-prompt steering by settling the
+        // predecessor RPC without emitting live user_message_chunk echoes.
+        const silent = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void silent.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        await runtime.submitMessage('native', [{ type: 'text', text: 'silent native steer 1' }], { delivery: 'steer' });
+        assert.equal(binding.sessionState.entries.filter(entry => entry._meta?.farming?.steer === true
+          && entry.content?.some(block => block.text === 'silent native steer 1')).length, 1,
+          'predecessor handover confirms silent steer immediately without user_message_chunk');
+        await runtime.submitMessage('native', [{ type: 'text', text: 'silent native steer 2' }], { delivery: 'steer' });
+        assert.equal(binding.sessionState.entries.filter(entry => entry._meta?.farming?.steer === true
+          && entry.content?.some(block => block.text === 'silent native steer 2')).length, 1,
+          'chained silent steers confirm on each predecessor handover without waiting for echoes');
+        await runtime.cancel('native');
+        assert.equal((await silent).stopReason, 'cancelled');
+        assert.equal(binding.sessionState.entries.filter(entry => entry._meta?.farming?.steer === true
+          && entry.content?.some(block => String(block.text || '').startsWith('silent native steer '))).length, 2,
+          'cancelling after handover preserves accepted silent steers in transcript');
+
+        // Antigravity <= 1.5.9 can emit delayed user_message_chunk echoes for chained
+        // steers after the first steer RPC already settled at handover to the second steer.
+        const delayedChain = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
+        void delayedChain.catch(() => {});
+        await until(() => runtime.canSteer('native'));
+        await runtime.submitMessage('native', [{ type: 'text', text: 'delayed echo chain 1' }], { delivery: 'steer' });
+        await runtime.submitMessage('native', [{ type: 'text', text: 'delayed echo chain 2' }], { delivery: 'steer' });
+        fs.writeFileSync(path.join(root, 'release-chain-echo'), 'ready');
+        assert.equal((await delayedChain).stopReason, 'end_turn');
+        assert.equal(binding.sessionState.entries.filter(entry => entry.role === 'user'
+          && entry.content?.some(block => block.text === 'delayed echo chain 1')).length, 1,
+          'delayed echo arriving after chained handover must not duplicate the first steer');
+        assert.equal(binding.sessionState.entries.filter(entry => entry.role === 'user'
+          && entry.content?.some(block => block.text === 'delayed echo chain 2')).length, 1,
+          'delayed echo arriving after chained handover must not duplicate the second steer');
 
         const rejected = runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]);
         void rejected.catch(() => {});
@@ -137,15 +173,21 @@ async function run() {
           { type: 'resource_link', uri: 'file:///demo/fixture.txt', name: 'fixture.txt' },
           { type: 'text', text: 'sparse native echo' },
         ]);
+        await until(() => binding.activeTurn?.concurrentSteers?.[0]?.echoedBlocks === 2);
         await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'cancel native steer after original ended' }]), /cancelled before acceptance/);
         assert.equal((await completed).stopReason, 'end_turn', 'an unconfirmed cancelled successor does not change a completed owner');
         assert.equal(binding.sessionState.entries.filter(entry => entry.role === 'user'
           && entry.content?.some(block => block.text === 'sparse native echo')).length, 1);
 
-        const failed = assert.rejects(runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]), /Native handover failed before echo/);
+        const failedBeforeHandover = assert.rejects(runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]), /Native steer failed before handover/);
         await until(() => runtime.canSteer('native'));
-        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'fail native handover without echo' }]), /Native handover failed before echo/);
-        await failed;
+        await assert.rejects(runtime.steer('native', [{ type: 'text', text: 'fail native steer before handover' }]), /Native steer failed before handover/);
+        await failedBeforeHandover;
+
+        const failedAfterHandover = assert.rejects(runtime.prompt('native', [{ type: 'text', text: 'native steering hold' }]), /Native handover failed before echo/);
+        await until(() => runtime.canSteer('native'));
+        await runtime.steer('native', [{ type: 'text', text: 'fail native handover without echo' }]);
+        await failedAfterHandover;
       }
     } finally {
       await runtime.dispose();

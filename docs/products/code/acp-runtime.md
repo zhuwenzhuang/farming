@@ -222,15 +222,18 @@ use the same start/settlement rules as submitted Turns.
 
 Steering transport belongs to the provider boundary. The common extension and
 legacy Codex extension require their advertised capability. Antigravity's verified
-native server uses concurrent prompts: an earlier RPC may settle at handover,
-but the logical Turn stays active until outstanding prompts settle. A protocol
-rejection before acceptance fails only that input; an internal failure may own
-the Turn even before the first echo. Ordered echo blocks or a non-cancelled
-response confirm the input once. A cancelled response without acceptance does
-not replace the owner's result. After dispatch, the admission deadline reports
-unknown while retaining the original receipt for late confirmation; it must not
-restore the input as a retryable draft. The previous echo must close before another
-input can be sent. Qwen's reverse input
+native server uses concurrent prompts: an earlier RPC settles non-cancelled at
+handover while the logical Turn stays active until outstanding prompts settle. A
+protocol rejection before acceptance fails only that input; an internal failure
+may own the Turn even before acceptance or echo. Non-cancelled predecessor
+handover during a running Turn, ordered echo blocks (on versions that emit live
+echoes), or a non-cancelled response for that prompt confirm the input once. A
+cancelled response without acceptance does not replace the owner's result. After
+dispatch, the admission deadline reports unknown while retaining the original
+receipt for late confirmation; it must not restore the input as a retryable
+draft. An unconfirmed steer or a partially echoed multi-block steer must settle
+before another input can be sent, and accepted steers keep their echo slots for
+the Turn so delayed legacy echoes deduplicate in order. Qwen's reverse input
 drain is enabled only after an owning-session request proves support; pending
 input is bounded, drained once, and withdrawn on timeout, cancellation or Turn
 settlement before delivery. Waiting for either transport must not hold the Turn

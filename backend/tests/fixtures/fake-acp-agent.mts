@@ -595,6 +595,12 @@ class FakeAgent {
       const previous = nativeSteerTurns.get(params.sessionId);
       if (previous && nativeSteeringTransport === 'pull') throw new Error('Concurrent prompt interrupts Qwen; use the drain extension');
       if (previous && text === 'reject native steer') throw RequestError.invalidParams(undefined, 'Native steer rejected before handover');
+      if (previous && text === 'fail native steer before handover') {
+        nativeSteerTurns.delete(params.sessionId);
+        cancelledSessions.delete(params.sessionId);
+        setTimeout(() => previous.resolve({ stopReason: 'end_turn' }), 10);
+        throw RequestError.internalError(undefined, 'Native steer failed before handover');
+      }
       if (previous && text === 'fail native handover without echo') {
         nativeSteerTurns.delete(params.sessionId);
         cancelledSessions.delete(params.sessionId);
@@ -604,7 +610,7 @@ class FakeAgent {
       if (previous && text === 'cancel native steer after original ended') {
         nativeSteerTurns.delete(params.sessionId);
         cancelledSessions.delete(params.sessionId);
-        previous.resolve({ stopReason: 'end_turn' });
+        setTimeout(() => previous.resolve({ stopReason: 'end_turn' }), 10);
         return { stopReason: 'cancelled' };
       }
       if (previous && text === 'hold native steer without echo') {
@@ -616,10 +622,25 @@ class FakeAgent {
           });
         });
       }
-      if (previous) previous.resolve({ stopReason: 'end_turn' });
       let resolve!: (response: PromptResponse) => void;
       const completion = new Promise<PromptResponse>(done => { resolve = done; });
       const turn = { resolve, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+      const delayHandover = Boolean(previous && text === 'delay native steer echo');
+      if (delayHandover) {
+        fs.appendFileSync(path.join(process.cwd(), 'delayed-steer-received'), 'received\n');
+        const cancelOriginal = cancelledSessions.get(params.sessionId);
+        let cancelledWhileWaiting = false;
+        cancelledSessions.set(params.sessionId, () => {
+          cancelledWhileWaiting = true;
+          cancelOriginal?.();
+          resolve({ stopReason: 'cancelled' });
+        });
+        while (!fs.existsSync(path.join(process.cwd(), 'release-steer-echo')) && !cancelledWhileWaiting) {
+          await new Promise(done => setTimeout(done, 5));
+        }
+        if (cancelledWhileWaiting) return completion;
+      }
+      if (previous) previous.resolve({ stopReason: 'end_turn' });
       nativeSteerTurns.set(params.sessionId, turn);
       const stop = (stopReason: PromptResponse['stopReason']) => {
         if (turn.timer) clearTimeout(turn.timer);
@@ -628,30 +649,49 @@ class FakeAgent {
         turn.resolve({ stopReason });
       };
       cancelledSessions.set(params.sessionId, () => stop('cancelled'));
-      if (previous && text === 'delay native steer echo') {
-        fs.appendFileSync(path.join(process.cwd(), 'delayed-steer-received'), 'received\n');
-        while (!fs.existsSync(path.join(process.cwd(), 'release-steer-echo'))
-          && nativeSteerTurns.get(params.sessionId) === turn) {
-          await new Promise(resolve => setTimeout(resolve, 5));
-        }
-        if (nativeSteerTurns.get(params.sessionId) !== turn) return completion;
-      }
-      for (const content of params.prompt) {
-        if (text.startsWith('sparse native echo') && content.type !== 'text') continue;
-        await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'user_message_chunk', content } });
-        if (content.type === 'text' && content.text === 'pause after first echo') {
-          const gate = path.join(process.cwd(), 'continue-echo');
+      if (previous && text.startsWith('delayed echo chain ')) {
+        const delayedContent = params.prompt.slice();
+        void (async () => {
+          const gate = path.join(process.cwd(), 'release-chain-echo');
           const deadline = Date.now() + 5000;
-          while (!fs.existsSync(gate)) {
-            if (Date.now() >= deadline) throw new Error('Native echo fixture gate did not open');
-            await new Promise(resolve => setTimeout(resolve, 5));
+          while (!fs.existsSync(gate) && Date.now() < deadline) {
+            await new Promise(done => setTimeout(done, 5));
+          }
+          if (!fs.existsSync(gate)) return;
+          if (text === 'delayed echo chain 2') {
+            await new Promise(done => setTimeout(done, 25));
+          }
+          for (const content of delayedContent) {
+            await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'user_message_chunk', content } });
+          }
+          if (text === 'delayed echo chain 2') {
+            await client.notify('session/update', { sessionId: params.sessionId, update: {
+              sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Delayed chain complete.' },
+            } });
+            stop('end_turn');
+          }
+        })();
+        return completion;
+      }
+      const suppressEcho = previous && (text.startsWith('silent native steer') || text === 'finish silent native turn');
+      if (!suppressEcho) {
+        for (const content of params.prompt) {
+          if (text.startsWith('sparse native echo') && content.type !== 'text') continue;
+          await client.notify('session/update', { sessionId: params.sessionId, update: { sessionUpdate: 'user_message_chunk', content } });
+          if (content.type === 'text' && content.text === 'pause after first echo') {
+            const gate = path.join(process.cwd(), 'continue-echo');
+            const deadline = Date.now() + 5000;
+            while (!fs.existsSync(gate)) {
+              if (Date.now() >= deadline) throw new Error('Native echo fixture gate did not open');
+              await new Promise(done => setTimeout(done, 5));
+            }
           }
         }
       }
       await client.notify('session/update', { sessionId: params.sessionId, update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: previous ? `Native steer accepted: ${text}` : 'Native turn running.' },
       } });
-      if (text === 'finish native turn') stop('end_turn');
+      if (text === 'finish native turn' || text === 'finish silent native turn') stop('end_turn');
       if (nativeSteeringTransport === 'pull') {
         if (process.env.FARMING_TEST_NATIVE_STEERING_DRAIN_ONCE) {
           const verifyRejected = async (method: string, params: Record<string, unknown>, code: number) => {

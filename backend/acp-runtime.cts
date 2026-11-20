@@ -159,12 +159,15 @@ interface AcpTurn {
   resolveCompletion?: (result: unknown) => void;
   controlTail: Promise<unknown>;
   terminalResult?: unknown;
+  originalSettled?: boolean;
   pendingSteers?: Map<string, { accept: () => UnknownRecord; reject: (error: Error) => void }>;
   concurrentSteers?: Array<{
     content: PromptBlock[];
     clientMessageId: string;
     accepted: boolean;
     failed: boolean;
+    settled: boolean;
+    preHandoverRejected: boolean;
     echoedBlocks: number;
     accept: () => void;
     reject: (error: unknown) => void;
@@ -3711,10 +3714,16 @@ class AcpRuntime extends EventEmitter {
       }
       let outcome = await responsePromise.then<AcpPromptOutcome, AcpPromptOutcome>(
         response => {
+          turn.originalSettled = true;
           if (response.stopReason !== 'cancelled' && this.isOpenBinding(binding)
             && inputState.confirmPromptInput(inputEntry)) this.emitSession(binding);
+          this.settleConcurrentPromptOwner(binding, turn, -1, response.stopReason !== 'cancelled');
           return { ok: true, response };
-        }, error => ({ ok: false, error }),
+        }, error => {
+          turn.originalSettled = true;
+          this.settleConcurrentPromptOwner(binding, turn, -1, false);
+          return { ok: false, error };
+        },
       );
       // Concurrent-prompt agents can complete the original RPC at handover,
       // while the same logical Turn continues under the later prompt RPC.
@@ -3907,6 +3916,30 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
+  nextConcurrentSteerSuccessor(turn: AcpTurn, afterIndex: number) {
+    const steers = turn.concurrentSteers;
+    if (!steers) return null;
+    for (let index = afterIndex + 1; index < steers.length; index += 1) {
+      const candidate = steers[index];
+      if (candidate.preHandoverRejected) continue;
+      return candidate;
+    }
+    return null;
+  }
+
+  settleConcurrentPromptOwner(binding: AcpBinding, turn: AcpTurn, ownerIndex: number, handedOver: boolean) {
+    const successor = handedOver ? this.nextConcurrentSteerSuccessor(turn, ownerIndex) : null;
+    if (successor) {
+      if (this.isCurrentTurn(binding, turn) && turn.phase === 'running' && !successor.settled && !successor.failed) {
+        successor.accept();
+      }
+      return;
+    }
+    if (turn.originalSettled === true && (turn.concurrentSteers || []).every(item => item.settled)) {
+      turn.providerSettled = true;
+    }
+  }
+
   async steerConcurrentPrompt(binding: AcpBinding, turn: AcpTurn, content: PromptBlock[], clientMessageId: string, options: PrepareAgentOptions, noticeIds: string[]) {
     const { RequestError } = await loadAcpSdk();
     let resolveReceipt!: (value: { sessionId: string; clientMessageId: string; turnId: string }) => void;
@@ -3921,7 +3954,8 @@ class AcpRuntime extends EventEmitter {
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active ACP turn to steer');
       this.requireSavedSessionModel(binding);
-      if (turn.concurrentSteers?.some(pending => !pending.failed && pending.echoedBlocks < pending.content.length)) {
+      if (turn.concurrentSteers?.some(pending => !pending.failed
+        && (!pending.accepted || (pending.echoedBlocks > 0 && pending.echoedBlocks < pending.content.length)))) {
         throw new Error('Waiting for Antigravity to confirm the previous steer');
       }
       const state = this.requireSessionState(binding);
@@ -3930,8 +3964,9 @@ class AcpRuntime extends EventEmitter {
       // A failed admission or synchronous transport throw creates no successor.
       this.submissionPhase(binding, options, 'dispatching');
       const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt });
+      const pendingIndex = turn.concurrentSteers?.length || 0;
       const pending: NonNullable<AcpTurn['concurrentSteers']>[number] = {
-        content: prompt, clientMessageId, accepted: false, failed: false, echoedBlocks: 0,
+        content: prompt, clientMessageId, accepted: false, failed: false, settled: false, preHandoverRejected: false, echoedBlocks: 0,
         reject: rejectReceipt,
         accept: () => {
           if (pending.accepted || !this.isCurrentTurn(binding, turn)) return;
@@ -3942,16 +3977,22 @@ class AcpRuntime extends EventEmitter {
           resolveReceipt({ sessionId: binding.sessionId, clientMessageId, turnId });
         },
         result: responsePromise.then<AcpPromptOutcome | null, AcpPromptOutcome | null>(response => {
-          pending.echoedBlocks = pending.content.length;
+          pending.settled = true;
           if (response.stopReason === 'cancelled' && !pending.accepted) {
+            pending.preHandoverRejected = true;
             rejectReceipt(new Error('ACP steer was cancelled before acceptance'));
+            this.settleConcurrentPromptOwner(binding, turn, pendingIndex, false);
             return null;
           }
           if (response.stopReason !== 'cancelled') pending.accept();
+          this.settleConcurrentPromptOwner(binding, turn, pendingIndex, response.stopReason !== 'cancelled');
           return { ok: true, response };
         }, error => {
           pending.failed = true;
+          pending.settled = true;
+          if (!pending.accepted) pending.preHandoverRejected = true;
           rejectReceipt(error);
+          this.settleConcurrentPromptOwner(binding, turn, pendingIndex, false);
           // Only a protocol-level rejection proves no execution. An internal
           // error can arrive after handover but before the first input echo.
           const rejected = error instanceof RequestError && [-32600, -32601, -32602].includes(error.code);
@@ -3960,7 +4001,7 @@ class AcpRuntime extends EventEmitter {
       };
       (turn.concurrentSteers ??= []).push(pending);
     });
-    // Do not hold the Turn control lock while waiting for an echo/completion:
+    // Do not hold the Turn control lock while waiting for handover/echo/completion:
     // cancellation must still reach the Agent during a long native tool call.
     // Admission already bounds the caller's wait as unknown. After dispatch,
     // retain this receipt until provider evidence or Turn termination settles it;
