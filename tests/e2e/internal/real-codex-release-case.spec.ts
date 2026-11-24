@@ -917,17 +917,29 @@ async function sendCrtMessage(page: Page, message: string) {
   await expect(input).toHaveValue('')
 }
 
+function matchesCatalogModel(value: string, model: string) {
+  return value === model || value === `codex/${model}`
+}
+
+function releasePrimaryModel(catalog: CodexCatalogModel[]) {
+  const models = catalog.filter(model => matchesCatalogModel(model.value, PRIMARY_MODEL))
+  expect(models, `${PRIMARY_MODEL} must have one exact identity in the live Codex catalog`).toHaveLength(1)
+  const model = models[0]!
+  expect(model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
+  return model.value
+}
+
 // Provider truth, not composer state: refuse to prompt a real Codex Terminal
 // until its own status line reports the fixed low-cost model.
-async function expectTerminalRunsPrimaryModel(page: Page, agentId: string, catalog: CodexCatalogModel[]) {
+async function expectTerminalRunsPrimaryModel(page: Page, agentId: string, catalog: CodexCatalogModel[], primaryModelId: string) {
   await expect.poll(async () => codexTerminalReportsModel(
-    (await codeRows(page, agentId)).join('\n'), catalog, PRIMARY_MODEL, PRIMARY_EFFORT,
+    (await codeRows(page, agentId)).join('\n'), catalog, primaryModelId, PRIMARY_EFFORT,
   ), { timeout: 90_000 }).toBe(true)
 }
 
-async function expectCrtTerminalRunsPrimaryModel(page: Page, catalog: CodexCatalogModel[]) {
+async function expectCrtTerminalRunsPrimaryModel(page: Page, catalog: CodexCatalogModel[], primaryModelId: string) {
   await expect.poll(async () => codexTerminalReportsModel(
-    (await crtRows(page)).join('\n'), catalog, PRIMARY_MODEL, PRIMARY_EFFORT,
+    (await crtRows(page)).join('\n'), catalog, primaryModelId, PRIMARY_EFFORT,
   ), { timeout: 90_000 }).toBe(true)
 }
 
@@ -942,7 +954,7 @@ function acpSessionOptionValue(options: AcpSessionConfigOption[], category: stri
 // An ACP session inherits the model of the Codex session it resumed. Assert that
 // inheritance and, when the provider reports anything else, switch it back
 // through the product path before the session is allowed to spend a turn.
-async function pinAcpSessionToPrimaryModel(page: Page, agentId: string) {
+async function pinAcpSessionToPrimaryModel(page: Page, agentId: string, primaryModelId: string) {
   const sessionUrl = `/farming/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`
   const readOptions = async () => {
     const response = await page.request.get(sessionUrl)
@@ -958,7 +970,7 @@ async function pinAcpSessionToPrimaryModel(page: Page, agentId: string) {
   const model = acpSessionOptionValue(options, 'model', /(^|[\s_-])model([\s_-]|$)/i)
   const reasoning = acpSessionOptionValue(options, 'thought_level', /(reasoning|thought|effort)/i)
   const changes = [
-    ...(model.value === PRIMARY_MODEL ? [] : [{ configId: model.id, value: PRIMARY_MODEL }]),
+    ...(model.value === primaryModelId ? [] : [{ configId: model.id, value: primaryModelId }]),
     ...(reasoning.id && reasoning.value !== PRIMARY_EFFORT ? [{ configId: reasoning.id, value: PRIMARY_EFFORT }] : []),
   ]
   if (changes.length > 0) {
@@ -966,11 +978,11 @@ async function pinAcpSessionToPrimaryModel(page: Page, agentId: string) {
       data: { configOptions: changes },
     })
     const body = await response.json() as { error?: string }
-    expect(response.ok(), body.error || `Failed to pin the ACP session to ${PRIMARY_MODEL}`).toBeTruthy()
+    expect(response.ok(), body.error || `Failed to pin the ACP session to ${primaryModelId}`).toBeTruthy()
   }
   await expect.poll(async () => acpSessionOptionValue(await readOptions(), 'model', /(^|[\s_-])model([\s_-]|$)/i).value, {
     timeout: 90_000,
-  }).toBe(PRIMARY_MODEL)
+  }).toBe(primaryModelId)
 }
 
 test.describe('real Codex pre-release composite case', () => {
@@ -1002,9 +1014,7 @@ test.describe('real Codex pre-release composite case', () => {
     expect(catalogResponse.ok()).toBeTruthy()
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
     const catalog = catalogBody.catalog ?? []
-    const primaryModel = catalog.find(model => model.value === PRIMARY_MODEL)
-    expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
-    expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
+    const primaryModelId = releasePrimaryModel(catalog)
 
     // The per-test fixture resets Home defaults to inherit. New native Sessions
     // use that exact Home, not the legacy global Composer model preference.
@@ -1021,7 +1031,7 @@ test.describe('real Codex pre-release composite case', () => {
           ...agentHomes,
           codex: agentHomes.codex.map(home => home.id === homeId ? {
             ...home,
-            newAgentDefaults: { model: PRIMARY_MODEL, reasoning: PRIMARY_EFFORT, fast: 'off' },
+            newAgentDefaults: { model: primaryModelId, reasoning: PRIMARY_EFFORT, fast: 'off' },
           } : home),
         },
         agentLaunchProfiles: {
@@ -1036,7 +1046,7 @@ test.describe('real Codex pre-release composite case', () => {
 
     await openFarming(page)
     const createResponse = await page.request.post('/farming/api/control/agents', {
-      data: { command: 'codex', workspace: REAL_CODEX_WORKSPACE, agentRuntimeMode: 'terminal', providerHomeId: 'default' },
+      data: { command: 'codex', workspace: REAL_CODEX_WORKSPACE, agentRuntimeMode: 'terminal', providerHomeId: homeId },
     })
     const createBody = await createResponse.json() as { agentId?: string, error?: string }
     expect(createResponse.ok(), createBody.error || 'Failed to create real Codex Agent').toBeTruthy()
@@ -1048,7 +1058,7 @@ test.describe('real Codex pre-release composite case', () => {
     await row.click()
     await waitForCodeTerminal(page, agentId)
     await continueWithoutUntrustedHooks(page, agentId)
-    await expectTerminalRunsPrimaryModel(page, agentId, catalog)
+    await expectTerminalRunsPrimaryModel(page, agentId, catalog, primaryModelId)
     await sendCodeTerminalInput(
       page,
       agentId,
@@ -1067,7 +1077,7 @@ test.describe('real Codex pre-release composite case', () => {
       body: Buffer.from(JSON.stringify({
         agentId,
         providerSessionId: liveAgent.providerSessionId,
-        model: PRIMARY_MODEL,
+        model: primaryModelId,
         effort: PRIMARY_EFFORT,
         anchor: RELEASE_SMOKE_END,
       }, null, 2)),
@@ -1096,25 +1106,18 @@ test.describe('real Codex pre-release composite case', () => {
     expect(catalogResponse.ok()).toBeTruthy()
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
     const catalog = catalogBody.catalog ?? []
-    const primaryModel = catalog.find(model => model.value === PRIMARY_MODEL)
-    const supportsPrimaryEffort = (model: CodexCatalogModel) => (
-      model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT) === true
-    )
-    expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
-    // Gateway descriptions are presentation text; model identity and supported
-    // effort are the authoritative contract for this bounded provider smoke.
-    expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
-    const primaryFamily = PRIMARY_MODEL.replace(/-(sol|terra|luna)$/i, '')
+    const primaryModelId = releasePrimaryModel(catalog)
+    const primaryFamily = primaryModelId.replace(/-(sol|terra|luna)$/i, '')
     const isPrimarySibling = (model: CodexCatalogModel) => (
-      model.value !== PRIMARY_MODEL
+      model.value !== primaryModelId
       && model.value.startsWith(`${primaryFamily}-`)
-      && supportsPrimaryEffort(model)
+      && model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT) === true
     )
     // Pin the sibling instead of taking whatever the catalog lists first, so the
     // model this gate touches never depends on catalog ordering.
-    const launchModel = catalog.find(model => model.value === LAUNCH_MODEL && isPrimarySibling(model))
+    const launchModel = catalog.find(model => matchesCatalogModel(model.value, LAUNCH_MODEL) && isPrimarySibling(model))
       ?? catalog.find(isPrimarySibling)
-    expect(launchModel, `A ${PRIMARY_MODEL} sibling is required to prove a live model switch`).toBeTruthy()
+    expect(launchModel, `A ${primaryModelId} sibling is required to prove a live model switch`).toBeTruthy()
 
     const settingsResponse = await page.request.post('/farming/api/settings', {
       data: {
@@ -1186,16 +1189,16 @@ test.describe('real Codex pre-release composite case', () => {
       await expect(picker).toHaveAttribute('aria-expanded', 'true')
       await expect(page.getByTestId('code-model-menu')).toBeVisible()
       await expect(page.getByTestId('code-model-matrix-picker')).toBeVisible({ timeout: 60_000 })
-      const variant = PRIMARY_MODEL.match(/-(sol|terra|luna)$/i)?.[1]?.toLowerCase()
+      const variant = primaryModelId.match(/-(sol|terra|luna)$/i)?.[1]?.toLowerCase()
       expect(variant).toBeTruthy()
       const target = page.getByTestId(`code-model-matrix-cell-${variant}-${PRIMARY_EFFORT}`)
-        .and(page.locator(`[data-model="${PRIMARY_MODEL}"]`))
+        .and(page.locator(`[data-model="${primaryModelId}"]`))
       await expect(target).toBeVisible()
       await expect(target).toBeEnabled({ timeout: 60_000 })
       await target.press('Enter')
-      await expect(picker).toHaveAttribute('data-agent-model-preset', `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
+      await expect(picker).toHaveAttribute('data-agent-model-preset', `${primaryModelId}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
       await page.keyboard.press('Escape')
-      await expectTerminalRunsPrimaryModel(page, agentId, catalog)
+      await expectTerminalRunsPrimaryModel(page, agentId, catalog, primaryModelId)
     })
 
     await test.step('Multi-page Composer output stays at the visible bottom during a running Code to CRT switch', async () => {
@@ -1261,7 +1264,7 @@ test.describe('real Codex pre-release composite case', () => {
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
       await assertChatFormats(page, agentId)
       await assertTerminalTurnsInProviderHistory(page, agentId)
-      await pinAcpSessionToPrimaryModel(page, agentId)
+      await pinAcpSessionToPrimaryModel(page, agentId, primaryModelId)
       await sendCodeAcpPromptAndSteer(page)
       await expect(page.getByTestId('code-agent-transcript-steer')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 60_000 })
@@ -1312,7 +1315,7 @@ test.describe('real Codex pre-release composite case', () => {
       // narrow reflow; assert the newest preserved turn stays continuously
       // visible instead of pinning the viewport to historical content.
       await resizeCrtTerminal(page, ACP_FOLLOW_UP_ACK)
-      await expectCrtTerminalRunsPrimaryModel(page, catalog)
+      await expectCrtTerminalRunsPrimaryModel(page, catalog, primaryModelId)
       await sendCrtTerminalInput(page, oneLine(`Do not use tools. Reply with only the concatenation of CRT_TERMINAL_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`))
       await waitForCrtAnchor(page, CRT_TERMINAL_ACK)
       await waitForCrtTerminalIdle(page, agentId)
@@ -1326,7 +1329,7 @@ test.describe('real Codex pre-release composite case', () => {
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.locator('#crt-structured-input')).toBeVisible({ timeout: 60_000 })
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_TERMINAL_ACK }).last()).toBeVisible({ timeout: 120_000 })
-      await pinAcpSessionToPrimaryModel(page, agentId)
+      await pinAcpSessionToPrimaryModel(page, agentId, primaryModelId)
       await sendCrtMessage(page, `Do not use tools. Reply with only the concatenation of CRT_MSG_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`)
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_MSG_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, CRT_MSG_ACK)
@@ -1342,7 +1345,7 @@ test.describe('real Codex pre-release composite case', () => {
       await continueCrtWithoutUntrustedHooks(page, CRT_MSG_ACK)
       await waitForCrtAnchor(page, CRT_MSG_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
-      await expectCrtTerminalRunsPrimaryModel(page, catalog)
+      await expectCrtTerminalRunsPrimaryModel(page, catalog, primaryModelId)
       await resizeCrtTerminal(page, CRT_MSG_ACK)
       await page.setViewportSize(NORMAL_VIEWPORT)
       await attachScreenshot(page, testInfo, '05-crt-terminal-final.png')
@@ -1352,10 +1355,10 @@ test.describe('real Codex pre-release composite case', () => {
     await testInfo.attach('release-case-evidence.json', {
       body: Buffer.from(JSON.stringify({
         providerSessionId,
-        primaryModel: PRIMARY_MODEL,
+        primaryModel: primaryModelId,
         primaryEffort: PRIMARY_EFFORT,
         chatRuntime: 'acp',
-        resumedTerminalModel: PRIMARY_MODEL,
+        resumedTerminalModel: primaryModelId,
         finalAgentId: agentId,
         finalViewport: page.viewportSize(),
         anchors: [CLI_END, COMPOSITE_END, ACP_FOLLOW_UP_ACK, CRT_TERMINAL_ACK, CRT_MSG_ACK],

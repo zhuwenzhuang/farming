@@ -99,14 +99,6 @@ function emit(platform, inputRoot, originFile, outputRoot) {
       execFileSync('codesign', ['--force', '--sign', '-', binary], { stdio: 'inherit', timeout: 10_000 });
       execFileSync('codesign', ['--verify', '--strict', binary], { stdio: 'inherit', timeout: 10_000 });
     }
-    if (platform.replace(/-musl$/, '') === `${process.platform}-${process.arch}`) {
-      const result = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL', detached: process.platform !== 'win32' });
-      if (process.platform !== 'win32' && result.pid) {
-        try { process.kill(-result.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
-      }
-      assert.equal(result.status, 0, 'Assembled native Browser could not launch');
-      assert.equal(result.stdout.trim(), `agent-browser ${pin.version}`);
-    }
     for (const name of ['LICENSE', 'NOTICE']) {
       if (fs.existsSync(path.join(input, name))) { regular(path.join(input, name)); fs.copyFileSync(path.join(input, name), path.join(staging, name)); }
     }
@@ -115,7 +107,22 @@ function emit(platform, inputRoot, originFile, outputRoot) {
       sha256: hash(fs.readFileSync(binary)), compilationOrigin,
       acceptedFromPreparation: { runId: origin.id, farmingSha: origin.head_sha, sha256: identity.sha256 },
     }, null, 2)}\n`, { flag: 'wx' });
+    // Move the staging directory before opening an executable handle on Windows.
+    // The workflow consumes the artifact only after this command succeeds.
     fs.renameSync(staging, output);
+    try {
+      if (platform.replace(/-musl$/, '') === `${process.platform}-${process.arch}`) {
+        const result = spawnSync(path.join(output, filename), ['--version'], { encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL', detached: process.platform !== 'win32' });
+        if (process.platform !== 'win32' && result.pid) {
+          try { process.kill(-result.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        }
+        assert.equal(result.status, 0, 'Assembled native Browser could not launch');
+        assert.equal(result.stdout.trim(), `agent-browser ${pin.version}`);
+      }
+    } catch (error) {
+      fs.rmSync(output, { recursive: true, force: true });
+      throw error;
+    }
     console.log(`Verified candidate Browser assembly: ${platform}`);
   } finally { fs.rmSync(staging, { recursive: true, force: true }); }
 }
