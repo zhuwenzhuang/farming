@@ -1245,6 +1245,7 @@
       padding: max(16px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom));
       align-items: stretch;
       pointer-events: none;
+      box-shadow: none;
       transform: translateX(calc(-100% - 18px));
     }
 

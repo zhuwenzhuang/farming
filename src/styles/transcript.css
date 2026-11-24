@@ -3236,13 +3236,29 @@ button.code-agent-transcript-result-summary:is(:focus-visible) .code-agent-trans
 
 @media (max-width: 767px), (max-width: 980px) and (pointer: coarse) {
   body.code-mode.code-compact-layout .code-agent-transcript-sticky-turn-wrap {
-    padding: 6px 12px 8px;
+    padding: 4px 12px;
+    background: transparent;
   }
 
   body.code-mode.code-compact-layout .code-agent-transcript-sticky-turn,
   body.code-mode.code-compact-layout .code-agent-work-pane.runtime-switchable .code-agent-transcript-sticky-turn {
-    max-width: 100%;
-    margin-right: 0;
+    width: fit-content;
+    max-width: 75%;
+    min-width: var(--code-touch-target-size);
+    margin: 0;
+    min-height: var(--code-touch-target-size);
+    padding: 4px 10px;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript-sticky-turn-text {
+    display: block;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript-sticky-turn-image {
+    width: 28px;
+    height: 28px;
   }
 }
 

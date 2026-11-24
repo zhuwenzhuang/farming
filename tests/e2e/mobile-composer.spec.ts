@@ -86,6 +86,60 @@ for (const appearance of ['light', 'dark', 'paper']) {
   })
 }
 
+test('mobile Chat horizontal caret movement stays on visible text in a wrapped draft', async ({ page, workspaceRoot }, testInfo) => {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json()
+  await openFarming(page)
+  await page.getByTestId('code-mobile-menu').click()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const input = page.getByTestId('code-acp-composer-input')
+  const draft = '首行' + '换行文字和 emoji 🐱 '.repeat(80) + '末尾'
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => { document.documentElement.dataset.appearance = document.body.dataset.appearance = value }, appearance)
+    await input.fill(draft)
+    await expectValue(input, draft)
+    for (const edge of ['end', 'start'] as const) {
+      // Native movement can stop between the paragraph and its editable root,
+      // or immediately beside the scrolling shell while the editor owns focus.
+      for (const boundary of ['document', 'shell-parent'] as const) {
+        await input.evaluate((element, { edge, boundary }) => {
+          const shell = element.parentElement!
+          shell.scrollTop = edge === 'start' ? shell.scrollHeight : 0
+          const parent = shell.parentNode!
+          const node = boundary === 'document' ? element : parent
+          const index = Array.from(parent.childNodes).indexOf(shell)
+          const offset = boundary === 'document' ? (edge === 'start' ? 0 : element.childNodes.length)
+            : index + Number(edge === 'end')
+          window.getSelection()!.collapse(node, offset)
+        }, { edge, boundary })
+        await expect.poll(() => input.evaluate(element => {
+          const selection = window.getSelection()!
+          const caret = selection.getRangeAt(0).getBoundingClientRect()
+          const viewport = element.parentElement!.getBoundingClientRect()
+          return element.querySelector('p')!.contains(selection.focusNode) && caret.height > 0 &&
+            caret.top >= viewport.top - 1 && caret.bottom <= viewport.bottom + 1
+        })).toBe(true)
+        const offset = edge === 'start' ? 0 : draft.length
+        expect(await selection(input)).toEqual([offset, offset])
+        if (boundary === 'shell-parent') {
+          const shot = await page.getByTestId('code-acp-composer').screenshot({
+            path: testInfo.outputPath(`caret-wrap-${appearance}-${edge}.png`), animations: 'disabled', caret: 'initial',
+          })
+          expect(shot.readUInt32BE(20)).toBeGreaterThan(60)
+        }
+        await input.evaluate((_el, edge) => window.getSelection()!.modify('move', edge === 'start' ? 'right' : 'left', 'character'), edge)
+        await page.keyboard.insertText('验')
+        const i = edge === 'start' ? 1 : draft.length - 1
+        await expectValue(input, draft.slice(0, i) + '验' + draft.slice(i))
+        await input.fill(draft)
+      }
+    }
+  }
+})
+
 test('mobile Chat caret repair preserves native selection and composition ownership', async ({ page, workspaceRoot }) => {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'codex', workspace: workspaceRoot, agentRuntimeMode: 'chat' },
@@ -198,8 +252,7 @@ for (const runtime of ['chat', 'terminal'] as const) {
     await expect(input).toBeEditable()
     const prepareDraft = async (text: string) => {
       if (runtime === 'chat') {
-        // Reset through the structured document owner, as in the native-caret
-        // fixtures above. Locator.fill('') does not settle Lexical deletion.
+        // Reset through the structured document owner, as in the native-caret fixtures above.
         await input.evaluate((element, value) => {
           const owner = element.parentElement as ComposerInputElement
           owner.value = value

@@ -677,7 +677,8 @@ natural content height. The jump-to-latest control indicates actual content belo
 the viewport, not empty runway, and remains available when history paging excludes
 the live tail. Scrolling past a turn's inline user prompt pins a compact summary
 of that turn's user message at the top of the viewport; clicking it returns to
-the turn start. Read failure
+the turn start. On phones the summary occupies a single line and leaves the
+adjacent transcript visible and available for touch scrolling. Read failure
 and execution failure remain visibly distinct. Startup is not an active Turn.
 
 Turn failures show their category and original provider reason outside the activity

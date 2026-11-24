@@ -69,6 +69,20 @@ test('mobile unread navigation previews, cancels and preserves drafts across app
     await expect(next).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await next.evaluate(element => element.blur())
     await page.screenshot({ path: testInfo.outputPath(`unread-${appearance}-resting.png`) })
+    await page.getByTestId('code-acp-composer-add').click()
+    const menu = page.getByTestId('code-acp-plus-menu')
+    const items = menu.getByRole('menuitem')
+    await expect(items).toHaveCount(3)
+    for (const item of await items.all()) {
+      await expect.poll(() => item.evaluate(el => {
+        const box = el.getBoundingClientRect()
+        return el.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+      })).toBe(true)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`unread-menu-${appearance}.png`), animations: 'disabled' })
+    await page.getByTestId('code-acp-composer-goal-mode').click()
+    await page.getByTestId('code-acp-composer-mode-chip').click()
+    await expect(next).toContainText('2')
     await touch(prose, 'touchstart', 300)
     await touch(prose, 'touchmove', 150)
     const preview = page.getByTestId('code-mobile-unread-preview')

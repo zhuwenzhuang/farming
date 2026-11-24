@@ -74,7 +74,6 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
       },
     })
     guardComposerComposition(editor.view)
-    const stopObservingCaret = observeComposerCaretBoundary(editor.view, host)
     editorRef.current = editor
     const range = (start: number, end: number, direction?: 'forward' | 'backward' | 'none') => {
       const positions = composerTextPositions(editor.state.doc)
@@ -111,13 +110,18 @@ export function ComposerRichInput({ inputRef, value, document, disabled, placeho
     const scheduleRevealCaret = () => {
       cancelAnimationFrame(revealFrame)
       revealFrame = requestAnimationFrame(() => {
-        if (!editor.view.hasFocus() || editor.view.composing || !editor.state.selection.empty || !window.getSelection()?.isCollapsed) return
-        const caret = editor.view.coordsAtPos(editor.state.selection.head)
+        const native = host.ownerDocument.getSelection()
+        if (!editor.view.hasFocus() || editor.view.composing || !native?.isCollapsed || !native.rangeCount
+          || !editor.view.dom.contains(native.focusNode)) return
+        // At a soft wrap the same model offset can be painted on either line.
+        const range = native.getRangeAt(0).getBoundingClientRect()
+        const caret = range.height ? range : editor.view.coordsAtPos(editor.state.selection.head)
         const box = host.getBoundingClientRect()
         if (caret.top < box.top) host.scrollTop -= box.top - caret.top + 6
         else if (caret.bottom > box.bottom) host.scrollTop += caret.bottom - box.bottom + 6
       })
     }
+    const stopObservingCaret = observeComposerCaretBoundary(editor.view, host, scheduleRevealCaret)
     const restore = () => {
       if (lastEmitted && lastEmitted.doc === editor.state.doc && current.current.value === lastEmitted.value && current.current.document === lastEmitted.document) {
         scheduleRevealCaret()

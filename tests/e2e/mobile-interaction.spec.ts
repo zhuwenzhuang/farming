@@ -3,6 +3,10 @@ import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, interceptWorkspaceRequests, openFarming, test } from './fixtures'
 
+const { PNG: ScreenshotPng } = require('playwright-core/lib/utilsBundle') as {
+  PNG: { sync: { read(buffer: Buffer): { data: Buffer; width: number; height: number } } }
+}
+
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
 async function selectNewAgent(page: Page, workspace: string, runtime: 'chat' | 'terminal' = 'chat') {
@@ -25,8 +29,8 @@ async function guardSettled(page: Page, armed: boolean) {
 async function capture(page: Page, name: string) {
   const png = await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: 'disabled' })
   const scale = await page.evaluate(() => devicePixelRatio)
-  expect(png.readUInt32BE(16)).toBe(390 * scale)
-  expect(png.readUInt32BE(20)).toBe(844 * scale)
+  expect(png.readUInt32BE(16)).toBe(Math.round(390 * scale))
+  expect(png.readUInt32BE(20)).toBe(Math.round(844 * scale))
 }
 
 async function touchTarget(control: Locator) {
@@ -37,6 +41,87 @@ async function touchTarget(control: Locator) {
   expect(box!.width).toBeGreaterThanOrEqual(44 - 0.001)
   expect(box!.height).toBeGreaterThanOrEqual(44 - 0.001)
 }
+
+for (const size of ['ordinary', 'large'] as const) {
+  test(`phone Markdown reading paints the full viewport after scrolling and reopening (${size})`, async ({ page, workspaceRoot }, testInfo) => {
+    await page.setViewportSize({ width: 430, height: 932 })
+    const section = '## 阅读说明\n\n1. ' + '滚动阅读完整的段落，检查正文区域。'.repeat(12)
+      + '\n2. 保留上下文和位置。\n\n```text\nexample command\n```\n\n'
+    fs.writeFileSync(path.join(workspaceRoot, 'guide.md'), section.repeat(size === 'large' ? 1200 : 30))
+    await selectNewAgent(page, workspaceRoot)
+    await page.getByTestId('code-mobile-menu').tap()
+    const files = page.getByTestId('code-files-section')
+    const toggle = files.getByRole('button', { name: /^Files$/ })
+    if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.tap()
+    await files.locator('[data-file-path="guide.md"]').tap()
+    const panel = page.getByTestId('code-file-markdown-preview')
+    await expect(panel.locator('h2').first()).toBeVisible()
+    await expect(panel.locator('.code-markdown-large-virtual')).toHaveCount(size === 'large' ? 1 : 0)
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate(value => { document.documentElement.dataset.appearance = document.body.dataset.appearance = value }, appearance)
+      await panel.evaluate(el => { el.scrollTop = el.scrollHeight * 0.6 })
+      await page.getByRole('button', { name: 'Show Markdown source' }).tap()
+      const previewAction = appearance === 'paper' ? 'Open Markdown preview to side' : 'Open Markdown preview'
+      await page.getByRole('button', { name: previewAction, exact: true }).tap()
+      await expect.poll(() => panel.evaluate(el => el.scrollTop)).toBeGreaterThan(200)
+      expect(await panel.evaluate(el => {
+        const box = el.getBoundingClientRect()
+        const main = el.closest('main')!.getBoundingClientRect()
+        return Math.max(Math.abs(box.top - main.top), Math.abs(main.bottom - box.bottom))
+      })).toBeLessThanOrEqual(1)
+      // A correctly sized scroller can still show a blank tile. Verify actual
+      // text contrast in the upper and lower reading areas, below the controls.
+      const png = await page.screenshot({ path: testInfo.outputPath(`reading-${size}-${appearance}.png`), scale: 'css', animations: 'disabled' })
+      const image = ScreenshotPng.sync.read(png)
+      expect([image.width, image.height]).toEqual([430, 932])
+      for (const top of [100, 450, 720]) {
+        let min = 255
+        let max = 0
+        for (let y = top; y < top + 120; y++) {
+          for (let x = 32; x < image.width - 32; x++) {
+            const channel = image.data[(y * image.width + x) * 4]!
+            min = Math.min(min, channel)
+            max = Math.max(max, channel)
+          }
+        }
+        expect(max - min, `Painted Markdown near y=${top}`).toBeGreaterThan(60)
+      }
+    }
+  })
+}
+
+test('pinned prompt leaves the phone transcript and wide table accessible', async ({ page, workspaceRoot }) => {
+  await selectNewAgent(page, workspaceRoot)
+  const input = page.getByTestId('code-acp-composer-input')
+  const markdown = [
+    '| 能力 | 具体做什么 | 怎么触发 |',
+    '| --- | --- | --- |',
+    ...Array.from({ length: 24 }, (_, i) => `| 功能 ${i + 1} | 合并小文件并保留读取顺序。 | \`ALTER TABLE example PARTITION candidate_partition_${i}\` |`),
+  ].join('\n')
+  await input.fill('markdown image response\n' + markdown)
+  await page.getByTestId('code-acp-composer-send').tap()
+  const table = page.locator('.code-transcript-table-scroll').last()
+  await expect(table.locator('tbody tr')).toHaveCount(24)
+  await table.locator('tbody tr').nth(12).scrollIntoViewIfNeeded()
+  const prompt = page.getByTestId('code-agent-transcript-sticky-turn')
+  await expect(prompt).toBeVisible()
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate(value => { document.documentElement.dataset.appearance = document.body.dataset.appearance = value }, appearance)
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('box-shadow', 'none')
+    const rect = (await prompt.boundingBox())!
+    await touchTarget(prompt)
+    expect(rect.width).toBeLessThan(390 * 0.8)
+    await expect(prompt.locator('..')).toHaveCSS('background-image', 'none')
+    await table.evaluate(el => { el.scrollLeft = el.scrollWidth })
+    expect(await table.evaluate(el => el.scrollLeft)).toBeGreaterThan(0)
+    const end = await table.locator('tr').nth(12).locator('td').last().boundingBox()
+    expect(end!.x + end!.width).toBeLessThanOrEqual(391)
+    await table.evaluate(el => { el.scrollLeft = 0 })
+    await capture(page, `compact-prompt-table-${appearance}`)
+  }
+  await prompt.tap()
+  await expect(prompt).toBeHidden()
+})
 
 for (const appearance of ['light', 'dark', 'paper'] as const) {
   test(`touch settings labels and transcript disclosures stay discoverable in ${appearance}`, async ({ page, workspaceRoot }) => {

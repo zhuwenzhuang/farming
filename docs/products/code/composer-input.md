@@ -5,6 +5,7 @@
 Chat and Terminal input share one editing contract. Drafts, attachments and
 submission state belong to the existing Agent composer owner. Expanding the
 editor is local presentation state, never another draft or submission path.
+On phones, open Composer menus remain visible and tappable over unread navigation.
 
 Opening a Terminal Agent or switching from Chat to Terminal starts with the
 Composer collapsed. Expand it for the current Terminal view with the expand
@@ -131,9 +132,9 @@ The rich editor grows with its content up to the shared height limit, then scrol
 typing must not collapse its height for textarea-style measurement.
 Programmatic focus synchronizes the browser caret with the editor selection
 before accepting more input; focusing an already focused editor leaves IME intact.
-While the rich editor retains focus, a collapsed native caret immediately outside
-its editable document in the input's scrolling shell is reconciled to the nearest
-document boundary before further input. This does not edit the draft, add an undo
+While the rich editor retains focus, a collapsed native caret at either edge of
+the document or its scrolling shell returns to the corresponding editable text
+position before further input. Moving the caret across wrapped lines keeps it visible. This does not edit the draft, add an undo
 step, or reclaim focus. Native text ranges, selections outside that input surface
 and active composition retain their existing owners.
 Composition completion commits its native text before boundary reconciliation.
