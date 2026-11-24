@@ -35,7 +35,7 @@ async function run(): Promise<void> {
   const globalHome = path.join(root, 'global-home');
   const fakePi = path.join(root, 'fake-pi.cjs');
   const launchLog = path.join(root, 'pi-launch.json');
-  const vendorEntry = path.resolve(__dirname, '..', '..', 'dist', 'acp', 'pi-acp-0.0.34.mjs');
+  const vendorEntry = path.resolve(__dirname, '..', '..', 'dist', 'acp', 'pi-acp-0.0.35.mjs');
   let child: ChildProcess | null = null;
   try {
     fs.mkdirSync(agentHome, { recursive: true });

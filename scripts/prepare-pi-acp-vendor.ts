@@ -5,11 +5,11 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.0.34';
+const expectedVersion = '0.0.35';
 const expectedSdkVersion = '0.26.0';
 const expectedZodVersion = '4.6.7';
-const expectedUpstreamSha256 = '324aeb8bba1228937e16b1326fb3e014e2a625b2dea549dbcd49b006cd5df6a2';
-const expectedBundleSha256 = '7b56b4820d7739e877b8ad96b2a045e2b57ddaf45ec6c637412d37c43b3abd10';
+const expectedUpstreamSha256 = '4d5d0c8e992c3e7b86eede71acc004fe5838153598f44c946153a7db9d94ba2e';
+const expectedBundleSha256 = 'f622041803bb47d8e0e3b2779639faf1a63433eae7b86c318ba30ee43784bdd6';
 const packageRoot = path.dirname(require.resolve('pi-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');
@@ -221,17 +221,12 @@ function farmingPiPlugin(): esbuild.Plugin {
           ].join('\n'),
           'bounded session scan',
         );
+        // Farming keeps adapter-side history reads bounded on both list and restore.
         source = replaceExactly(
           source,
-          'if (!title) {\n      title = scanSessionInfoNameFromFile(file);\n    }',
-          '// Farming keeps adapter-side history reads bounded; an old name may be omitted.',
-          'full title scan removal',
-        );
-        source = replaceExactly(
-          source,
-          'if (!title) {\n      title = pickFallbackTitleFromHead(file);\n    }',
-          '// Farming local History supplies a bounded first-prompt fallback.',
-          'full prompt scan removal',
+          'const name = pickTitleFromTail(tail ?? readTail(path)) ?? scanSessionInfoNameFromFile(path);\n    return name || pickFallbackTitleFromHead(path);',
+          'return pickTitleFromTail(tail ?? readTail(path));',
+          'bounded session title lookup',
         );
         source = replaceExactly(
           source,
@@ -366,7 +361,7 @@ function farmingPiPlugin(): esbuild.Plugin {
             '  startTurn(t) {',
             '    this.cancelRequested = false;',
             '    this.inAgentLoop = false;',
-            '    this.pendingTurn = { resolve: t.resolve, reject: t.reject };',
+            '    this.pendingTurn = { title: t.title, resolve: t.resolve, reject: t.reject };',
           ].join('\n'),
           [
             '  startTurn(t) {',
@@ -374,20 +369,18 @@ function farmingPiPlugin(): esbuild.Plugin {
             '    this.inAgentLoop = false;',
             '    this.turnSteerable = true;',
             '    this.lastTurnError = null;',
-            '    this.pendingTurn = { resolve: t.resolve, reject: t.reject };',
+            '    this.pendingTurn = { title: t.title, resolve: t.resolve, reject: t.reject };',
           ].join('\n'),
           'Pi session startTurn state reset',
         );
         source = replaceExactly(
           source,
           [
-            '    switch (type) {',
             '      case "message_update": {',
             '        const ame = ev.assistantMessageEvent;',
             '        if (ame?.type === "text_delta" && typeof ame.delta === "string") {',
           ].join('\n'),
           [
-            '    switch (type) {',
             '      case "message_end": {',
             '        const msg = ev.message;',
             '        if (msg && typeof msg === "object" && msg.role === "assistant") {',

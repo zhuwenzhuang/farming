@@ -82,7 +82,7 @@ export function selectBrowserScreen(files) {
     if (['src/components/code/CodeSidebar.tsx', 'src/components/code/workspace-derived.ts',
       'tests/e2e/file-editor-reveal.spec.ts', 'tests/e2e/external-file-project.spec.ts',
       'tests/e2e/terminal-regression-matrix.spec.ts'].includes(filename)) select(['path-navigation']);
-    if (['src/components/code/model.ts', 'src/components/code/useCodexModelCatalog.ts', 'tests/e2e/model-matrix.spec.ts'].includes(filename)) select(['model-isolation']);
+    if (['src/components/code/model.ts', 'src/components/code/ModelMatrixPicker.tsx', 'src/components/code/useCodexModelCatalog.ts', 'tests/e2e/model-matrix.spec.ts'].includes(filename)) select(['model-isolation']);
     // The separate live-provider composite remains mandatory for this case;
     // the early deterministic screen exercises its shared interaction owners.
     if (filename === 'tests/e2e/internal/real-codex-release-case.spec.ts') select(['interaction', 'wire-state']);

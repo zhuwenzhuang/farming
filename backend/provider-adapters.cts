@@ -726,7 +726,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
-      version: '2.7.0',
+      version: '2.10.0',
       sharedRuntime: true,
       normalizeHostMessageChunks: true,
       config: {
@@ -794,7 +794,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
-      version: '0.108.1',
+      version: '0.110.1',
       sharedRuntime: true,
       config: {
         approvalModes: {
@@ -866,7 +866,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     freshAcpSessionSources: ['pi-session-id'],
     acpSessionSourceErrors: {
       'pi-explicit-session-id': 'Pi Chat cannot determine whether --session-id names a new or existing session. Omit --session-id for a new Chat, or use --session <id> to resume an existing session.',
-      'pi-fork-session-id': 'Pi Chat does not support the Pi CLI --fork flow with pi-acp 0.0.34. Fork the Terminal session, or start a new Chat.',
+      'pi-fork-session-id': 'Pi Chat does not support the Pi CLI --fork flow with pi-acp 0.0.35. Fork the Terminal session, or start a new Chat.',
       'untracked-command': 'Pi Chat cannot preserve --continue, --resume picker, session-file, fork-file, print, JSON/RPC, export, or package-management CLI semantics. Start a new Chat without those flags, or use --session <id> to resume an exact Pi session.',
     },
     commands: ['pi'],
@@ -897,7 +897,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       executablePolicy: 'system',
       launchArgs: piAcpLaunchArgs,
       packageName: 'pi-acp',
-      version: '0.0.34',
+      version: '0.0.35',
       sharedRuntime: false,
     },
     usage: {

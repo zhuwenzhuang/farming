@@ -187,7 +187,7 @@ function run() {
   assert(
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
       && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
-      && bundleCliScript.includes("'codex-acp-2.7.0.mjs'")
+      && bundleCliScript.includes("'codex-acp-2.10.0.mjs'")
       && bundleCliScript.includes('/packaged-(?:codex|claude|pi)-acp\\.(?:cjs|cts)$/'),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
@@ -198,7 +198,7 @@ function run() {
   assert(
     packagedClaudeAcpBridge.includes("PACKAGED_CLAUDE_ACP_ARG = '--farming-claude-acp'")
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
-      && bundleCliScript.includes("'claude-agent-acp-0.108.1.mjs'"),
+      && bundleCliScript.includes("'claude-agent-acp-0.110.1.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
   const bundleOutputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-cli-bundle-test-'));
@@ -231,7 +231,7 @@ function run() {
   assert(
     packagedPiAcpBridge.includes("PACKAGED_PI_ACP_ARG = '--farming-pi-acp'")
       && packagedPiAcpBridge.includes('omitted its embedded Pi ACP runtime')
-      && bundleCliScript.includes("'pi-acp-0.0.34.mjs'")
+      && bundleCliScript.includes("'pi-acp-0.0.35.mjs'")
       && preparePiAcpVendorScript.includes('--farming-pi-acp-state-dir')
       && preparePiAcpVendorScript.includes('--farming-append-system-prompt')
       && preparePiAcpVendorScript.includes('--farming-pi-command')

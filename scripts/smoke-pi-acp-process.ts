@@ -259,7 +259,7 @@ async function smokePiAcp(options: SmokeOptions): Promise<void> {
     if (
       result?.protocolVersion !== 1
       || result.agentInfo?.name !== 'pi-acp'
-      || result.agentInfo?.version !== '0.0.34'
+      || result.agentInfo?.version !== '0.0.35'
       || result.agentCapabilities?.loadSession !== true
       || result.agentCapabilities?.promptCapabilities?.image !== true
       || result.agentCapabilities?.sessionCapabilities?.list == null
