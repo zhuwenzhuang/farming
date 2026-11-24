@@ -3,7 +3,7 @@
 import type { AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
 import { runtimeKind } from './agent-runtime-binding.cjs';
 import { providerForProgram } from './provider-adapters.cjs';
-import { inferProviderTerminalActivity, providerTerminalInputReady } from './provider-terminal-observers.cjs';
+import { codexTerminalIdleFooter, inferProviderTerminalActivity, providerTerminalInputReady } from './provider-terminal-observers.cjs';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -98,7 +98,8 @@ function activeCodexTerminalProfile(
   const profile = {
     model: parsed.model,
     reasoningEffort: parsed.effort,
-    serviceTier: codexServiceTierConfirmations(agent.output || '').at(-1)?.serviceTier
+    serviceTier: codexServiceTierFromFooter(previewText)
+      ?? codexServiceTierConfirmations(agent.output || '').at(-1)?.serviceTier
       ?? parsed.serviceTier ?? previousServiceTier ?? 'default',
     source: outputProfile ? 'terminal-output' : 'terminal-footer',
   };
@@ -231,6 +232,12 @@ function normalizedReasoning(value: unknown): string {
 
 function stripAnsi(value: unknown): string {
   return String(value || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
+function codexServiceTierFromFooter(previewText: unknown): CodexServiceTier | null {
+  const footer = codexTerminalIdleFooter(previewText);
+  const speed = footer.match(/\s+(?:minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\s+(ultrafast|fast)[ \t]*[·•][ \t]*[~/]/i)?.[1]?.toLowerCase();
+  return speed === 'ultrafast' ? 'ultrafast' : speed === 'fast' ? 'priority' : null;
 }
 
 function codexServiceTierConfirmations(
@@ -399,7 +406,7 @@ function codexTerminalProfileFromPreview(
 ): CodexTerminalProfile | null {
   const text = String(previewText || '');
   const matches = Array.from(text.matchAll(
-    /\b([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b(?:\s+(ultrafast|fast)\b)?/gi
+    /\b([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b/gi
   ));
   const match = matches[matches.length - 1];
   if (!match) return null;
@@ -407,7 +414,7 @@ function codexTerminalProfileFromPreview(
   return {
     model: normalizedValue(match[1]),
     effort: normalizedReasoning(match[2]),
-    serviceTier: match[3] ? normalizedValue(match[3]) === 'ultrafast' ? 'ultrafast' : 'priority' : confirmedTier?.serviceTier ?? 'default',
+    serviceTier: codexServiceTierFromFooter(text) ?? confirmedTier?.serviceTier ?? 'default',
   };
 }
 
@@ -715,7 +722,8 @@ async function applyCodexTerminalProfile({
     }
     if (!current) throw new Error('Codex Terminal stopped reporting its active model');
     const beforeTierOutput = readOutput ? String(await runStep(readOutput, 'Timed out reading Codex Terminal output') || '') : '';
-    const currentTier = codexServiceTierConfirmations(beforeTierOutput).at(-1)?.serviceTier ?? current.serviceTier;
+    const currentTier = codexServiceTierFromFooter(beforeTierOutput || preview)
+      ?? codexServiceTierConfirmations(beforeTierOutput).at(-1)?.serviceTier ?? current.serviceTier;
     if (currentTier !== target.serviceTier) {
       const toggleTier = target.serviceTier === 'default' ? currentTier : target.serviceTier;
       const fastCommand = toggleTier === 'ultrafast' ? '/ultrafast' : '/fast';

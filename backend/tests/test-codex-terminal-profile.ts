@@ -247,6 +247,31 @@ async function run() {
     ...projectedProfile,
     serviceTier: 'default',
   }), false);
+  const resumedUltrafast = [
+    '• Model changed to gpt-6.2-sol high',
+    '› Ask Codex to do anything',
+    '',
+    'GPT 6.2 Sol high ultrafast · /workspace',
+  ].join('\n');
+  assert.equal(codexTerminalProfileFromPreview(resumedUltrafast)?.serviceTier, 'ultrafast');
+  const resumedAgent = { ...projectedAgent, output: '' };
+  assert.equal(activeCodexTerminalProfile(resumedAgent, resumedUltrafast)?.serviceTier, 'ultrafast');
+  for (const tier of ['ultrafast', 'default']) {
+    let preview = resumedUltrafast;
+    const inputs = [];
+    const result = await applyCodexTerminalProfile({
+      profile: { model: 'gpt-6.2-sol', effort: 'high', serviceTier: tier },
+      readPreview: async () => preview,
+      readOutput: async () => preview,
+      sendInput: async input => {
+        inputs.push(input);
+        preview = resumedUltrafast.replace('› Ask Codex', '• Service tier set to default\n› Ask Codex')
+          .replace('high ultrafast ·', 'high ·');
+      },
+    });
+    assert.equal(result.serviceTier, tier);
+    assert.deepEqual(inputs, tier === 'default' ? [[{ type: 'paste', text: '/ultrafast' }, '\r']] : []);
+  }
   assert.strictEqual(activeCodexTerminalProfile({
     command: 'claude',
     status: 'running',

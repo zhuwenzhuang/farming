@@ -68,6 +68,12 @@ function lastCodexIdleFooterIndex(text: string): number {
   });
 }
 
+function codexTerminalIdleFooter(previewText: unknown): string {
+  const text = stripTerminalControlSequences(previewText).replace(/\r/g, '');
+  const index = lastCodexIdleFooterIndex(text);
+  return index < 0 ? '' : text.slice(index).split('\n', 1)[0];
+}
+
 function codexActiveIndex(text: string): number {
   const activeTextIndex = lastIndexOfAny(text, [
     'pursuing goal',
@@ -358,6 +364,7 @@ function providerTerminalInputReady(
 }
 
 export {
+  codexTerminalIdleFooter,
   inferProviderTerminalActivity,
   latestProviderTerminalKindCandidate,
   nestedProviderTerminalCommand,

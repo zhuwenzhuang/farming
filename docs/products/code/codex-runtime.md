@@ -72,6 +72,8 @@ Admission requires an idle Composer, independently of whether its footer exposes
 a model ID. A display name is never guessed into an ID; unknown identity requires
 the explicit target picker and confirmation transaction.
 The idle footer can include provider and routing labels before the working directory.
+The explicit speed in the current footer establishes the active tier even when
+the footer uses a display name or a resumed session has no tier-change history.
 The startup welcome and idle footer can settle startup while Codex is still
 animating its window title. During a turn, the animated title still signals
 activity even when the idle footer remains visible.
