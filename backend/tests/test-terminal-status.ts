@@ -382,6 +382,8 @@ function run() {
     'openrouter/qwen3.8-max high fast · /repo',
     'gpt-custom/model-v1 medium · ~/repo',
     'local/model-v1 · /repo',
+    'GPT-6-Sol · Codex low · ~/repo',
+    'GPT-6.1 Sol · 内部池 · routing group high ultrafast · ~/repo',
   ]) {
     assert.deepStrictEqual(
       pickStatus(deriveTerminalStatus({
@@ -427,6 +429,20 @@ function run() {
     { kind: 'codex', activity: 'busy', busy: true },
     'A live Codex spinner title should stay busy even when the previous idle footer remains visible'
   );
+
+  for (const [suffix, activity] of [
+    ['', 'idle'],
+    ['\nWorking (2s • esc to interrupt)', 'busy'],
+  ] as const) {
+    assert.deepStrictEqual(
+      pickStatus(deriveTerminalStatus({
+        command: 'codex',
+        title: '⠋ workspace',
+        previewText: `› Ask Codex to do anything\n\nGPT-6-Sol · Codex low · ~/repo${suffix}`,
+      })),
+      { kind: 'codex', activity, busy: activity === 'busy' },
+    );
+  }
 
   assert.deepStrictEqual(
     pickStatus(deriveTerminalStatus({

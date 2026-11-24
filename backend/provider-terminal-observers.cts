@@ -58,12 +58,14 @@ function lastLineIndexMatching(text: string, predicate: (line: string) => boolea
 }
 
 function lastCodexIdleFooterIndex(text: string): number {
-  // Codex may render a catalog display name ("GPT 6.1 Sol") instead of its
-  // model id. Readiness depends on the footer role, not a vendor/model token.
-  return lastMatchIndex(
-    text,
-    /(?:^|\n)[ \t]*[a-z0-9][a-z0-9._:/+-]*(?:[ \t]+[a-z0-9][a-z0-9._:/+-]*)*[ \t]*(?:·|•)[ \t]*(?:~|\/)[^\n]*$/gim,
-  );
+  // A model display name can be followed by provider and routing fields
+  // before the directory. Profile confirmation owns the model identity.
+  return lastLineIndexMatching(text, line => {
+    const footer = line.match(/^[ \t]*(.+?)[ \t]*[·•][ \t]*[~/][^\n]*$/u);
+    return Boolean(footer && footer[1].split(/[·•]/u).every(field =>
+      /^[\p{L}\p{N}][\p{L}\p{M}\p{N}\p{Pd}._:/+ \t]*$/u.test(field.trim()),
+    ));
+  });
 }
 
 function codexActiveIndex(text: string): number {
@@ -120,13 +122,16 @@ function lineShowsClaudeKindEvidence(line: string): boolean {
 }
 
 function inferCodexActivity({ title, previewText }: ProviderTerminalObserverInput): ProviderTerminalActivity {
-  if (/^[\s]*[\u2800-\u28ff]/u.test(String(title || ''))) return 'busy';
-
+  const spinningTitle = /^\s*[\u2800-\u28ff]/u.test(String(title || ''));
   const text = stripTerminalControlSequences(previewText).replace(/\r/g, '').toLowerCase();
-  if (!text.trim()) return 'unknown';
   const idleIndex = lastCodexIdleFooterIndex(text);
   const blockedIndex = codexBlockedIndex(text);
   const activeIndex = codexActiveIndex(text);
+  // Codex can keep animating its title after startup has rendered the composer.
+  // A prompt immediately above a newer idle footer supplies current evidence.
+  const currentPrompt = idleIndex > activeIndex
+    && /(?:^|\n)[ \t]*›[ \t]+[^\n]+$/u.test(text.slice(0, idleIndex).trimEnd());
+  if (spinningTitle && !currentPrompt) return 'busy';
   const inactiveIndex = Math.max(idleIndex, blockedIndex);
   if (activeIndex >= 0) return inactiveIndex > activeIndex ? 'idle' : 'busy';
   if (inactiveIndex >= 0) return 'idle';
