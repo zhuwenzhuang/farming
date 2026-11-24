@@ -354,42 +354,95 @@ test('model matrix follows the advertised catalog across generations and appeara
 
 test('Ultrafast is selectable independently of reasoning across appearances', async ({ page, workspaceRoot }, testInfo) => {
   const agentId = await createAcpAgent(page, workspaceRoot, 'codex')
-  const model = 'gpt-6.2-sol'
+  const sol = 'gpt-6.2-sol'
+  let model = MODEL_OPTIONS[0]!.value
+  let reasoning = 'medium'
   let tier = 'default'
   const snapshot = () => {
-    const session = sessionSnapshot({ model, reasoning: 'high', fast: false })
+    const session = sessionSnapshot({ model, reasoning, fast: false })
     return { ...session, configOptions: [
-      { ...session.configOptions[0], options: [{ value: model, name: 'GPT 6.2 Sol' }, ...MODEL_OPTIONS] },
+      { ...session.configOptions[0], options: [{ value: sol, name: 'GPT 6.2 Sol' }, ...MODEL_OPTIONS] },
       session.configOptions[1],
-      { id: 'fast-mode', name: 'Service tier', type: 'select', category: 'model_config', currentValue: tier,
-        options: [{ value: 'default', name: 'Standard' }, { value: 'priority', name: 'Fast' }, { value: 'ultrafast', name: 'Ultrafast' }] },
+      model === sol ? { id: 'fast-mode', name: 'Service tier', type: 'select', category: 'model_config', currentValue: tier,
+        options: [{ value: 'default', name: 'Standard' }, { value: 'priority', name: 'Fast' }, { value: 'ultrafast', name: 'Ultrafast' }] }
+        : session.configOptions[2],
     ] }
   }
+  let rejectSpeed = false
+  const speedRequests: string[] = []
   await page.route(/\/acp-session(?:\?includeEntries=0)?$/, async route => {
     if (route.request().method() === 'PATCH') {
       const change = route.request().postDataJSON()
-      expect(change.configId).toBe('fast-mode')
-      tier = change.value
+      if (change.configOptions) {
+        expect(change.configOptions).toEqual([
+          { configId: 'model', value: sol }, { configId: 'reasoning', value: 'high' },
+        ])
+        model = sol
+        reasoning = 'high'
+      } else {
+        expect(change.configId).toBe('fast-mode')
+        speedRequests.push(change.value)
+        if (rejectSpeed) {
+          await route.fulfill({ status: 409, json: { error: 'Speed change rejected' } })
+          return
+        }
+        tier = change.value
+      }
       await route.fulfill({ json: { sessionId: snapshot().sessionId, configOptions: snapshot().configOptions } })
     } else await route.fulfill({ json: { session: snapshot() } })
   })
   for (const appearance of ['light', 'dark', 'paper']) {
+    await page.setViewportSize({ width: appearance === 'paper' ? 390 : 1440, height: 900 })
+    model = MODEL_OPTIONS[0]!.value
+    reasoning = 'medium'
     await page.request.post('/farming/api/settings', { data: { appearance, language: 'en' } })
-    await openFarming(page)
-    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await page.goto(`/farming/?agent=${encodeURIComponent(agentId)}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
     const picker = page.getByTestId('code-acp-model-picker')
     await picker.click()
     const matrix = page.getByTestId('code-model-matrix-picker')
-    const speed = matrix.getByRole('combobox')
-    await speed.selectOption('ultrafast')
+    const speed = matrix.getByRole('group', { name: 'Speed' })
+    await expect(speed).toHaveCount(0)
+    await matrix.getByRole('radio', { name: 'GPT 6.2 Sol, high', exact: true }).click()
+    const standard = speed.getByRole('menuitemradio', { name: 'Standard', exact: true })
+    const fast = speed.getByRole('menuitemradio', { name: 'Fast', exact: true })
+    const ultrafast = speed.getByRole('menuitemradio', { name: 'Ultrafast', exact: true })
+    const badge = picker.locator('.code-composer-speed-active')
+    await expect(standard).toHaveAttribute('aria-checked', 'true')
+    await expect(fast).toBeVisible()
+    await ultrafast.focus()
+    await page.keyboard.press('Enter')
     await expect(picker).toHaveAttribute('title', /Ultrafast/)
-    await expect(picker).toHaveAttribute('data-agent-model-preset', model + ':high')
-    await picker.click()
-    await expect(speed).toHaveValue('ultrafast')
-    await testInfo.attach(appearance, { body: await matrix.screenshot(), contentType: 'image/png' })
-    await speed.selectOption('default')
+    await expect(picker).toHaveAttribute('data-agent-model-preset', sol + ':high')
+    await expect(picker).toBeEnabled()
+    await expect(ultrafast).toHaveAttribute('aria-checked', 'true')
+    await expect(badge).toHaveText('Ultrafast')
+    await expect(matrix.getByRole('radiogroup', { name: 'Model and reasoning' })).toBeInViewport({ ratio: 1 })
+    await expect.poll(() => speed.getByRole('menuitemradio').evaluateAll(buttons => buttons.every(button => {
+      const label = button.firstElementChild
+      return label && label.scrollWidth <= label.clientWidth
+    }))).toBe(true)
+    const screenshot = testInfo.outputPath(`ultrafast-${appearance}.png`)
+    await page.screenshot({ path: screenshot, animations: 'disabled' })
+    await testInfo.attach(appearance, { path: screenshot, contentType: 'image/png' })
+    if (appearance === 'light') {
+      rejectSpeed = true
+      await fast.click()
+      await expect(page.getByText('Speed change rejected', { exact: true })).toBeVisible()
+      await expect(ultrafast).toHaveAttribute('aria-checked', 'true')
+      await expect(badge).toHaveText('Ultrafast')
+      rejectSpeed = false
+    }
+    await fast.click()
+    await expect(badge).toHaveText('Fast')
+    await expect(fast).toHaveAttribute('aria-checked', 'true')
+    await expect(fast).toBeEnabled()
+    await fast.click()
+    await standard.click()
     await expect(picker).toHaveAttribute('title', /Standard/)
+    await expect(badge).toHaveCount(0)
   }
+  expect(speedRequests).toEqual(['ultrafast', 'priority', 'priority', 'default', 'ultrafast', 'priority', 'default', 'ultrafast', 'priority', 'default'])
 })
 
 test('ACP model controls wait for the initial session configuration to become ready', async ({ page, workspaceRoot }) => {
@@ -991,16 +1044,18 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Terminal model matrix fixture\n')
 
   await page.route('**/farming/api/codex/models**', route => route.fulfill({
-    json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
+    json: { catalog: TERMINAL_MODEL_CATALOG.map(model => model.value === 'gpt-5.6-sol'
+      ? { ...model, serviceTiers: [...model.serviceTiers, { value: 'ultrafast', label: 'Ultrafast', description: 'Fastest responses' }] }
+      : model), source: 'fixture' },
   }))
-  const terminalProfiles: MatrixState[] = []
+  const terminalProfiles: Array<{ model: string; reasoning: string; serviceTier: string }> = []
   const profileGates: Array<ReturnType<typeof deferred>> = []
   await page.route(/\/farming\/api\/agents\/[^/]+\/codex-terminal-profile$/, async route => {
     const body = route.request().postDataJSON() as { model: string; effort: string; serviceTier: string }
     terminalProfiles.push({
       model: body.model,
       reasoning: body.effort,
-      fast: body.serviceTier === 'priority',
+      serviceTier: body.serviceTier,
     })
     const gate = deferred()
     profileGates.push(gate)
@@ -1065,8 +1120,8 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   profileGates[1]!.resolve()
   await expect(fast).toBeEnabled()
   expect(terminalProfiles).toEqual([
-    { model: 'gpt-5.6-luna', reasoning: 'max', fast: false },
-    { model: 'gpt-5.6-luna', reasoning: 'max', fast: true },
+    { model: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'default' },
+    { model: 'gpt-5.6-luna', reasoning: 'max', serviceTier: 'priority' },
   ])
 
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
@@ -1079,7 +1134,22 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   await expect.poll(() => profileGates.length).toBe(3)
   profileGates[2]!.resolve()
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-6-astra:high')
-  expect(terminalProfiles[2]).toEqual({ model: 'gpt-6-astra', reasoning: 'high', fast: true })
+  expect(terminalProfiles[2]).toEqual({ model: 'gpt-6-astra', reasoning: 'high', serviceTier: 'priority' })
+
+  await page.getByTestId('code-model-matrix-cell-sol-high').click()
+  await expect.poll(() => profileGates.length).toBe(4)
+  profileGates[3]!.resolve()
+  const speed = menu.getByRole('group', { name: 'Speed' })
+  await expect(speed.getByRole('menuitemradio', { name: 'Fast', exact: true })).toHaveAttribute('aria-checked', 'true')
+  const ultrafast = speed.getByRole('menuitemradio', { name: 'Ultrafast' })
+  await ultrafast.click()
+  await expect(ultrafast).toBeDisabled()
+  await expect.poll(() => profileGates.length).toBe(5)
+  expect(terminalProfiles[4]).toEqual({ model: 'gpt-5.6-sol', reasoning: 'high', serviceTier: 'ultrafast' })
+  profileGates[4]!.resolve()
+  await expect(ultrafast).toBeEnabled()
+  await expect(ultrafast).toHaveAttribute('aria-checked', 'true')
+  await expect(picker.locator('.code-composer-speed-active')).toHaveText('Ultrafast')
 })
 
 test('Terminal Codex keeps live profile controls disabled while a turn is active', async ({ page, workspaceRoot }) => {

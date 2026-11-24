@@ -60,7 +60,7 @@ import type {
   CodexServiceTierOption,
   ComposerMode,
 } from './types'
-import { ModelMatrixPicker, modelMatrixFamily } from './ModelMatrixPicker'
+import { ComposerSpeedIndicator, ModelMatrixPicker, modelMatrixFamily } from './ModelMatrixPicker'
 import type {
   ComposerHistoryDirection,
   ComposerHistoryNavigationInput,
@@ -283,6 +283,8 @@ export function CodeComposer({
   const showPermissionMode = active && capabilities.permissionMode
   const showModelPicker = active && capabilities.modelPicker
   const showServiceTierPicker = capabilities.serviceTier && currentServiceTierOptions.length > 0
+  const hasMultipleBoostTiers = showServiceTierPicker
+    && currentServiceTierOptions.some(option => !['priority', 'default'].includes(option.value))
   const matrixModels = agentModelOptions.map(option => ({
     value: option.value,
     label: codexModelDisplayName(option, option.value),
@@ -1041,9 +1043,7 @@ export function CodeComposer({
                 onClick={onToggleModelMenu}
               >
                 {['priority', 'ultrafast'].includes(agentServiceTier) && (
-                  <span className="code-composer-speed-active" aria-hidden="true">
-                    <ComposerSpeedIcon />
-                  </span>
+                  <ComposerSpeedIndicator label={hasMultipleBoostTiers || agentServiceTier === 'ultrafast' ? displayedSpeedLabel : undefined} />
                 )}
                 <span className="code-composer-model-label desktop">{currentModelLabel}</span>
                 <span className="code-composer-model-label mobile">{compactModelLabel}</span>
@@ -1070,7 +1070,7 @@ export function CodeComposer({
                     currentReasoning={agentReasoningEffort}
                     fastAvailable={showServiceTierPicker && currentServiceTierOptions.some(option => option.value === 'priority')}
                     fast={agentServiceTier === 'priority'}
-                    serviceTiers={showServiceTierPicker && currentServiceTierOptions.some(option => !['priority', 'default'].includes(option.value)) ? {
+                    serviceTiers={hasMultipleBoostTiers ? {
                       label: copy.speed, value: agentServiceTier,
                       options: currentServiceTierOptions.map(option => ({ value: option.value, label: copy.serviceTierLabel(option.value, option.label) })),
                       onChange: onUpdateServiceTierInline,
@@ -1172,7 +1172,7 @@ export function CodeComposer({
                             >
                               <span className="code-model-option-copy">
                                 <span className="code-speed-option-label">
-                                  {option.value === 'priority' && <span className="code-speed-option-icon" aria-hidden="true"><ComposerSpeedIcon /></span>}
+                                  {['priority', 'ultrafast'].includes(option.value) && <span className="code-speed-option-icon" aria-hidden="true"><ComposerSpeedIcon /></span>}
                                   <span>{copy.serviceTierLabel(option.value, option.label)}</span>
                                 </span>
                                 {option.description && (

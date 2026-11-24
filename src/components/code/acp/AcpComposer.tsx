@@ -855,7 +855,7 @@ export function AcpComposer({
                   { configId: reasoningId, value: reasoningValue },
                 ])
               }}
-              onSetFast={(configId, value) => {
+              onSetSpeedInline={(configId, value) => {
                 void setConfigOption(configId, value)
               }}
             />

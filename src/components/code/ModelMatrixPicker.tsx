@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
-import { ChevronDownGlyph, SpeedGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ChevronDownGlyph, SpeedGlyph } from '@/components/IconGlyphs'
 
 export interface ModelMatrixReasoningOption {
   value: string
@@ -33,6 +33,15 @@ interface MatrixPointerGesture {
 
 const MATRIX_DRAG_THRESHOLD = 4
 const MATRIX_STAGE_TRANSITION_MS = 240
+
+export function ComposerSpeedIndicator({ label }: { label?: string }) {
+  return (
+    <span className={`code-composer-speed-active ${label ? 'has-label' : ''}`} aria-hidden="true">
+      <SpeedGlyph />
+      {label}
+    </span>
+  )
+}
 
 function compactMatrixModelLabel(label: string) {
   return label
@@ -195,6 +204,7 @@ export function ModelMatrixPicker({
   advanced: ReactNode
 }) {
   const family = modelMatrixFamily(models, currentModel)
+  const serviceTierCount = serviceTiers?.options.length ?? 0
   const matrixSupportsCurrent = Boolean(
     family?.find(model => model.value === currentModel)?.reasoning.some(option => option.value === currentReasoning)
   )
@@ -265,7 +275,7 @@ export function ModelMatrixPicker({
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (fromHeight === null || reducedMotion || Math.abs(fromHeight - toHeight) < 1) {
       stage.style.height = `${toHeight}px`
-      stage.style.overflow = advancedOpen ? 'visible' : 'hidden'
+      stage.style.overflow = advancedOpen ? 'visible' : 'clip'
       return
     }
 
@@ -279,10 +289,10 @@ export function ModelMatrixPicker({
     })
     stageAnimationTimerRef.current = window.setTimeout(() => {
       stage.style.height = `${toHeight}px`
-      stage.style.overflow = advancedOpen ? 'visible' : 'hidden'
+      stage.style.overflow = advancedOpen ? 'visible' : 'clip'
       stageAnimationTimerRef.current = null
     }, MATRIX_STAGE_TRANSITION_MS + 40)
-  }, [advancedOpen, family?.length])
+  }, [advancedOpen, family?.length, serviceTierCount])
 
   if (!family) return advanced
 
@@ -541,13 +551,7 @@ export function ModelMatrixPicker({
                 onChange={changeUltra}
               />
             </div>
-            {serviceTiers ? <label className="code-model-matrix-fast code-model-matrix-tier">
-              <select aria-label={serviceTiers.label} disabled={disabled} value={serviceTiers.value}
-                onChange={event => serviceTiers.onChange(event.target.value)}>
-                {serviceTiers.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-              <ChevronDownGlyph aria-hidden="true" />
-            </label> : <FastBoost
+            {!serviceTiers && <FastBoost
               active={fastAvailable && visibleFast}
               available={fastAvailable}
               disabled={disabled}
@@ -561,6 +565,31 @@ export function ModelMatrixPicker({
                   ? `${controlModel.label} · ${controlReasoningLabel}`
                 : `${current.label} · ${currentReasoningLabel || reasoning[currentReasoningIndex]?.label}`}
             </span>
+            {serviceTiers && (
+              <div className="code-model-matrix-tiers" role="group" aria-label={serviceTiers.label}>
+                <div className="code-model-menu-header" aria-hidden="true">{serviceTiers.label}</div>
+                <div className="code-model-matrix-tier-options" style={{ '--matrix-tier-columns': Math.min(3, serviceTierCount) } as CSSProperties}>
+                  {serviceTiers.options.map(option => {
+                    const checked = option.value === serviceTiers.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={checked}
+                        title={option.label}
+                        className={`code-menu-item code-model-option ${checked ? 'selected' : ''}`}
+                        disabled={disabled}
+                        onClick={() => { if (!checked) serviceTiers.onChange(option.value) }}
+                      >
+                        <span>{option.label}</span>
+                        <span className="code-menu-check" aria-hidden="true">{checked && <CheckGlyph />}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
         </div>
         <div
           ref={advancedPanelRef}

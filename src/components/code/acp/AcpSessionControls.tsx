@@ -7,7 +7,7 @@ import type {
   AcpSessionConfigSelectOption,
   AcpSessionSnapshot,
 } from './types'
-import { ModelMatrixPicker, modelMatrixFamily } from '../ModelMatrixPicker'
+import { ComposerSpeedIndicator, ModelMatrixPicker, modelMatrixFamily } from '../ModelMatrixPicker'
 
 export type AcpComposerMenu = 'commands' | 'mode' | 'model' | null
 
@@ -225,7 +225,7 @@ export function AcpModelControl({
   onSetPane,
   onSetConfigOption,
   onSetProfile,
-  onSetFast,
+  onSetSpeedInline,
 }: {
   session: AcpSessionSnapshot
   updatingId: string
@@ -237,13 +237,14 @@ export function AcpModelControl({
   onSetPane: (pane: 'model' | 'speed' | null) => void
   onSetConfigOption: (configId: string, value: string | boolean) => void
   onSetProfile: (modelId: string, modelValue: string, reasoningId: string, reasoningValue: string) => void
-  onSetFast: (configId: string, value: boolean) => void
+  onSetSpeedInline: (configId: string, value: string | boolean) => void
 }) {
   const model = findSelectOption(session, /(^|[\s_-])model([\s_-]|$)/i)
   const reasoning = findSelectOption(session, /(reasoning|thought)/i)
   const fastMode = findBooleanOption(session, /(fast|speed)/i)
   const tier = findSelectOption(session, /(^|[\s_-])(fast|speed|service[\s_-]?tier)([\s_-]|$)/i)
   const selectedTier = currentSelectOption(tier)
+  const selectedTierLabel = selectedTier && copy.serviceTierLabel(selectedTier.value, selectedTier.name)
   const extraOptions = session.configOptions.filter(option => (
     option !== model
     && option !== reasoning
@@ -278,10 +279,11 @@ export function AcpModelControl({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        title={[currentModel?.name, currentReasoning?.name, selectedTier?.name || (fastMode?.currentValue ? fastMode.name : '')].filter(Boolean).join(' · ')}
+        title={[currentModel?.name, currentReasoning?.name, selectedTierLabel || (fastMode?.currentValue ? fastMode.name : '')].filter(Boolean).join(' · ')}
         onClick={onToggle}
       >
-        {fastMode?.currentValue || (selectedTier && !['off', 'default'].includes(selectedTier.value)) ? <span className="code-composer-speed-active" aria-hidden="true"><SpeedGlyph /></span> : null}
+        {fastMode?.currentValue || (selectedTier && !['off', 'default'].includes(selectedTier.value))
+          ? <ComposerSpeedIndicator label={selectedTierLabel || undefined} /> : null}
         <span className="code-composer-model-label desktop">{compactModelLabel(currentModel?.name || model?.currentValue || 'Model')}</span>
         <span className="code-composer-model-label mobile">{compactModelLabel(currentModel?.name || model?.currentValue || 'Model')}</span>
         {currentReasoning ? <span className="code-composer-model-picker-muted desktop">{currentReasoning.name}</span> : null}
@@ -299,14 +301,14 @@ export function AcpModelControl({
             serviceTiers={tier ? {
               label: copy.speed, value: tier.currentValue,
               options: selectOptions(tier).map(option => ({ value: option.value, label: copy.serviceTierLabel(option.value, option.name) })),
-              onChange: value => onSetConfigOption(tier.id, value),
+              onChange: value => onSetSpeedInline(tier.id, value),
             } : undefined}
             disabled={disabled}
             onSelect={(modelValue, reasoningValue) => {
               if (model && reasoning) onSetProfile(model.id, modelValue, reasoning.id, reasoningValue)
             }}
             onFastChange={value => {
-              if (fastMode) onSetFast(fastMode.id, value)
+              if (fastMode) onSetSpeedInline(fastMode.id, value)
             }}
             advanced={(
               <>
@@ -391,12 +393,12 @@ export function AcpModelControl({
           {extraOptions.map(option => option.type === 'select' ? (
             <div key={option.id}>
               <div className="code-context-menu-separator" role="separator" />
-              <div className="code-model-menu-header">{option.name}</div>
+              <div className="code-model-menu-header">{option === tier ? copy.speed : option.name}</div>
               <SelectOptions
                 option={option}
                 currentValue={option.currentValue}
                 disabled={disabled}
-                label={candidate => candidate.name}
+                label={candidate => option === tier ? copy.serviceTierLabel(candidate.value, candidate.name) : candidate.name}
                 onSelect={value => onSetConfigOption(option.id, value)}
               />
             </div>
