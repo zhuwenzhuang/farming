@@ -2081,7 +2081,7 @@
   gap: 4px;
 }
 
-.code-model-matrix-tier-options .code-menu-item > span:first-child {
+.code-model-matrix-tier-options .code-model-option > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
 }
