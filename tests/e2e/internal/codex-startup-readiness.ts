@@ -5,5 +5,5 @@ export function freshCodexSessionConfigured(rendered: string, activity: string |
   return activity === 'idle'
     && /^\s*>_ OpenAI Codex \(v[^\n]+\)/m.test(rendered)
     && rendered.includes('To get started, describe a task or try one of these commands:')
-    && /^\s*\/status - show current session configuration\s*$/m.test(rendered)
+    && /^\s*\/status [-—] show current session configuration\s*$/m.test(rendered)
 }

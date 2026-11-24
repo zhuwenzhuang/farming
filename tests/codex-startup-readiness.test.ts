@@ -13,6 +13,7 @@ test('fresh Codex waits for SessionConfigured help after the early idle Composer
     { rendered: `• Model selection is disabled until startup completes.\n${placeholder}`, activity: 'idle', ready: false },
     { rendered: configured, activity: 'working', ready: false },
     { rendered: configured, activity: 'idle', ready: true },
+    { rendered: configured.replace('/status - ', '/status — '), activity: 'idle', ready: true },
   ]
   for (const snapshot of snapshots) {
     assert.equal(freshCodexSessionConfigured(snapshot.rendered, snapshot.activity), snapshot.ready)
