@@ -14,7 +14,7 @@ import { integrateCodexQuestions } from './vendor/codex-question-integration';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '2.10.0';
 const expectedUpstreamSha256 = '073b1610fa29803c141df25f80f622413036493dd365c36fbed425a9dac50254';
-const expectedBundleSha256 = 'd43d362babe1077c9bb7f706508f7e717caad8da8217fe91a2ee099364cb4881';
+const expectedBundleSha256 = 'c7a28366ae6efdfa7fbc0054cb347467563f0c43781d6a0b5131f06694576e2e';
 const expectedPatchedSha256 = '026f896099954faec897426ab5dee98693c58763fcbb8eac1cc8984f02c6df86';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');

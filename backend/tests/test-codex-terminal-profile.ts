@@ -469,20 +469,24 @@ async function run() {
     'model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7',
     'gpt-5.6-terra', 'gpt-5.6-sol-openai-compact', 'gpt-5.6-sol', 'gpt-5.6-luna', 'model-12',
   ];
-  for (const scenario of ['hidden-target', 'display-labels', 'visible-two-digit', 'three-digit', 'wrap-target', 'missing-target', 'missing-cursor', 'stalled-cursor', 'move-uncertain', 'move-canceled']) {
+  for (const scenario of ['hidden-target', 'display-labels', 'visible-two-digit', 'unnumbered-cursor', 'three-digit', 'wrap-target', 'missing-target', 'missing-cursor', 'stalled-cursor', 'move-uncertain', 'move-canceled']) {
     const pagedModels = scenario === 'three-digit'
       ? Array.from({ length: 102 }, (_, index) => index === 99 ? 'gpt-5.6-sol' : `model-${index + 1}`)
       : pagedCatalog;
     const target = scenario === 'wrap-target' ? 'model-2'
-      : scenario === 'missing-target' ? 'model-absent' : 'gpt-5.6-sol';
-    let selected = scenario === 'three-digit' ? 99 : scenario === 'wrap-target' ? 10 : 8;
+      : scenario === 'missing-target' ? 'model-absent'
+        : scenario === 'unnumbered-cursor' ? 'gpt-5.6-luna' : 'gpt-5.6-sol';
+    let selected = scenario === 'three-digit' ? 99 : scenario === 'wrap-target' || scenario === 'unnumbered-cursor' ? 10 : 8;
     let firstVisible = scenario === 'three-digit' ? 92
-      : scenario === 'visible-two-digit' ? 3 : scenario === 'wrap-target' ? 5 : 1;
+      : scenario === 'visible-two-digit' ? 3 : scenario === 'wrap-target' || scenario === 'unnumbered-cursor' ? 5 : 1;
     const renderPage = () => [
       'Select Model and Effort',
       ...pagedModels.slice(firstVisible - 1, firstVisible + 7).map((model, offset) => {
         const index = firstVisible + offset;
         const marker = scenario !== 'missing-cursor' && index === selected ? '›' : ' ';
+        if (scenario === 'unnumbered-cursor' && index > 9) {
+          return `${marker}     Display ${model}${index === 10 ? ' (current)' : ''}  Available model`;
+        }
         return `${marker} ${index}. ${scenario === 'display-labels' ? `Display ${model}` : model}  Available model`;
       }),
       'gpt-5.5 xhigh · /workspace',
@@ -498,7 +502,7 @@ async function run() {
     try {
       const applying = applyCodexTerminalProfile({
         profile: { model: target, effort: 'low', serviceTier: 'default' },
-        readModelCatalog: scenario === 'display-labels'
+        readModelCatalog: scenario === 'display-labels' || scenario === 'unnumbered-cursor'
           ? async () => pagedModels.map(value => ({ value, displayName: `Display ${value}` }))
           : undefined,
         readPreview: async () => {
@@ -547,7 +551,7 @@ async function run() {
         assert(!pagedInputs.includes('\r'), 'a missing or uncertain target must never be selected');
       } else {
         assert.deepStrictEqual(await applying, { model: target, effort: 'low', serviceTier: 'default' });
-        const expectedMoves = scenario === 'three-digit' ? 1 : scenario === 'wrap-target' ? 4 : 2;
+        const expectedMoves = scenario === 'unnumbered-cursor' || scenario === 'three-digit' ? 1 : scenario === 'wrap-target' ? 4 : 2;
         assert.deepStrictEqual(pagedInputs, [[{ type: 'paste', text: '/model' }, '\r'], ...Array(expectedMoves).fill('\x1b[B'), '\r', '1']);
       }
     } finally {

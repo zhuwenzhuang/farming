@@ -127,11 +127,12 @@ function inferCodexActivity({ title, previewText }: ProviderTerminalObserverInpu
   const idleIndex = lastCodexIdleFooterIndex(text);
   const blockedIndex = codexBlockedIndex(text);
   const activeIndex = codexActiveIndex(text);
-  // Codex can keep animating its title after startup has rendered the composer.
-  // A prompt immediately above a newer idle footer supplies current evidence.
-  const currentPrompt = idleIndex > activeIndex
-    && /(?:^|\n)[ \t]*›[ \t]+[^\n]+$/u.test(text.slice(0, idleIndex).trimEnd());
-  if (spinningTitle && !currentPrompt) return 'busy';
+  // Current Codex can animate the title while the startup welcome is ready.
+  // An ordinary composer/footer can remain visible during a running turn.
+  const startupWelcome = idleIndex >= 0 && activeIndex < 0
+    && text.includes('to get started, describe a task or try one of these commands:')
+    && /(?:^|\n)[ \t]*›[ \t]+ask codex to do anything$/u.test(text.slice(0, idleIndex).trimEnd());
+  if (spinningTitle && !startupWelcome) return 'busy';
   const inactiveIndex = Math.max(idleIndex, blockedIndex);
   if (activeIndex >= 0) return inactiveIndex > activeIndex ? 'idle' : 'busy';
   if (inactiveIndex >= 0) return 'idle';

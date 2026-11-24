@@ -50,14 +50,15 @@ async function run() {
     assert.ok(modelOptions);
     const metadata = (id: string) => {
       const option = modelOptions.find(option => option.value === id);
-      return option && '_meta' in option ? option._meta : undefined;
+      const meta = option && '_meta' in option ? option._meta : undefined;
+      return meta && typeof meta === 'object' && 'farming' in meta ? meta.farming : undefined;
     };
-    assert.deepEqual(metadata('gpt-5.6'), { farming: { modelConfig: { version: 1,
+    assert.deepEqual(metadata('gpt-5.6'), { modelConfig: { version: 1,
       reasoningOptions: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }],
-    } } });
-    assert.deepEqual(metadata('gpt-6-astra'), { farming: { modelConfig: { version: 1,
+    } });
+    assert.deepEqual(metadata('gpt-6-astra'), { modelConfig: { version: 1,
       reasoningOptions: [{ value: 'medium', name: 'Medium' }],
-    } } });
+    } });
     await runtime.setSessionConfigOptions('model-side', [
       { configId: 'model', value: 'gpt-6-astra' },
       { configId: 'reasoning_effort', value: 'medium' },

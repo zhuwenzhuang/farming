@@ -18,9 +18,11 @@ export function integrateCodexModelConfig(source: string): string {
       }))
     } } }`));
   const replace = (from: string, to: string, count = 1) => {
-    if (source.split(from).length !== count + 1) throw new Error(`Unexpected Codex speed boundary: ${from}`);
+    if (source.split(from).length !== count + 1) throw new Error(`Unexpected Codex model config boundary: ${from}`);
     source = source.replaceAll(from, to);
   };
+  replace('withAirMeta(void 0, AIR_MODEL_REASONING_EFFORTS_KEY, efforts)',
+    'withAirMeta(option._meta, AIR_MODEL_REASONING_EFFORTS_KEY, efforts)');
   replace('function modelSupportsFast(model) {', `function modelTierOptions(model) {
   if (model?.serviceTiers?.length) return model.serviceTiers.map(({ id, name, description }) => ({ value: id, name, description }));
   return (model?.additionalSpeedTiers ?? []).map(tier => tier === "fast"

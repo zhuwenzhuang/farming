@@ -438,7 +438,13 @@ function run() {
       pickStatus(deriveTerminalStatus({
         command: 'codex',
         title: '⠋ workspace',
-        previewText: `› Ask Codex to do anything\n\nGPT-6-Sol · Codex low · ~/repo${suffix}`,
+        previewText: [
+          'To get started, describe a task or try one of these commands:',
+          '  /status - show current session configuration',
+          '› Ask Codex to do anything',
+          '',
+          `GPT-6-Sol · Codex low · ~/repo${suffix}`,
+        ].join('\n'),
       })),
       { kind: 'codex', activity, busy: activity === 'busy' },
     );

@@ -72,8 +72,9 @@ Admission requires an idle Composer, independently of whether its footer exposes
 a model ID. A display name is never guessed into an ID; unknown identity requires
 the explicit target picker and confirmation transaction.
 The idle footer can include provider and routing labels before the working directory.
-The current prompt with an idle footer can settle startup while Codex is still
-animating its window title. Newer active-turn output continues to block profile changes.
+The startup welcome and idle footer can settle startup while Codex is still
+animating its window title. During a turn, the animated title still signals
+activity even when the idle footer remains visible.
 Display-name picker entries resolve only through a fresh catalog from the same
 Agent Home, with an exact, unique label-to-ID mapping. Ambiguous labels fail;
 successful selection still requires the canonical model ID in confirmation.

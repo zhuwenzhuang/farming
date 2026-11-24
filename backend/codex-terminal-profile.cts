@@ -300,6 +300,7 @@ function isCodexTerminalComposerPreview(previewText: unknown): boolean {
 function numberedOptionsAfter(
   previewText: unknown,
   headingPattern: RegExp,
+  allowUnnumbered = false,
 ): NumberedMenuOption[] | null {
   const text = String(previewText || '');
   const matches = Array.from(text.matchAll(headingPattern));
@@ -310,6 +311,13 @@ function numberedOptionsAfter(
   const body = text.slice(heading.index + heading[0].length);
   for (const line of body.split(/\r?\n/)) {
     const match = line.match(/^\s*([>›❯])?\s*(\d+)[.)]?\s+(.+?)\s*$/u);
+    if (!match && allowUnnumbered) {
+      // Codex 0.172 draws rows beyond shortcut 9 without a number.
+      const unnumbered = line.match(/^\s*([>›❯])? {5,}(\S.*?) {2,}\S.*$/u);
+      if (unnumbered) {
+        options.push({ input: '', label: unnumbered[2], line: line.trim(), selected: Boolean(unnumbered[1]) });
+      }
+    }
     if (!match) continue;
     options.push({
       input: match[2],
@@ -322,7 +330,7 @@ function numberedOptionsAfter(
 }
 
 function codexModelMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
-  return numberedOptionsAfter(previewText, /Select Model and Effort/gi);
+  return numberedOptionsAfter(previewText, /Select Model and Effort/gi, true);
 }
 
 function codexQuickModelMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
@@ -346,9 +354,10 @@ function modelSelectionInput(
   const options = codexModelMenuOptions(previewText);
   if (!options) return null;
   const label = (item: NumberedMenuOption): string => item.label.replace(/\s+\(current\)$/, '').trim();
+  const input = (item?: NumberedMenuOption): string => item?.input || (item?.selected ? '\r' : '');
   const exactIds = options.filter(item => normalizedValue(label(item)) === target);
   if (exactIds.length > 1) throw new Error(`Codex model menu is ambiguous for ${target}`);
-  if (exactIds.length === 1) return exactIds[0].input;
+  if (exactIds.length === 1) return input(exactIds[0]);
   const identities = catalog.filter(item => item.value === target);
   if (identities.length > 1) throw new Error(`Codex model catalog is ambiguous for ${target}`);
   const displayName = identities[0]?.displayName.trim();
@@ -358,7 +367,11 @@ function modelSelectionInput(
   }
   const matches = options.filter(item => label(item) === displayName);
   if (matches.length > 1) throw new Error(`Codex model menu is ambiguous for ${target}`);
-  return matches[0]?.input || '';
+  return input(matches[0]);
+}
+
+function modelCursorKey(option: NumberedMenuOption): string {
+  return option.input || option.line;
 }
 
 function reasoningSelectionInput(previewText: unknown, effort: unknown): string | null {
@@ -588,22 +601,24 @@ async function applyCodexTerminalProfile({
         modelCatalog = await runStep(readModelCatalog, 'Timed out reading the Codex model catalog');
         modelInput = modelSelectionInput(modelMenu.preview, target.model, modelCatalog) || '';
       }
-      if (!modelInput || !/^[1-9]$/.test(modelInput)) {
+      if (!modelInput || !/^[1-9\r]$/.test(modelInput)) {
         // A narrow TUI exposes only a window of the full list. Follow its
-        // selected global index, observing each move before sending another;
-        // a multi-digit index is not a safe single-key selection shortcut.
+        // cursor, observing each move before sending another. Some rows have
+        // no shortcut and a multi-digit index is unsafe as a single key.
         const visited = new Set<string>();
         for (;;) {
           const selected = codexModelMenuOptions(modelMenu.preview)?.find(option => option.selected);
           if (!selected) throw new Error('Codex model menu did not identify its selected model');
-          if (modelSelectionInput(modelMenu.preview, target.model, modelCatalog) === selected.input) {
+          const input = modelSelectionInput(modelMenu.preview, target.model, modelCatalog);
+          if (input === '\r' || (input && input === selected.input)) {
             modelInput = '\r';
             break;
           }
-          if (visited.has(selected.input)) {
+          const cursor = modelCursorKey(selected);
+          if (visited.has(cursor)) {
             throw new Error(`Model ${target.model} is not available in this Codex CLI`);
           }
-          visited.add(selected.input);
+          visited.add(cursor);
           await runStep(
             () => sendInput('\x1b[B'),
             `Timed out navigating to Codex model ${target.model}`,
@@ -614,7 +629,7 @@ async function applyCodexTerminalProfile({
               if (codexQuickModelMenuOptions(text)) return null;
               const options = codexModelMenuOptions(text);
               const next = options?.find(option => option.selected);
-              return next && next.input !== selected.input ? options : null;
+              return next && modelCursorKey(next) !== cursor ? options : null;
             },
             { ...waitOptions, timeoutMessage: `Codex model menu did not advance while locating ${target.model}` },
           );
