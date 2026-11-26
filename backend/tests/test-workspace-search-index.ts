@@ -115,7 +115,58 @@ async function run(): Promise<void> {
     const scoped = await service.search(tmpRoot, 'AppState', { path: 'task', scope: 'entries', limit: 10 });
     assert.deepStrictEqual(scoped.matches, []);
 
-    console.log('✓ WorkspaceSearchIndex in-memory caching, multi-token, long fuzzy, Smart Case, MRU, and invalidation passed');
+    // 10. Dedicated content search supports matchCase, wholeWord, regex, UTF-8/CJK ranges, and explicit 400 on invalid regex.
+    fs.writeFileSync(
+      path.join(tmpRoot, 'src', 'components', 'content_probe.ts'),
+      [
+        'export const AlphaBeta = 1;',
+        'export const alphabeta = 2;',
+        'export const Alpha = 3;',
+        '// 内存排查 RangeHistoAlgo 缓冲',
+      ].join('\n') + '\n',
+    );
+    const caseSensitive = await service.search(tmpRoot, 'AlphaBeta', {
+      scope: 'content',
+      matchCase: true,
+      limit: 20,
+    });
+    assert.strictEqual(caseSensitive.matches.length, 1);
+    assert.strictEqual((caseSensitive.matches[0] as { lineNumber: number }).lineNumber, 1);
+
+    const wholeWord = await service.search(tmpRoot, 'Alpha', {
+      scope: 'content',
+      matchCase: true,
+      wholeWord: true,
+      limit: 20,
+    });
+    assert.strictEqual(wholeWord.matches.length, 1);
+    assert.strictEqual((wholeWord.matches[0] as { lineNumber: number }).lineNumber, 3);
+
+    const regexSearch = await service.search(tmpRoot, 'Alpha(Beta)?\\s*=\\s*[13]', {
+      scope: 'content',
+      regex: true,
+      limit: 20,
+    });
+    assert.strictEqual(regexSearch.matches.length, 2);
+
+    const cjkContent = await service.search(tmpRoot, 'RangeHistoAlgo', {
+      scope: 'content',
+      limit: 20,
+    });
+    assert.strictEqual(cjkContent.matches.length, 1);
+    const cjkMatch = cjkContent.matches[0] as { lines: string; ranges: Array<{ start: number; end: number }> };
+    assert.strictEqual(
+      cjkMatch.lines.slice(cjkMatch.ranges[0].start, cjkMatch.ranges[0].end),
+      'RangeHistoAlgo',
+      'ripgrep UTF-8 byte offsets must convert to exact UTF-16 character offsets on CJK lines',
+    );
+
+    await assert.rejects(
+      () => service.search(tmpRoot, '[unclosed-regex', { scope: 'content', regex: true }),
+      (error: { statusCode?: number }) => error?.statusCode === 400,
+    );
+
+    console.log('✓ WorkspaceSearchIndex in-memory caching, multi-token, long fuzzy, Smart Case, MRU, content search, and invalidation passed');
   } finally {
     await service.dispose();
     fs.rmSync(tmpRoot, { recursive: true, force: true });

@@ -8,6 +8,7 @@ import type { ComposerDocument } from '../../shared/composer-document.js'
 import { type ComposerInputElement, isComposerInputElement } from './code/composer-input-element'
 import type { ComposerDeliveryOptions } from './code/composer-state'
 import { ResumeStoppedAgentDialog, isStoppedAgentResumeCandidate } from './code/ResumeStoppedAgentDialog'
+import { CodeContentSearchDialog } from './code/CodeContentSearchDialog'
 import { intakeComposerFile, cancelComposerIntake } from './code/composer-intake'
 import { prepareComposerSubmission } from './code/composer-submission-state'
 import { validateComposerReferences } from './code/composer-context-admission'
@@ -837,6 +838,7 @@ export function CodeWorkspace({
     })
   }, [activeComputerResource?.ownerAgentId])
   const [searchOpen, setSearchOpen] = useState(false)
+  const [contentSearchOpen, setContentSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchScope, setSearchScope] = useState<WorkspaceSearchScope>('all')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
@@ -2944,6 +2946,17 @@ export function CodeWorkspace({
     setSearchSelectionIndex(0)
     setSearchScope(scope)
   }, [cancelGlobalFileOpen])
+
+  useEffect(() => {
+    const onGlobalContentSearchShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        setContentSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onGlobalContentSearchShortcut)
+    return () => window.removeEventListener('keydown', onGlobalContentSearchShortcut)
+  }, [])
 
   useEffect(() => {
     const match = globalFileOpenMatchRef.current
@@ -6495,6 +6508,7 @@ export function CodeWorkspace({
         }}
         onOpenSearchFile={match => void openGlobalSearchFile(match)}
         onRetryGlobalFileSearch={globalFileSearch.retry}
+        onOpenContentSearch={() => setContentSearchOpen(true)}
         onSearchQueryChange={updateSearchQuery}
         onSearchKeyDown={handleSearchInputKeyDown}
         onCloseSearch={closeSearchView}
@@ -6613,6 +6627,14 @@ export function CodeWorkspace({
         onUndoArchivedSession={() => { void undoArchivedAgentSession() }}
         onCloseArchivedSessionNotice={closeArchivedSessionNotice}
         copy={copy}
+      />
+      <CodeContentSearchDialog
+        open={contentSearchOpen}
+        projects={globalFileSearchProjects}
+        initialProjectWorkspace={activeAgent?.cwd || ''}
+        copy={copy}
+        onClose={() => setContentSearchOpen(false)}
+        onOpenMatch={match => { void openGlobalSearchFile(match) }}
       />
     </div>
   )

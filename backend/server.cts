@@ -320,8 +320,11 @@ import {
   agentExtensionInventoryCacheFile,
   agentSessionInventoryCacheFile,
   agentSessionSearchIndexFile,
+  turnCheckpointsFile,
 } from './storage-layout.cjs';
 import { AgentSessionSearchIndex } from './agent-session-search-index.cjs';
+import { TurnCheckpointService } from './turn-checkpoint-service.cjs';
+import { createTurnCheckpointRouter } from './turn-checkpoint-router.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
 import { createUpdateRouter } from './update-router.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
@@ -1121,6 +1124,48 @@ app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffS
 app.use(
   routePath(BASE_PATH, '/api/reviews'),
   createReviewStateRouter(reviewStateStore as Parameters<typeof createReviewStateRouter>[0]),
+);
+
+const turnCheckpointService = new TurnCheckpointService({
+  storageFile: turnCheckpointsFile(configManager.farmingDir),
+  onWorkspaceMutated: repoRoot => {
+    workspaceFileService.invalidateGitStatus(repoRoot);
+  },
+});
+agentManager.on('turn-started', (event: { agentId?: string; workspace?: string }) => {
+  if (event?.agentId && event?.workspace) {
+    void turnCheckpointService.captureTurnBaseline(event.agentId, event.workspace);
+  }
+});
+agentManager.on('turn-settled', (event: {
+  agentId?: string;
+  settledTurnHandle?: string;
+  summary?: string;
+  workspace?: string;
+}) => {
+  if (event?.agentId && event?.workspace) {
+    void turnCheckpointService.captureTurnCheckpoint({
+      agentId: event.agentId,
+      workspace: event.workspace,
+      turnHandle: event.settledTurnHandle || '',
+      summary: event.summary || '',
+      kind: 'turn',
+    }).catch(error => {
+      console.warn('Failed to capture turn checkpoint:', error);
+    });
+  }
+});
+app.use(
+  routePath(BASE_PATH, '/api/agents/:agentId/turn-checkpoints'),
+  createTurnCheckpointRouter(turnCheckpointService, {
+    getAgent: agentId => agentManager.agents.get(agentId),
+    isAgentTurnActive: agentId => {
+      const agent = agentManager.agents.get(agentId);
+      const binding = agent?.runtimeBinding as { state?: string } | undefined;
+      const state = binding?.state || '';
+      return state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input';
+    },
+  }),
 );
 
 if (process.env.NODE_ENV === 'test' && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1') {

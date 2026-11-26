@@ -210,8 +210,21 @@ assert.strictEqual(validateClientMessage({
 }).ok, true);
 assert.strictEqual(validateClientMessage({
   type: 'workspace-request',
+  requestId: 'workspace-search-content',
+  request: {
+    operation: 'search',
+    rootId: 'root-1',
+    query: 'serialize_buffer',
+    scope: 'content',
+    matchCase: true,
+    wholeWord: true,
+    regex: false,
+  },
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
   requestId: 'workspace-search-invalid',
-  request: { operation: 'search', rootId: 'root-1', query: 'src/App.tsx', scope: 'content' },
+  request: { operation: 'search', rootId: 'root-1', query: 'src/App.tsx', scope: 'invalid-scope' },
 }).ok, false);
 assert.strictEqual(validateClientMessage({
   type: 'workspace-request',

@@ -705,6 +705,9 @@ async function executeWorkspaceFileRequest(
         path: request.path || '',
         limit: request.limit,
         scope: request.scope,
+        matchCase: request.matchCase === true,
+        wholeWord: request.wholeWord === true,
+        regex: request.regex === true,
         timeoutMs: settings.searchTimeoutMs,
         signal: options.signal,
       });

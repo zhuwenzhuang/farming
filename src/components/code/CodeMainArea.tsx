@@ -346,6 +346,7 @@ interface CodeMainAreaProps {
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void
   onOpenSearchFile: (match: GlobalWorkspaceFileSearchMatch) => void
   onRetryGlobalFileSearch: () => void
+  onOpenContentSearch?: () => void
   onSearchQueryChange: (value: string) => void
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onCloseSearch: () => void
@@ -663,6 +664,7 @@ export function CodeMainArea({
   onOpenSearchSession,
   onOpenSearchFile,
   onRetryGlobalFileSearch,
+  onOpenContentSearch,
   onSearchQueryChange,
   onSearchKeyDown,
   onCloseSearch,
@@ -1206,6 +1208,7 @@ export function CodeMainArea({
               onOpenSession={onOpenSearchSession}
               onOpenFile={onOpenSearchFile}
               onRetryFileSearch={onRetryGlobalFileSearch}
+              onOpenContentSearch={onOpenContentSearch}
               copy={copy}
             />
           ) : sideView === 'history' ? (

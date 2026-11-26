@@ -1960,6 +1960,17 @@ class AgentManager extends EventEmitter {
       agents: this.agents,
       attention: this.attentionTracker,
       observeProviderSession: agentId => this.providerSessionService.observe(agentId, { force: true }),
+      onTurnSettled: ({ agent, settledTurnHandle, stopReason, summary }) => {
+        if (agent.cwd) {
+          this.emit('turn-settled', {
+            agentId: agent.id,
+            workspace: agent.cwd,
+            settledTurnHandle,
+            stopReason,
+            summary,
+          });
+        }
+      },
       persistence: {
         assertRuntimeOwner: agent => this.sessionPersistence.assertRuntimeOwner(agent),
         config: this.configManager,
@@ -2028,6 +2039,9 @@ class AgentManager extends EventEmitter {
         || state === 'waiting-for-input'
       ) && state !== previousState;
       if (recordsActivity) this.recordAgentActivity(agentId);
+      if (state === 'working' && previousState !== 'working' && agent.cwd) {
+        this.emit('turn-started', { agentId, workspace: agent.cwd });
+      }
       if (
         sessionIdentityChanged
         || chatTurnChanged
@@ -7053,6 +7067,9 @@ class AgentManager extends EventEmitter {
           try {
             agent.providerSessionMaterialized = true;
             this.sessionPersistence.scheduleState(agent);
+            if (agent.cwd) {
+              this.emit('turn-started', { agentId, workspace: agent.cwd });
+            }
           } finally {
             if (options.onSubmitted) options.onSubmitted({ kind: 'acp' });
             else options.releaseInput?.();

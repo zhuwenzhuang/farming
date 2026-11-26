@@ -45,6 +45,10 @@ function reviewSessionsFile(configDir: string): string {
   return path.join(historyDir(configDir), 'review-sessions.json');
 }
 
+function turnCheckpointsFile(configDir: string): string {
+  return path.join(historyDir(configDir), 'turn-checkpoints-v1.json');
+}
+
 function usageHistoryCacheFile(configDir: string): string {
   return path.join(historyDir(configDir), 'usage-history-v2.sqlite3');
 }
@@ -252,6 +256,7 @@ export {
   sessionsDir,
   settingsFile,
   themeSettingsFile,
+  turnCheckpointsFile,
   updateLogFile,
   updateStagingDir,
   updateStateFile,

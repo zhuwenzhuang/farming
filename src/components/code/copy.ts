@@ -192,6 +192,30 @@ export interface CodeCopy {
   searchNoFiles: string
   searchFilesAndFolders: string
   searchFolders: string
+  searchCodeContents: string
+  searchCodeContentsPlaceholder: string
+  searchMatchCase: string
+  searchWholeWord: string
+  searchRegex: string
+  searchAllProjects: string
+  searchPathFilterPlaceholder: string
+  searchContentMatchesSummary: (matches: number, files: number) => string
+  searchContentEmpty: string
+  searchInvalidRegex: (detail: string) => string
+  checkpointTitle: string
+  checkpointCount: (count: number) => string
+  checkpointTurnLabel: string
+  checkpointSafetyBackup: string
+  checkpointFilesChanged: (count: number) => string
+  checkpointUndoTurn: string
+  checkpointRestoreAfter: string
+  checkpointConfirmUndo: string
+  checkpointConfirmRestoreAfter: string
+  checkpointConfirmButton: string
+  checkpointRestoring: string
+  checkpointBusyHint: string
+  checkpointRestoredSummary: (files: number, hasSafetyBackup: boolean) => string
+  checkpointNoDiff: string
   openingDirectory: string
   searchDirectoryOpenFailed: (path: string) => string
   searchWorkingDirectory: string
@@ -984,6 +1008,32 @@ const EN_COPY: CodeCopy = {
   searchNoFiles: 'No matching files or folders in mounted Projects.',
   searchFilesAndFolders: 'Files and Folders',
   searchFolders: 'Folders',
+  searchCodeContents: 'Search code contents',
+  searchCodeContentsPlaceholder: 'Search text across project files…',
+  searchMatchCase: 'Match case',
+  searchWholeWord: 'Match whole word',
+  searchRegex: 'Use regular expression',
+  searchAllProjects: 'All projects',
+  searchPathFilterPlaceholder: 'Filter path (e.g. src/)',
+  searchContentMatchesSummary: (matches, files) => `${matches} matches in ${files} files`,
+  searchContentEmpty: 'No matching lines found.',
+  searchInvalidRegex: detail => detail ? `Invalid regular expression: ${detail}` : 'Invalid regular expression.',
+  checkpointTitle: 'Turn checkpoints',
+  checkpointCount: count => `${count} snapshots`,
+  checkpointTurnLabel: 'Turn snapshot',
+  checkpointSafetyBackup: 'Safety backup',
+  checkpointFilesChanged: count => `${count} ${count === 1 ? 'file' : 'files'}`,
+  checkpointUndoTurn: 'Undo turn',
+  checkpointRestoreAfter: 'Restore after turn',
+  checkpointConfirmUndo: 'Restore workspace to before this turn? A safety backup will be saved first.',
+  checkpointConfirmRestoreAfter: 'Restore workspace to after this turn? A safety backup will be saved first.',
+  checkpointConfirmButton: 'Confirm restore',
+  checkpointRestoring: 'Restoring…',
+  checkpointBusyHint: 'Wait for the current turn to finish before restoring.',
+  checkpointRestoredSummary: (files, hasSafetyBackup) => hasSafetyBackup
+    ? `Restored ${files} ${files === 1 ? 'file' : 'files'} · safety backup saved.`
+    : `Restored ${files} ${files === 1 ? 'file' : 'files'}.`,
+  checkpointNoDiff: 'No textual diff in this checkpoint.',
   openingDirectory: 'Opening folder…',
   searchDirectoryOpenFailed: path => `Could not open folder: ${path}. It may have moved, become inaccessible, or its Project was removed.`,
   searchWorkingDirectory: 'Working directory',
@@ -1806,6 +1856,32 @@ const ZH_COPY: CodeCopy = {
   searchNoFiles: '已挂载项目中没有匹配的文件或目录。',
   searchFilesAndFolders: '文件与目录',
   searchFolders: '目录',
+  searchCodeContents: '搜索代码正文',
+  searchCodeContentsPlaceholder: '在项目代码正文中搜索…',
+  searchMatchCase: '区分大小写',
+  searchWholeWord: '全词匹配',
+  searchRegex: '使用正则表达式',
+  searchAllProjects: '全部项目',
+  searchPathFilterPlaceholder: '限定子目录（如 src/）',
+  searchContentMatchesSummary: (matches, files) => `${files} 个文件中共 ${matches} 处匹配`,
+  searchContentEmpty: '未找到匹配的代码行。',
+  searchInvalidRegex: detail => detail ? `正则表达式无效：${detail}` : '正则表达式无效。',
+  checkpointTitle: '轮次检查点',
+  checkpointCount: count => `${count} 个快照`,
+  checkpointTurnLabel: '轮次快照',
+  checkpointSafetyBackup: '回滚前备份',
+  checkpointFilesChanged: count => `${count} 个文件`,
+  checkpointUndoTurn: '撤销本轮改动',
+  checkpointRestoreAfter: '恢复到此轮之后',
+  checkpointConfirmUndo: '将工作区回滚到此轮之前？回滚前会自动保存一份安全备份。',
+  checkpointConfirmRestoreAfter: '将工作区恢复到此轮之后？恢复前会自动保存一份安全备份。',
+  checkpointConfirmButton: '确认回滚',
+  checkpointRestoring: '回滚中…',
+  checkpointBusyHint: '请等待当前轮次完成后再执行回滚。',
+  checkpointRestoredSummary: (files, hasSafetyBackup) => hasSafetyBackup
+    ? `已恢复 ${files} 个文件 · 已自动保存安全备份。`
+    : `已恢复 ${files} 个文件。`,
+  checkpointNoDiff: '该检查点没有可展示的文本差异。',
   openingDirectory: '正在打开目录…',
   searchDirectoryOpenFailed: path => `无法打开目录：${path}。目录可能已移动、无法访问，或所属项目已被移除。`,
   searchWorkingDirectory: '工作目录',

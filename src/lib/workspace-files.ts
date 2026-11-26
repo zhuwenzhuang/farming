@@ -725,7 +725,20 @@ export function resolveWorkspaceLinkPath(rootId: string, path: string, options: 
   }, { signal: options.signal })
 }
 
-export async function searchWorkspaceFiles(rootId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; scope?: 'all' | 'file-path' | 'entries'; signal?: AbortSignal } = {}) {
+export async function searchWorkspaceFiles(
+  rootId: string,
+  query: string,
+  options: {
+    includeIgnored?: boolean
+    path?: string
+    limit?: number
+    scope?: 'all' | 'file-path' | 'entries' | 'content'
+    matchCase?: boolean
+    wholeWord?: boolean
+    regex?: boolean
+    signal?: AbortSignal
+  } = {},
+) {
   return runWorkspaceRequest<WorkspaceFileSearchResult>({
     operation: 'search',
     rootId,
@@ -734,7 +747,10 @@ export async function searchWorkspaceFiles(rootId: string, query: string, option
     ...(options.path ? { path: options.path } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
     ...(options.scope ? { scope: options.scope } : {}),
-  }, { signal: options.signal,  })
+    ...(options.matchCase ? { matchCase: true } : {}),
+    ...(options.wholeWord ? { wholeWord: true } : {}),
+    ...(options.regex ? { regex: true } : {}),
+  }, { signal: options.signal })
 }
 
 export function renewWorkspaceHtmlPreview(previewId: string) {

@@ -163,7 +163,7 @@ export type WorkspaceRequest =
   | { operation: 'create-entry'; rootId: string; parentPath: string; name: string; entryType: 'file' | 'directory' }
   | { operation: 'rename-entry'; rootId: string; path: string; name: string; expectedVersion?: string }
   | { operation: 'delete-entry'; rootId: string; path: string; expectedVersion?: string }
-  | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number; scope?: 'all' | 'file-path' | 'entries' }
+  | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number; scope?: 'all' | 'file-path' | 'entries' | 'content'; matchCase?: boolean; wholeWord?: boolean; regex?: boolean }
   | { operation: 'blame'; rootId: string; path: string; revision?: string; cursor?: string; ifSnapshot?: string }
   | { operation: 'blame-capability'; rootId: string; path: string; revision?: string }
   | { operation: 'diff'; rootId: string; path: string }
@@ -720,7 +720,10 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
         && boundedStringField(value, 'path', 4096, true)
         && optionalBooleanField(value, 'includeIgnored')
         && optionalNonNegativeIntegerField(value, 'limit')
-        && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries')
+        && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries' || value.scope === 'content')
+        && optionalBooleanField(value, 'matchCase')
+        && optionalBooleanField(value, 'wholeWord')
+        && optionalBooleanField(value, 'regex')
     case 'blame':
       return rootPath() && boundedStringField(value, 'cursor', 128, true)
         && boundedStringField(value, 'ifSnapshot', 36, true)

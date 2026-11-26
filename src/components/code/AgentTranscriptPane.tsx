@@ -1,4 +1,6 @@
 import { ComposerDocumentContent } from './ComposerDocumentContent'
+import { AgentTurnCheckpointModal } from './AgentTurnCheckpointModal'
+import { fetchAgentTurnCheckpoints, type TurnCheckpointItem } from '@/lib/turn-checkpoints'
 import type { ComposerDocument } from '../../../shared/composer-document.js'
 import { continuesPeerMessageGroup, peerMessageTimestamp } from './acp/peer-message-layout'
 import { FileLinkAccess } from '@/lib/file-link-access'
@@ -2575,6 +2577,8 @@ function AgentTranscriptTurnView({
   setOpenCollaborationActivityIds,
   onFork,
   onShare,
+  checkpoint,
+  onOpenCheckpoint,
   showLiveActivity,
 }: {
   turn: AgentTranscriptTurn
@@ -2604,6 +2608,8 @@ function AgentTranscriptTurnView({
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
   onShare?: (turnId: string, anchor: ShareNoticeAnchor) => Promise<void> | void
+  checkpoint?: TurnCheckpointItem
+  onOpenCheckpoint?: (checkpointId: string) => void
   showLiveActivity: boolean
 }) {
   recordPerformanceTestRender(turn.status === 'inProgress'
@@ -3334,6 +3340,18 @@ function AgentTranscriptTurnView({
                 onClick={handleFork}
               >
                 <ForkGlyph />
+              </button>
+            ) : null}
+            {checkpoint && onOpenCheckpoint ? (
+              <button
+                type="button"
+                className="code-agent-transcript-checkpoint-trigger"
+                data-testid="code-turn-checkpoint-trigger"
+                aria-label={copy.checkpointTitle}
+                title={copy.checkpointTitle}
+                onClick={() => onOpenCheckpoint(checkpoint.id)}
+              >
+                {copy.checkpointTitle} · {copy.checkpointFilesChanged(checkpoint.files.length)}
               </button>
             ) : null}
             <AgentTranscriptMessageTime timestamp={turn.completedAt} kind="answer" />
@@ -4935,9 +4953,30 @@ export function AgentTranscriptPane({
   useEffect(() => () => {
     onActivePlanChange?.(undefined)
   }, [onActivePlanChange])
+  const [turnCheckpoints, setTurnCheckpoints] = useState<TurnCheckpointItem[]>([])
+  const [checkpointModalId, setCheckpointModalId] = useState<string | null>(null)
+  const [checkpointRefreshNonce, setCheckpointRefreshNonce] = useState(0)
+  const isTranscriptWorking = transcript?.state === 'working'
   useEffect(() => {
     setImagePreview(null)
+    setCheckpointModalId(null)
   }, [agentId])
+  useEffect(() => {
+    if (source !== 'acp' || !agentId || isTranscriptWorking) return undefined
+    const controller = new AbortController()
+    void fetchAgentTurnCheckpoints(agentId, controller.signal)
+      .then(items => {
+        if (!controller.signal.aborted) setTurnCheckpoints(items)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [agentId, checkpointRefreshNonce, isTranscriptWorking, source, turns.length])
+  const handleOpenCheckpointModal = useCallback((checkpointId: string) => {
+    setCheckpointModalId(checkpointId)
+  }, [])
+  const handleCheckpointRestored = useCallback(() => {
+    setCheckpointRefreshNonce(value => value + 1)
+  }, [])
   const handleToggleProcess = useCallback((turnId: string) => {
     setOpenProcessTurnIds(current => {
       const next = new Set(current)
@@ -5154,6 +5193,11 @@ export function AgentTranscriptPane({
                       }
                       onFork={index === latestSettledTurnIndex ? onForkLatest : undefined}
                       onShare={onCopyReadOnlyShareLink ? copyTurnShareLink : undefined}
+                      checkpoint={
+                        turnCheckpoints.find(cp => cp.turnHandle && cp.turnHandle === turn.id)
+                        ?? (index === latestSettledTurnIndex ? turnCheckpoints[0] : undefined)
+                      }
+                      onOpenCheckpoint={turnCheckpoints.length > 0 ? handleOpenCheckpointModal : undefined}
                     />
                   </LocalRenderFault>
                 </LocalErrorBoundary>
@@ -5243,6 +5287,17 @@ export function AgentTranscriptPane({
           <img src={imagePreview.url} alt={imagePreview.label} />
         </div>
       </ContentViewerDialog> : null}
+      {checkpointModalId && turnCheckpoints.length > 0 ? (
+        <AgentTurnCheckpointModal
+          agentId={agentId}
+          checkpoints={turnCheckpoints}
+          initialCheckpointId={checkpointModalId}
+          agentBusy={isTranscriptWorking}
+          copy={copy}
+          onClose={() => setCheckpointModalId(null)}
+          onRestored={handleCheckpointRestored}
+        />
+      ) : null}
       </AcpQuestionContext.Provider>
       </TranscriptAgentLinks>
       </TranscriptFileOpenContext.Provider>

@@ -27,6 +27,12 @@ interface AcpTurnFinalizationCoordinatorOptions {
   agents: Map<AgentId, AgentRecord>;
   attention: AgentAttentionTracker;
   observeProviderSession: (agentId: AgentId) => void;
+  onTurnSettled?: (event: {
+    agent: AgentRecord;
+    settledTurnHandle: string;
+    stopReason: string;
+    summary: string;
+  }) => void;
   persistence: AcpTurnFinalizationPersistencePort;
   runtime: AcpRuntimeContract;
   updateProviderMetadata: (agent: AgentRecord) => void;
@@ -58,6 +64,7 @@ class AcpTurnFinalizationCoordinator {
   readonly #attention: AgentAttentionTracker;
   readonly #finalized = new Map<AgentId, string>();
   readonly #observeProviderSession: AcpTurnFinalizationCoordinatorOptions['observeProviderSession'];
+  readonly #onTurnSettled: AcpTurnFinalizationCoordinatorOptions['onTurnSettled'];
   readonly #persistence: AcpTurnFinalizationPersistencePort;
   readonly #runtime: AcpRuntimeContract;
   readonly #tails = new Map<AgentId, Promise<void>>();
@@ -67,6 +74,7 @@ class AcpTurnFinalizationCoordinator {
     this.#agents = options.agents;
     this.#attention = options.attention;
     this.#observeProviderSession = options.observeProviderSession;
+    this.#onTurnSettled = options.onTurnSettled;
     this.#persistence = options.persistence;
     this.#runtime = options.runtime;
     this.#updateProviderMetadata = options.updateProviderMetadata;
@@ -223,6 +231,12 @@ class AcpTurnFinalizationCoordinator {
         this.#attention.emitAgentReadState(agent);
       }
       this.#observeProviderSession(agentId);
+      this.#onTurnSettled?.({
+        agent,
+        settledTurnHandle,
+        stopReason: effectiveStopReason,
+        summary: attentionSummary,
+      });
     };
 
     for (let attempt = 0; attempt < 8; attempt += 1) {

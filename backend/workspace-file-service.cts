@@ -672,6 +672,36 @@ function relativeFromRoot(root: string, target: string): string {
   return relative.split(path.sep).join('/');
 }
 
+function utf8ByteOffsetToUtf16Index(text: string, byteOffset: unknown): number {
+  const target = Number(byteOffset);
+  if (!Number.isFinite(target) || target <= 0) return 0;
+  let bytes = 0;
+  let index = 0;
+  while (index < text.length && bytes < target) {
+    const code = text.charCodeAt(index);
+    if (code <= 0x7f) {
+      bytes += 1;
+      index += 1;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+      index += 1;
+    } else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
+      const next = text.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 2;
+      } else {
+        bytes += 3;
+        index += 1;
+      }
+    } else {
+      bytes += 3;
+      index += 1;
+    }
+  }
+  return index;
+}
+
 function normalizeSearchResultPath(resultPath: unknown): string {
   return String(resultPath || '').replace(/^\.\//, '');
 }
@@ -3859,6 +3889,10 @@ class WorkspaceFileService {
     signal?.throwIfAborted();
     const includeIgnored = options.includeIgnored === true;
     const filePathOnly = options.scope === 'file-path';
+    const contentOnly = options.scope === 'content';
+    const matchCase = options.matchCase === true;
+    const wholeWord = options.wholeWord === true;
+    const regex = options.regex === true;
     const likelyPathQuery = isLikelyPathQuery(query);
     const multiTokenQuery = query.trim().includes(' ');
     const result = (matches: unknown[], truncated: boolean) => ({
@@ -3868,6 +3902,94 @@ class WorkspaceFileService {
       truncated,
       timeoutMs: timeout
     });
+    if (contentOnly) {
+      if (regex) {
+        try {
+          new RegExp(query);
+        } catch (caught: unknown) {
+          throw new WorkspaceFileError(`Invalid regular expression: ${processError(caught).message}`, 400);
+        }
+      }
+      const args = [
+        '--json',
+        ...(regex ? [] : ['--fixed-strings']),
+        ...(matchCase ? ['--case-sensitive'] : ['--ignore-case']),
+        ...(wholeWord ? ['--word-regexp'] : []),
+        '--color',
+        'never',
+        '--line-number',
+        '--column',
+        '--max-count',
+        String(Math.min(20, limit)),
+        '--max-filesize',
+        '2M',
+        '--hidden',
+        ...searchExcludeGlobArgs(),
+        '--',
+        query,
+        searchPath,
+      ];
+      let stdout: string | Buffer = '';
+      let contentTruncated = false;
+      try {
+        ({ stdout } = await this.execRipgrep(args, {
+          cwd: root,
+          timeout: remainingMs(),
+          maxBuffer: 8 * 1024 * 1024,
+          signal,
+        }));
+      } catch (caught: unknown) {
+        if (signal?.aborted) throw caught;
+        const error = processError(caught);
+        if (error.code === 1) {
+          stdout = error.stdout || '';
+        } else if (error.code === 'ENOENT') {
+          throw new WorkspaceFileError('Farming managed ripgrep is missing or not executable', 503);
+        } else if (error.code === 2 && regex) {
+          const detail = String(error.stderr || error.message || 'invalid regular expression').trim();
+          throw new WorkspaceFileError(`Invalid regular expression: ${detail}`, 400);
+        } else if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+          stdout = error.stdout || '';
+          contentTruncated = true;
+        } else {
+          throw new WorkspaceFileError(String(error.stderr || 'search failed'), 500);
+        }
+      }
+      const contentMatches: Array<Record<string, unknown>> = [];
+      for (const line of String(stdout).split('\n')) {
+        if (!line) continue;
+        let event: unknown;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (!isRecord(event) || event.type !== 'match') continue;
+        const data = isRecord(event.data) ? event.data : {};
+        const submatches = Array.isArray(data.submatches) ? data.submatches.filter(isRecord) : [];
+        const pathData = isRecord(data.path) ? data.path : {};
+        const linesData = isRecord(data.lines) ? data.lines : {};
+        const resultPath = normalizeSearchResultPath(pathData.text);
+        if (!resultPath || isSearchIgnoredRelativePath(resultPath)) continue;
+        const lineText = typeof linesData.text === 'string' ? linesData.text.replace(/\r?\n$/, '') : '';
+        contentMatches.push({
+          kind: 'content',
+          entryType: 'file',
+          path: resultPath,
+          lineNumber: data.line_number,
+          lines: lineText,
+          ranges: submatches.map(submatch => ({
+            start: utf8ByteOffsetToUtf16Index(lineText, submatch.start),
+            end: utf8ByteOffsetToUtf16Index(lineText, submatch.end),
+          })),
+        });
+        if (contentMatches.length > limit) {
+          contentTruncated = true;
+          break;
+        }
+      }
+      return result(contentMatches.slice(0, limit), contentTruncated || contentMatches.length > limit);
+    }
     if (options.scope === 'entries') {
       const entryQuery = query.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '') || '.';
       const pathQuery = entryQuery.includes('/');
@@ -4072,15 +4194,16 @@ class WorkspaceFileService {
       const linesData = isRecord(data.lines) ? data.lines : {};
       const resultPath = normalizeSearchResultPath(pathData.text);
       if (!resultPath || isSearchIgnoredRelativePath(resultPath)) return;
+      const lineText = typeof linesData.text === 'string' ? linesData.text.replace(/\r?\n$/, '') : '';
       matches.push({
         kind: 'content',
         entryType: 'file',
         path: resultPath,
         lineNumber: data.line_number,
-        lines: typeof linesData.text === 'string' ? linesData.text.replace(/\n$/, '') : '',
+        lines: lineText,
         ranges: submatches.map(match => ({
-          start: match.start,
-          end: match.end
+          start: utf8ByteOffsetToUtf16Index(lineText, match.start),
+          end: utf8ByteOffsetToUtf16Index(lineText, match.end),
         })),
       });
     });

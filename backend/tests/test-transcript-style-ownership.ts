@@ -9,6 +9,7 @@ assertDomainStyleOwnership({
     'src/components/code/acp/AcpEmbeddedTerminal.tsx',
     'src/components/code/AgentActivityDock.tsx',
     'src/components/code/AgentTranscriptPane.tsx',
+    'src/components/code/AgentTurnCheckpointModal.tsx',
   ],
   unstyledClassNames: [
     'code-acp-terminal-stop',

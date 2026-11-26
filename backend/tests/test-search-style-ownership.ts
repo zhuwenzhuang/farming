@@ -5,6 +5,7 @@ assertDomainStyleOwnership({
   prefixes: ['code-search'],
   componentSources: [
     'src/components/code/SearchPanel.tsx',
+    'src/components/code/CodeContentSearchDialog.tsx',
     'src/components/code/HistoryPanel.tsx',
     'src/components/code/CodeMainArea.tsx',
     'src/components/CodeWorkspace.tsx',

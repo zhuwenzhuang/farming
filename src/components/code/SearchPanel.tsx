@@ -64,6 +64,7 @@ interface SearchPanelProps {
   onOpenSession: (session: AgentSessionHistoryItem) => void
   onOpenFile: (match: GlobalWorkspaceFileSearchMatch) => void
   onRetryFileSearch: () => void
+  onOpenContentSearch?: () => void
   copy: CodeCopy
 }
 
@@ -95,6 +96,7 @@ export function SearchPanel({
   onOpenSession,
   onOpenFile,
   onRetryFileSearch,
+  onOpenContentSearch,
   copy,
 }: SearchPanelProps) {
   const includesFiles = scope === 'all' || scope === 'files'
@@ -181,6 +183,20 @@ export function SearchPanel({
           </button>
         )}
       </div>
+      {!hasQuery && onOpenContentSearch ? (
+        <div className="code-search-quick-actions">
+          <button
+            type="button"
+            className="code-search-quick-action"
+            data-testid="code-open-content-search"
+            onClick={onOpenContentSearch}
+          >
+            <SearchGlyph />
+            <span>{copy.searchCodeContents}</span>
+            <kbd>⇧⌘F</kbd>
+          </button>
+        </div>
+      ) : null}
       {hasQuery ? (
         <div className="code-search-filters" role="group" aria-label={copy.searchResultType}>
           {filters.map(filter => (
