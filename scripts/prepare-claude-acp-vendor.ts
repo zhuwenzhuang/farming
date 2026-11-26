@@ -5,9 +5,9 @@ import path from 'node:path';
 import * as esbuild from 'esbuild';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '0.110.1';
-const expectedSdkVersion = '0.3.330';
-const expectedBundleSha256 = 'cb34b20e54dd16e54f4941bc041b5b31f58c03833d8362b37e66c3e2a0d74e55';
+const expectedVersion = '0.113.0';
+const expectedSdkVersion = '0.3.331';
+const expectedBundleSha256 = 'afaab66cb0f6e9a08fe0c94d5acd039211cb9d0de98905198d64222b71b5b084';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 // Pinned ACP SDK 2 resolves its stable entry under dist/v1/stable.
@@ -27,7 +27,7 @@ const targetEntry = path.join(targetDirectory, `claude-agent-acp-${expectedVersi
 const targetLicense = path.join(targetDirectory, 'LICENSE.claude-agent-acp');
 const targetSdkLicense = path.join(targetDirectory, 'LICENSE.claude-agent-sdk');
 const executableFunctionStart = 'export async function claudeCliPath() {';
-const executableFunctionEnd = '/**\n * The SDK options that say how a session\'s MCP servers';
+const executableFunctionEnd = '/** Whether the client\'s `extraArgs` name `sdk-url`: a remote session. */';
 const upstreamDeleteMethod = [
   '    async deleteSession(params) {',
   '        return this.sessionIndex.deleteSession(params);',

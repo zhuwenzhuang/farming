@@ -12,10 +12,10 @@ import { integrateCodexNotices } from './vendor/codex-notice-integration';
 import { integrateCodexQuestions } from './vendor/codex-question-integration';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '2.10.0';
-const expectedUpstreamSha256 = '073b1610fa29803c141df25f80f622413036493dd365c36fbed425a9dac50254';
-const expectedBundleSha256 = 'c7a28366ae6efdfa7fbc0054cb347467563f0c43781d6a0b5131f06694576e2e';
-const expectedPatchedSha256 = '026f896099954faec897426ab5dee98693c58763fcbb8eac1cc8984f02c6df86';
+const expectedVersion = '2.12.1';
+const expectedUpstreamSha256 = 'df41d2b8fc9d1247c035adcaf73d639c610b579ed84dbe5e6e98f51cc2940827';
+const expectedBundleSha256 = 'acd8e8e81e3fbbfd9883073a0eb5f7cfe03734a4e2e498a3307b6d5b3f8957cf';
+const expectedPatchedSha256 = 'b80e7ee676ecbfe2614ffe6da3f6dfbbb689de5c31e4392bbe6c45336682a705';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');

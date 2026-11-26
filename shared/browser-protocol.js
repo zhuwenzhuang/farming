@@ -152,7 +152,10 @@ function workspaceRequest(value) {
                 && boundedStringField(value, 'path', 4096, true)
                 && optionalBooleanField(value, 'includeIgnored')
                 && optionalNonNegativeIntegerField(value, 'limit')
-                && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries');
+                && (value.scope === undefined || value.scope === 'all' || value.scope === 'file-path' || value.scope === 'entries' || value.scope === 'content')
+                && optionalBooleanField(value, 'matchCase')
+                && optionalBooleanField(value, 'wholeWord')
+                && optionalBooleanField(value, 'regex');
         case 'blame':
             return rootPath() && boundedStringField(value, 'cursor', 128, true)
                 && boundedStringField(value, 'ifSnapshot', 36, true)

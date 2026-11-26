@@ -8,7 +8,7 @@ export function integrateCodexPeerMessages(source: string): string {
   // The standard steering path must carry the same client identity as the
   // legacy Codex extension, through parsing, queueing and the native request.
   replace('      sessionId,\n      prompt,\n      ...idleBehavior', '      sessionId,\n      prompt,\n      clientMessageId: params["clientMessageId"],\n      ...idleBehavior');
-  replace('    const clientUserMessageId = randomUUID6();', '    const clientUserMessageId = params.clientMessageId || randomUUID6();');
+  replace('    const clientUserMessageId = insertion?.messageId ?? randomUUID5();', '    const clientUserMessageId = params.clientMessageId || insertion?.messageId || randomUUID5();');
   // The reviewed adapter patch preserves clientId for both ACP protocol versions.
   // Reuse history's content conversion for live receiver-owned input. These
   // messages may have no sender metadata; visibility must not depend on it.
@@ -29,8 +29,8 @@ export function integrateCodexPeerMessages(source: string): string {
             receipt => promptEventHandler.handleNotification(receipt));
           await promptEventHandler.handleNotification(event);`);
   replace(
-    '      this.protocolVersion === 2 ? withoutReviewerPrompts(entryPages) : itemsOfEntries(entryPages),',
-    '      farmingMergePeerHistory(this.protocolVersion === 2 ? withoutReviewerPrompts(entryPages) : itemsOfEntries(entryPages), await farmingCodexPeerHistory(thread)),',
+    '      this.protocolVersion === 2 ? withoutReviewerPrompts(entryPages, cursors) : itemsOfEntries(entryPages, cursors),',
+    '      farmingMergePeerHistory(this.protocolVersion === 2 ? withoutReviewerPrompts(entryPages, cursors) : itemsOfEntries(entryPages, cursors), await farmingCodexPeerHistory(thread)),',
   );
   replace('return turn ? oneItemPage(turn.items) : null;', 'return turn ? farmingMergePeerHistory(oneItemPage(turn.items), await farmingCodexPeerHistory(legacy.thread, new Set([turn.id]))) : null;');
   replace('if (turn) return this.codexClient.threadItemPages(sessionId, { turnId: turn.id });', 'if (turn) return farmingMergePeerHistory(this.codexClient.threadItemPages(sessionId, { turnId: turn.id }), await farmingCodexPeerHistory(metadata.thread, new Set([turn.id])));');

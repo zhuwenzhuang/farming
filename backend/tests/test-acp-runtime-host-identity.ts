@@ -27,8 +27,8 @@ function run() {
     const withAdapterV2 = fixture(path.join(root, 'with-adapter-v2'), 'projection-v1');
     fs.mkdirSync(path.join(root, 'with-adapter-v1', 'dist', 'acp'), { recursive: true });
     fs.mkdirSync(path.join(root, 'with-adapter-v2', 'dist', 'acp'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'with-adapter-v1', 'dist', 'acp', 'codex-acp-2.10.0.mjs'), 'adapter-v1');
-    fs.writeFileSync(path.join(root, 'with-adapter-v2', 'dist', 'acp', 'codex-acp-2.10.0.mjs'), 'adapter-v2');
+    fs.writeFileSync(path.join(root, 'with-adapter-v1', 'dist', 'acp', 'codex-acp-2.12.1.mjs'), 'adapter-v1');
+    fs.writeFileSync(path.join(root, 'with-adapter-v2', 'dist', 'acp', 'codex-acp-2.12.1.mjs'), 'adapter-v2');
 
     assert.strictEqual(
       acpRuntimeHostIdentity(first).buildId,

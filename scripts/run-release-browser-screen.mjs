@@ -35,6 +35,7 @@ const definitions = [
   ['rich-content', 'release:fast-screen:rich-content'],
   ['path-navigation', 'release:fast-screen:path-navigation'],
   ['model-isolation', 'release:fast-screen:model-isolation'],
+  ['search-checkpoints', 'release:fast-screen:search-checkpoints'],
 ];
 export function selectBrowserScreen(files) {
   const selected = new Set();
@@ -105,6 +106,12 @@ export function selectBrowserScreen(files) {
       'tests/e2e/iphone-mobile-layout.spec.ts'].includes(filename)) select(['mobile-menus']);
     if (['backend/agy-related-sessions.cts', 'backend/acp/packaged-agy-acp.cts',
       'tests/e2e/agy-related-sessions.spec.ts'].includes(filename)) select(['agy-children']);
+    if (['src/components/code/SearchPanel.tsx', 'src/components/code/HistoryPanel.tsx',
+      'src/components/code/CodeContentSearchDialog.tsx', 'src/components/code/useGlobalWorkspaceFileSearch.ts',
+      'src/components/code/AgentTurnCheckpointModal.tsx', 'src/lib/turn-checkpoints.ts',
+      'tests/e2e/search-index-and-fts5.spec.ts', 'tests/e2e/content-search-and-checkpoints.spec.ts',
+      'tests/e2e/global-directory-search.spec.ts'].includes(filename)) select(['search-checkpoints']);
+    if (filename === 'src/components/code/types.ts') select(['search-checkpoints', 'interaction']);
     if (!mapped && /^(src|frontend|extensions|shared)\/|^tests\/e2e\//.test(filename)) unmapped.push(filename);
   }
   return {

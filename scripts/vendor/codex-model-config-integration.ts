@@ -33,9 +33,18 @@ function selectedServiceTier(options, tier) {
   return options.some(option => option.value === value) ? value : "default";
 }
 function modelSupportsFast(model) {`);
-  replace('const currentModelSupportsFast = modelSupportsFast(currentModel);', 'const tierOptions = modelTierOptions(currentModel);', 2);
-  replace('fastModeEnabled: serviceTierEnablesFast(sessionMetadata.currentServiceTier),\n      currentModelSupportsFast,',
-    'serviceTier: selectedServiceTier(tierOptions, sessionMetadata.currentServiceTier),\n      tierOptions,', 2);
+  replace(
+    'fastModeEnabled: serviceTierEnablesFast(metadata.currentServiceTier),\n      currentModelSupportsFast: modelSupportsFast(model),',
+    'serviceTier: selectedServiceTier(modelTierOptions(model), metadata.currentServiceTier),\n      tierOptions: modelTierOptions(model),',
+  );
+  replace(
+    '{ configId: FAST_MODE_CONFIG_ID, type: "boolean", value: previous.fastModeEnabled },',
+    '{ configId: FAST_MODE_CONFIG_ID, value: previous.serviceTier },',
+  );
+  replace(
+    'currentServiceTier: previous.fastModeEnabled ? "fast" : null,',
+    'currentServiceTier: previous.serviceTier === "default" ? null : previous.serviceTier,',
+  );
   for (const model of ['currentModel', 'model']) {
     replace(`sessionState.currentModelSupportsFast = modelSupportsFast(${model});`, `sessionState.tierOptions = modelTierOptions(${model});
       sessionState.serviceTier = selectedServiceTier(sessionState.tierOptions, sessionState.serviceTier);`);
