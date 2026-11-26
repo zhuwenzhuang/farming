@@ -1,8 +1,10 @@
 import { useCallback, useLayoutEffect, useState, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { iconForDirectoryPath, iconForFilePath } from '@/lib/file-icons'
 import {
   normalizeTextRanges,
   pathSearchTextRanges,
+  splitPathTextRanges,
   type TextRange,
   type WorkspaceFileJumpQuery,
 } from '@/lib/workspace-file-search'
@@ -13,6 +15,7 @@ import type { CodeCopy } from '../code/copy'
 interface FileSearchResultsProps {
   activeMatchIndex: number
   anchorRef: RefObject<HTMLElement | null>
+  contentLoading?: boolean
   copy: CodeCopy
   containerRef?: RefObject<HTMLDivElement | null>
   error: string | null
@@ -33,7 +36,8 @@ interface FileSearchResultsProps {
 
 interface FileSearchPanelStyle {
   left: number
-  top: number
+  top?: number
+  bottom?: number
   width: number
   maxHeight: number
 }
@@ -80,14 +84,15 @@ function splitWorkspaceFilePath(pathText: string) {
 
 function fileSearchPanelStyle(anchor: HTMLElement | null): FileSearchPanelStyle | null {
   if (!anchor || typeof window === 'undefined') return null
-  const rect = anchor.getBoundingClientRect()
+  const anchorBox = anchor.closest<HTMLElement>('.code-file-search-box') ?? anchor
+  const rect = anchorBox.getBoundingClientRect()
   if (isCompactViewport()) {
     const visualViewport = window.visualViewport
     const viewportTop = visualViewport?.offsetTop ?? 0
     const viewportLeft = visualViewport?.offsetLeft ?? 0
     const viewportWidth = visualViewport?.width ?? window.innerWidth
     const viewportHeight = visualViewport?.height ?? window.innerHeight
-    const sidebarRect = anchor.closest('.code-sidebar')?.getBoundingClientRect()
+    const sidebarRect = anchorBox.closest('.code-sidebar')?.getBoundingClientRect()
     const left = Math.max(viewportLeft + 6, (sidebarRect?.left ?? viewportLeft) + 6)
     const right = Math.min(viewportLeft + viewportWidth - 6, (sidebarRect?.right ?? (viewportLeft + viewportWidth)) - 6)
     const viewportBottom = viewportTop + viewportHeight
@@ -111,24 +116,43 @@ function fileSearchPanelStyle(anchor: HTMLElement | null): FileSearchPanelStyle 
   const availableWidth = Math.max(240, viewportWidth - margin * 2)
   const width = Math.min(620, availableWidth, Math.max(420, rect.width))
   const left = Math.max(margin, Math.min(rect.left, viewportWidth - width - margin))
-  const top = Math.min(rect.bottom + 6, viewportHeight - margin)
-  const maxHeight = Math.max(168, Math.min(420, viewportHeight - top - margin))
+  const availableBelow = viewportHeight - rect.bottom - 6 - margin
+  const availableAbove = rect.top - 6 - margin
+  const opensAbove = availableBelow < 168 && availableAbove > availableBelow
+  const maxHeight = Math.max(120, Math.min(420, opensAbove ? availableAbove : availableBelow))
+  if (opensAbove) {
+    return {
+      left,
+      bottom: Math.max(margin, viewportHeight - rect.top + 6),
+      width,
+      maxHeight,
+    }
+  }
+  const top = Math.max(margin, Math.min(rect.bottom + 6, viewportHeight - margin))
   return { left, top, width, maxHeight }
 }
 
 function FileSearchResultPath({
   path,
   query,
+  ranges,
 }: {
   path: string
   query: string
+  ranges?: readonly TextRange[]
 }) {
   const { directory, name } = splitWorkspaceFilePath(path)
+  const hasServerRanges = Boolean(ranges && ranges.length > 0)
+  const splitRanges = hasServerRanges ? splitPathTextRanges(path, ranges) : null
   return (
     <span className="code-file-search-copy">
-      <span className="code-file-search-name">{renderSearchPath(name, query)}</span>
+      <span className="code-file-search-name">
+        {splitRanges ? renderSearchText(name, splitRanges.nameRanges) : renderSearchPath(name, query)}
+      </span>
       {directory && (
-        <span className="code-file-search-directory">{renderSearchPath(directory, query)}</span>
+        <span className="code-file-search-directory">
+          {splitRanges ? renderSearchText(directory, splitRanges.directoryRanges) : renderSearchPath(directory, query)}
+        </span>
       )}
     </span>
   )
@@ -137,6 +161,7 @@ function FileSearchResultPath({
 export function FileSearchResults({
   activeMatchIndex,
   anchorRef,
+  contentLoading = false,
   copy,
   containerRef,
   error,
@@ -162,13 +187,19 @@ export function FileSearchResults({
   useLayoutEffect(() => {
     updatePanelStyle()
     const anchor = anchorRef.current
+    const anchorBox = anchor?.closest<HTMLElement>('.code-file-search-box') ?? anchor
     const scroller = anchor?.closest('.code-project-list')
+    const observer = anchorBox && typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updatePanelStyle)
+      : null
+    if (anchorBox) observer?.observe(anchorBox)
     window.addEventListener('resize', updatePanelStyle)
     window.addEventListener('scroll', updatePanelStyle, true)
     window.visualViewport?.addEventListener('resize', updatePanelStyle)
     window.visualViewport?.addEventListener('scroll', updatePanelStyle)
     scroller?.addEventListener('scroll', updatePanelStyle, { passive: true })
     return () => {
+      observer?.disconnect()
       window.removeEventListener('resize', updatePanelStyle)
       window.removeEventListener('scroll', updatePanelStyle, true)
       window.visualViewport?.removeEventListener('resize', updatePanelStyle)
@@ -177,17 +208,20 @@ export function FileSearchResults({
     }
   }, [anchorRef, updatePanelStyle])
 
-  return (
+  // Portal to document.body so .code-sidebar's container-type: inline-size and
+  // overflow: hidden never trap or clip the floating results listbox.
+  const panel = (
     <div
       ref={containerRef}
       id={listboxId}
-      className="code-file-search-results"
+      className="code-menu-surface code-file-search-results"
       data-testid="code-file-search-results"
       role="listbox"
       aria-label={copy.searchFilesOrJump}
       style={panelStyle ? {
         left: panelStyle.left,
-        top: panelStyle.top,
+        ...(panelStyle.top !== undefined ? { top: panelStyle.top } : {}),
+        ...(panelStyle.bottom !== undefined ? { bottom: panelStyle.bottom } : {}),
         width: panelStyle.width,
         maxHeight: panelStyle.maxHeight,
       } : undefined}
@@ -247,7 +281,11 @@ export function FileSearchResults({
                 alt=""
                 aria-hidden="true"
               />
-              <FileSearchResultPath path={match.path} query={query} />
+              <FileSearchResultPath
+                path={match.path}
+                query={query}
+                ranges={match.kind === 'path' ? match.ranges : undefined}
+              />
               {match.kind === 'path' ? (
                 <span className="code-file-search-kind">{match.entryType === 'directory' ? copy.folder : copy.file}</span>
               ) : (
@@ -260,16 +298,26 @@ export function FileSearchResults({
               )}
             </button>
           ))}
-          {showIgnoredSearch && (
-            <button type="button" className="code-file-search-ignored-action" onClick={onSearchIgnored}>
-              {copy.searchIgnoredFolders}
-            </button>
-          )}
-          {truncated && (
-            <div className="code-file-search-state muted">{copy.moreMatchesOmitted}</div>
+          {contentLoading ? (
+            <div className="code-file-search-state muted" data-testid="code-file-search-content-loading" role="status">
+              {copy.searching}
+            </div>
+          ) : (
+            <>
+              {showIgnoredSearch && (
+                <button type="button" className="code-file-search-ignored-action" onClick={onSearchIgnored}>
+                  {copy.searchIgnoredFolders}
+                </button>
+              )}
+              {truncated && (
+                <div className="code-file-search-state muted">{copy.moreMatchesOmitted}</div>
+              )}
+            </>
           )}
         </>
       )}
     </div>
   )
+
+  return typeof document !== 'undefined' ? createPortal(panel, document.body) : panel
 }

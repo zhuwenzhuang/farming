@@ -57,6 +57,10 @@ function agentSessionInventoryCacheFile(configDir: string): string {
   return path.join(inventoryCacheDir(configDir), 'agent-sessions-v1.json');
 }
 
+function agentSessionSearchIndexFile(configDir: string): string {
+  return path.join(inventoryCacheDir(configDir), 'agent-session-search-v1.sqlite3');
+}
+
 function agentExtensionInventoryCacheFile(configDir: string): string {
   return path.join(inventoryCacheDir(configDir), 'agent-extensions-v1.json');
 }
@@ -205,6 +209,7 @@ export {
   acpCheckpointsDir,
   agentExtensionInventoryCacheFile,
   agentSessionInventoryCacheFile,
+  agentSessionSearchIndexFile,
   agentStateFile,
   browserProfileDir,
   browserResourcesDir,

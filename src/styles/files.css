@@ -711,13 +711,8 @@ body.code-mode .code-file-change-group-toggle {
   position: fixed;
   z-index: 10005;
   overflow: auto;
+  overscroll-behavior: contain;
   margin: 0;
-  padding: 5px;
-  border: 1px solid var(--code-border);
-  border-radius: 8px;
-  background: var(--code-bg-surface);
-  box-shadow: var(--code-shadow-soft);
-  border-color: var(--code-border);
 }
 
 .code-file-search-result {

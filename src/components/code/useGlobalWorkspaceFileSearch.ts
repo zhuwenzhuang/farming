@@ -23,6 +23,7 @@ export interface GlobalWorkspaceFileSearchMatch {
   path: string
   projectId: string
   projectName: string
+  ranges?: Array<{ start: number; end: number }>
   rootId: string
   workspace: string
   lineNumber?: number
@@ -193,6 +194,7 @@ export function useGlobalWorkspaceFileSearch({
               path: match.path,
               projectId: outcome.target.id,
               projectName: outcome.target.name,
+              ...(Array.isArray(match.ranges) && match.ranges.length > 0 ? { ranges: match.ranges } : {}),
               rootId: outcome.target.rootId,
               workspace: outcome.target.workspace,
               ...(jumpTarget ? {

@@ -55,7 +55,16 @@ export function useWorkspaceFileSearchController({
   }, [fileSearch, onOpenFilePath, onRevealDirectoryPath])
 
   const openFileJumpQuery = useCallback((query: string) => {
-    const request = openRequestForWorkspaceFileJumpQuery(query)
+    const request = fileSearch.jumpTarget
+      ? {
+        path: fileSearch.jumpTarget.path,
+        target: {
+          lineNumber: fileSearch.jumpTarget.lineNumber,
+          column: fileSearch.jumpTarget.column,
+          revealInTree: true,
+        },
+      }
+      : openRequestForWorkspaceFileJumpQuery(query)
     if (!request) return false
     void onOpenFilePath(request.path, request.target)
     fileSearch.clear()

@@ -3,6 +3,7 @@ import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { agentIconName, agentIconNameFromCommand, type AgentIconName } from '@/lib/agent-presentation'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
+import { normalizeTextRanges, type TextRange } from '@/lib/workspace-file-search'
 import {
   ArrowLeftGlyph,
   ArrowRightGlyph,
@@ -297,41 +298,72 @@ export function mergeHistoryAgentSessions(
   return Array.from(sessionsById.values())
 }
 
+function renderHighlightedHistoryText(text: string, ranges: readonly TextRange[] = []): ReactNode {
+  const normalizedRanges = normalizeTextRanges(text, ranges)
+  if (normalizedRanges.length === 0) return text
+  const parts: ReactNode[] = []
+  let cursor = 0
+  normalizedRanges.forEach((range, index) => {
+    if (range.start > cursor) parts.push(text.slice(cursor, range.start))
+    parts.push(
+      <span key={`${range.start}:${range.end}:${index}`} className="code-history-highlight">
+        {text.slice(range.start, range.end)}
+      </span>
+    )
+    cursor = range.end
+  })
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return parts
+}
+
 function normalizeHistorySearchValue(value: unknown) {
   return String(value || '').normalize('NFKC').toLocaleLowerCase()
 }
 
-export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string) {
+export function filterHistoryAgentItems(
+  items: HistoryAgentItem[],
+  query: string,
+  matchedSessionIds: ReadonlySet<string> = new Set(),
+) {
   const normalizedQuery = normalizeHistorySearchValue(query).trim()
   if (!normalizedQuery) return items
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean)
 
   return items.filter(item => {
     const resumeId = historyItemSourceSession(item)?.sessionId
     if (item.kind === 'run') {
-      return normalizeHistorySearchValue([
+      const haystack = normalizeHistorySearchValue([
         historyRunTitle(item.entry),
         historyRunMeta(item.entry),
         item.entry.command,
         item.entry.task,
         resumeId,
-      ].join('\n')).includes(normalizedQuery)
+      ].join('\n'))
+      return tokens.every(token => haystack.includes(token))
     }
 
     if (item.kind === 'agent') {
-      return normalizeHistorySearchValue([
+      const haystack = normalizeHistorySearchValue([
         agentTitle(item.agent),
         historyAgentMeta(item.agent),
         item.agent.command,
         resumeId,
-      ].join('\n')).includes(normalizedQuery)
+      ].join('\n'))
+      return tokens.every(token => haystack.includes(token))
     }
 
-    return normalizeHistorySearchValue([
+    if (matchedSessionIds.has(agentSessionId(item.session)) || item.session.searchMatchSource === 'content') {
+      return true
+    }
+
+    const haystack = normalizeHistorySearchValue([
       item.session.title,
       historySessionMeta(item.session),
       item.session.provider,
+      item.session.searchSnippet,
       resumeId,
-    ].join('\n')).includes(normalizedQuery)
+    ].join('\n'))
+    return tokens.every(token => haystack.includes(token))
   })
 }
 
@@ -381,12 +413,13 @@ export function HistoryPanel({
     loading: boolean
   }>({ query: '', sessions: [], loading: false })
   const searchedSessions = searchState.query === normalizedQuery ? searchState.sessions : []
+  const searchedSessionIds = new Set(searchedSessions.map(agentSessionId))
   const historyAgents = buildHistoryAgentItems(
     archivedRuns,
     archivedAgents,
     hasQuery ? mergeHistoryAgentSessions(agentSessions, searchedSessions) : agentSessions
   )
-  const displayedHistoryAgents = filterHistoryAgentItems(historyAgents, normalizedQuery)
+  const displayedHistoryAgents = filterHistoryAgentItems(historyAgents, normalizedQuery, searchedSessionIds)
   const historyPage = getHistoryAgentPage(displayedHistoryAgents, page)
   const totalHistoryItems = historyAgents.length
   const searchLoading = hasQuery && (
@@ -659,6 +692,14 @@ export function HistoryPanel({
                       >
                         {historySessionMeta(session)}
                       </HistoryMeta>
+                      {hasQuery && session.searchSnippet ? (
+                        <span
+                          className="code-history-session-snippet"
+                          data-testid="code-history-session-snippet"
+                        >
+                          {renderHighlightedHistoryText(session.searchSnippet, session.searchSnippetRanges)}
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                   <div className="code-history-actions">

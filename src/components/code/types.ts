@@ -139,6 +139,9 @@ export interface AgentSessionHistoryItem {
   effort?: string
   source?: string
   schedule?: AgentSessionSchedule
+  searchMatchSource?: 'id' | 'title' | 'project' | 'content'
+  searchSnippet?: string
+  searchSnippetRanges?: Array<{ start: number; end: number }>
 }
 
 export interface AgentSessionSchedule {

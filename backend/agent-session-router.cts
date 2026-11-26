@@ -53,6 +53,16 @@ interface AgentSessionRouterPort {
   publishStateMetadata(state: { mainPageSessionKeys: string[] }): void;
   rememberMainPageSessionKey(sessionKey: string, patch: MainPageSessionRecordPatch): void;
   removeMainPageSessionKeys(sessionKeys: readonly string[]): void;
+  searchSessions?: (
+    sessions: readonly AgentSession[],
+    query: string,
+    options: { limit: number; projectNames: Record<string, string>; syncBudgetMs?: number },
+  ) => Promise<{
+    query: string;
+    scope: string;
+    sessions: AgentSession[];
+    total: number;
+  }>;
   setProviderSessionDisplayState(sessionKey: string, patch: { pinned: boolean }): void;
 }
 
@@ -180,14 +190,26 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
       const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(1000, requestedLimit)) : 100;
       const settings = service.getSettings();
       if (req.query.force === '1') service.invalidate();
+      const timeoutMs = Number(settings.searchTimeoutMs) || 10_000;
+      const startedAt = Date.now();
       const sessions = await withSearchTimeout(
         service.listSessions(),
-        Number(settings.searchTimeoutMs) || 10_000,
+        timeoutMs,
       );
-      const result = searchAgentSessions(sessions, query, {
-        limit,
-        projectNames: settings.projectNames,
-      });
+      const remainingMs = Math.max(250, timeoutMs - (Date.now() - startedAt));
+      const result = service.searchSessions
+        ? await withSearchTimeout(
+            service.searchSessions(sessions, query, {
+              limit,
+              projectNames: settings.projectNames,
+              syncBudgetMs: Math.min(1_500, Math.max(250, Math.floor(remainingMs * 0.5))),
+            }),
+            remainingMs,
+          )
+        : searchAgentSessions(sessions, query, {
+            limit,
+            projectNames: settings.projectNames,
+          });
       res.json({
         ...result,
         sessions: applyProviderSessionDisplayStates(result.sessions, service.listDisplayRecords()),

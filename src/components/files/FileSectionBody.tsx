@@ -18,6 +18,7 @@ export interface FileSectionBodySearch {
   active: boolean
   activeMatchIndex: number
   anchorRef: RefObject<HTMLElement | null>
+  contentLoading: boolean
   error: string | null
   includeIgnored: boolean
   jumpTarget: WorkspaceFileJumpQuery | null
@@ -104,6 +105,7 @@ export function FileSectionBody({
           activeMatchIndex={search.activeMatchIndex}
           anchorRef={search.anchorRef}
           containerRef={search.resultsRef}
+          contentLoading={search.contentLoading}
           copy={copy}
           error={search.error}
           jumpTarget={search.jumpTarget}

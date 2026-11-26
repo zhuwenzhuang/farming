@@ -13,6 +13,7 @@ const yauzl = require('yauzl') as {
   ): Promise<{ eachEntry(): AsyncIterable<{ fileName: string; uncompressedSize: number }> }>;
 };
 import { WorkspaceTreeIndex, WorkspaceTreeIndexError } from './workspace-tree-index.cjs';
+import { WorkspaceSearchIndex } from './workspace-search-index.cjs';
 import { packWorkspaceBlameLines } from '../shared/workspace-blame.js';
 import { MAX_INLINE_WORKSPACE_MESSAGE_BYTES } from '../shared/browser-protocol.js';
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
@@ -1216,31 +1217,32 @@ function directoryNameSearchMatchForPath(directoryPath: unknown, query: unknown,
   };
 }
 
-function ancestorDirectoryPaths(filePath: unknown): string[] {
-  const segments = normalizeSearchResultPath(filePath).split('/').filter(Boolean);
-  const ancestors = [];
-  for (let index = 1; index < segments.length; index += 1) {
-    ancestors.push(segments.slice(0, index).join('/'));
-  }
-  return ancestors;
-}
-
 function pathSearchMatchesForFile(
   filePath: unknown,
   query: unknown,
   includeIgnored = false,
   includeDirectories = true,
   allowPathMatch = isLikelyPathQuery(query),
+  seenDirectories?: Set<string>,
 ): PathSearchMatch[] {
-  const matches = [];
+  const matches: PathSearchMatch[] = [];
   const fileMatch = pathSearchMatchForPath(filePath, query, 'file', allowPathMatch);
   if (fileMatch) matches.push(fileMatch);
   if (includeDirectories) {
-    ancestorDirectoryPaths(filePath).forEach((directoryPath) => {
-      if (isSearchIgnoredRelativePath(directoryPath, includeIgnored)) return;
-      const directoryMatch = pathSearchMatchForPath(directoryPath, query, 'directory', allowPathMatch);
-      if (directoryMatch) matches.push(directoryMatch);
-    });
+    const normalizedPath = normalizeSearchResultPath(filePath);
+    let slashIndex = normalizedPath.lastIndexOf('/');
+    while (slashIndex > 0) {
+      const directoryPath = normalizedPath.slice(0, slashIndex);
+      if (seenDirectories) {
+        if (seenDirectories.has(directoryPath)) break;
+        seenDirectories.add(directoryPath);
+      }
+      if (!isSearchIgnoredRelativePath(directoryPath, includeIgnored)) {
+        const directoryMatch = pathSearchMatchForPath(directoryPath, query, 'directory', allowPathMatch);
+        if (directoryMatch) matches.push(directoryMatch);
+      }
+      slashIndex = normalizedPath.lastIndexOf('/', slashIndex - 1);
+    }
   }
   return matches;
 }
@@ -1249,16 +1251,29 @@ function isLikelyPathQuery(query: unknown): boolean {
   return /[./\\]/.test(String(query || '').trim());
 }
 
+function toPublicPathSearchMatch(match: PathSearchMatch): PathSearchMatch {
+  return {
+    kind: 'path',
+    entryType: match.entryType,
+    path: match.path,
+    lineNumber: 1,
+    lines: '',
+    ranges: Array.isArray(match.ranges) ? match.ranges : [],
+  };
+}
+
 function dedupePathMatches(matches: PathSearchMatch[], limit: number): PathSearchMatch[] {
-  const seen = new Set();
-  const deduped = [];
+  const bestByPath = new Map<string, PathSearchMatch>();
   for (const match of matches) {
-    if (!match || seen.has(match.path)) continue;
-    seen.add(match.path);
-    deduped.push(match);
-    if (deduped.length >= limit) break;
+    if (!match) continue;
+    const existing = bestByPath.get(match.path);
+    if (!existing || comparePathSearchMatches(match, existing) < 0) {
+      bestByPath.set(match.path, match);
+    }
   }
-  return deduped;
+  return Array.from(bestByPath.values())
+    .sort(comparePathSearchMatches)
+    .slice(0, limit);
 }
 
 function parseGitStatus(stdout: unknown): GitStatusMap {
@@ -1688,6 +1703,7 @@ class WorkspaceFileService {
   changeInventories = new Map<string, Map<ChangeReadScope, ChangeInventory>>();
   historySnapshots = new Map<string, GitHistorySnapshot>();
   private treeIndex = new WorkspaceTreeIndex();
+  searchIndex: WorkspaceSearchIndex;
   private treeSnapshots = new Map<string, {
     root: string; path: string; target: string; authority: string; total: number;
     timer: ReturnType<typeof setTimeout>;
@@ -1739,6 +1755,12 @@ class WorkspaceFileService {
     this.watchDepth = Number.isFinite(options.watchDepth) ? Math.max(0, options.watchDepth ?? 0) : DEFAULT_WATCH_DEPTH;
     this.commandRunner = options.commandRunner || new CommandRunner(options.commandRunnerOptions);
     this.ownsCommandRunner = !options.commandRunner;
+    this.searchIndex = new WorkspaceSearchIndex({
+      rgPath: () => this.rgPath,
+      excludeGlobArgs: () => searchExcludeGlobArgs(),
+      isSearchIgnored: relativePath => isSearchIgnoredRelativePath(relativePath, false),
+      pruneEmptyDirectoryScan: relativePath => shouldPruneDirectoryNameSearch(relativePath),
+    });
   }
 
   execFile(command: string, args: string[], options: CommandExecutionOptions = {}) {
@@ -1825,35 +1847,29 @@ class WorkspaceFileService {
       '--exclude-standard',
       ...gitSearchExcludePathspecArgs(true, searchPath),
     ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER, signal });
-    const scoredMatches = [];
-    const seenMatchPaths = new Set();
+    const scoredMatches: PathSearchMatch[] = [];
+    const seenMatchPaths = new Set<string>();
+    const seenDirectories = new Set<string>();
     let truncated = false;
 
     for (const line of String(stdout).split('\n')) {
       const filePath = normalizeSearchResultPath(line);
       if (!filePath || isSearchIgnoredRelativePath(filePath, true)) continue;
-      for (const match of pathSearchMatchesForFile(filePath, query, true)) {
+      for (const match of pathSearchMatchesForFile(filePath, query, true, true, isLikelyPathQuery(query), seenDirectories)) {
         if (seenMatchPaths.has(match.path)) continue;
         seenMatchPaths.add(match.path);
         scoredMatches.push(match);
         if (scoredMatches.length >= candidateLimit) {
           truncated = true;
-          break;
+          scoredMatches.sort(comparePathSearchMatches);
+          for (const removed of scoredMatches.splice(limit)) seenMatchPaths.delete(removed.path);
         }
       }
-      if (truncated) break;
     }
 
     scoredMatches.sort(comparePathSearchMatches);
     return {
-      matches: scoredMatches.slice(0, limit).map(match => ({
-        kind: 'path',
-        entryType: match.entryType,
-        path: match.path,
-        lineNumber: 1,
-        lines: '',
-        ranges: [],
-      })),
+      matches: scoredMatches.slice(0, limit).map(toPublicPathSearchMatch),
       truncated,
     };
   }
@@ -1890,7 +1906,8 @@ class WorkspaceFileService {
       let settled = false;
       let truncated = false;
       const scoredMatches: PathSearchMatch[] = [];
-      const seenMatchPaths = new Set();
+      const seenMatchPaths = new Set<string>();
+      const seenDirectories = new Set<string>();
 
       const settle = (error?: unknown) => {
         if (settled) return;
@@ -1904,12 +1921,8 @@ class WorkspaceFileService {
         scoredMatches.sort(comparePathSearchMatches);
         resolve({
           matches: scoredMatches.slice(0, limit).map(match => ({
-            kind: 'path',
-            entryType: match.entryType,
-            path: match.path,
-            lineNumber: 1,
-            lines: '',
-            ranges: [],
+            ...toPublicPathSearchMatch(match),
+            score: match.score,
           })),
           truncated,
         });
@@ -1931,22 +1944,20 @@ class WorkspaceFileService {
       const processLine = (line: unknown) => {
         const filePath = normalizeSearchResultPath(line);
         if (!filePath || isSearchIgnoredRelativePath(filePath)) return;
-        for (const match of pathSearchMatchesForFile(filePath, query, false, includeDirectories, allowPathMatch)) {
+        for (const match of pathSearchMatchesForFile(filePath, query, false, includeDirectories, allowPathMatch, seenDirectories)) {
           if (seenMatchPaths.has(match.path)) continue;
           seenMatchPaths.add(match.path);
           scoredMatches.push(match);
           if (scoredMatches.length >= candidateLimit) {
-            if (!includeDirectories) {
-              // Global file search ranks the complete stream within its deadline.
-              // Keep memory bounded without letting an early prefix match hide
-              // a later exact directory or filename match.
-              truncated = true;
-              scoredMatches.sort(comparePathSearchMatches);
-              for (const removed of scoredMatches.splice(limit)) seenMatchPaths.delete(removed.path);
-              continue;
+            if (stopAtLimit) {
+              stopEarly();
+              return;
             }
-            stopEarly();
-            return;
+            // Rank the complete stream within its deadline while keeping memory
+            // bounded so early prefix matches never hide later exact matches.
+            truncated = true;
+            scoredMatches.sort(comparePathSearchMatches);
+            for (const removed of scoredMatches.splice(limit)) seenMatchPaths.delete(removed.path);
           }
         }
       };
@@ -2002,23 +2013,29 @@ class WorkspaceFileService {
     query: unknown,
     limit: number,
     timeout: number,
-    stopAtLimit = false,
+    _stopAtLimit = false,
     signal?: AbortSignal,
     includeDirectories = true,
     allowPathMatch = isLikelyPathQuery(query),
   ): Promise<PathSearchResult> {
-    return await this.streamPathMatches(
-      this.rgPath,
-      root,
-      searchPath,
-      query,
-      limit,
-      timeout,
-      stopAtLimit,
-      signal,
+    const queryText = String(query || '');
+    const result = await this.searchIndex.search(root, queryText, {
+      includeFiles: true,
       includeDirectories,
-      allowPathMatch,
-    );
+      includeSearchIgnoredDirectories: false,
+      allowPathMatch: allowPathMatch || queryText.trim().includes(' '),
+      limit,
+      pathPrefix: searchPath === '.' ? '' : searchPath,
+      signal,
+      timeoutMs: timeout,
+    });
+    return {
+      matches: result.matches.map(match => ({
+        ...toPublicPathSearchMatch(match),
+        score: match.score,
+      })),
+      truncated: result.truncated,
+    };
   }
 
   async collectDirectoryNameMatchCandidates(
@@ -2031,70 +2048,24 @@ class WorkspaceFileService {
     allowPathMatch = isLikelyPathQuery(query),
     pruneDirectory: (relativePath: unknown) => boolean = shouldPruneDirectoryNameSearch,
   ): Promise<PathSearchResult> {
-    const candidateLimit = Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
-    const startRelativePath = searchPath === '.' ? '' : normalizeSearchResultPath(searchPath);
-    const startDirectory = path.resolve(root, startRelativePath || '.');
-    const queue = [{ target: startDirectory, relativePath: startRelativePath }];
-    const scoredMatches = [];
-    const seenMatchPaths = new Set();
-    let visited = 0;
-    let truncated = false;
-
-    while (queue.length > 0) {
-      signal?.throwIfAborted();
-      if (Date.now() >= deadline) {
-        truncated = true;
-        break;
-      }
-      if (visited >= candidateLimit * 4) {
-        truncated = true;
-        break;
-      }
-
-      const current = queue.shift();
-      if (!current || pruneDirectory(current.relativePath)) continue;
-      visited += 1;
-
-      let entries;
-      try {
-        entries = await fsp.readdir(current.target, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      signal?.throwIfAborted();
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const childRelativePath = normalizeSearchResultPath(
-          current.relativePath ? `${current.relativePath}/${entry.name}` : entry.name
-        );
-        if (!childRelativePath || pruneDirectory(childRelativePath)) continue;
-        const childTarget = path.join(current.target, entry.name);
-        const match = directoryNameSearchMatchForPath(childRelativePath, query, allowPathMatch);
-        if (match && !seenMatchPaths.has(match.path)) {
-          seenMatchPaths.add(match.path);
-          scoredMatches.push(match);
-          if (scoredMatches.length >= candidateLimit) {
-            truncated = true;
-            break;
-          }
-        }
-        queue.push({ target: childTarget, relativePath: childRelativePath });
-      }
-      if (truncated) break;
-    }
-
-    scoredMatches.sort(comparePathSearchMatches);
+    const queryText = String(query || '');
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const result = await this.searchIndex.search(root, queryText, {
+      includeFiles: false,
+      includeDirectories: true,
+      includeSearchIgnoredDirectories: pruneDirectory === shouldPruneDirectoryNameSearch,
+      allowPathMatch: allowPathMatch || queryText.trim().includes(' '),
+      limit,
+      pathPrefix: searchPath === '.' ? '' : searchPath,
+      signal,
+      timeoutMs: remainingMs,
+    });
     return {
-      matches: scoredMatches.slice(0, limit).map(match => ({
-        kind: 'path',
-        entryType: 'directory',
-        path: match.path,
-        lineNumber: 1,
-        lines: '',
-        ranges: [],
+      matches: result.matches.map(match => ({
+        ...toPublicPathSearchMatch(match),
+        score: match.score,
       })),
-      truncated,
+      truncated: result.truncated,
     };
   }
 
@@ -2542,6 +2513,7 @@ class WorkspaceFileService {
     for (const cachedRoot of this.gitStatusCache.keys()) {
       if (isInside(root, cachedRoot) || isInside(cachedRoot, root)) this.gitStatusCache.delete(cachedRoot);
     }
+    this.searchIndex.invalidate(root);
   }
 
   async loadGitStatusByPath(root: string, options: Record<string, unknown> = {}): Promise<GitStatusMap> {
@@ -3210,11 +3182,12 @@ class WorkspaceFileService {
   }
 
   async readFile(workspaceRoot: unknown, userPath: unknown, options: ResolvePathOptions = {}) {
-    const { target, relativePath, external, readOnly, symbolicLink } = await this.resolvePath(workspaceRoot, userPath, options);
+    const { root, target, relativePath, external, readOnly, symbolicLink } = await this.resolvePath(workspaceRoot, userPath, options);
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
     }
+    this.searchIndex.recordPathAccess(root, relativePath);
     const preview = previewForPath(relativePath);
     if (preview) {
       if (stat.size > this.maxPreviewFileSize) {
@@ -3863,6 +3836,15 @@ class WorkspaceFileService {
     };
   }
 
+  async warmSearchIndex(workspaceRoot: unknown): Promise<void> {
+    try {
+      const root = await this.resolveRoot(workspaceRoot);
+      await this.searchIndex.warm(root);
+    } catch {
+      // Pre-warming is best-effort; explicit search calls surface actionable errors.
+    }
+  }
+
   async search(workspaceRoot: unknown, query: unknown, options: Record<string, unknown> = {}) {
     if (typeof query !== 'string' || !query.trim()) {
       throw new WorkspaceFileError('query is required', 400);
@@ -3878,6 +3860,7 @@ class WorkspaceFileService {
     const includeIgnored = options.includeIgnored === true;
     const filePathOnly = options.scope === 'file-path';
     const likelyPathQuery = isLikelyPathQuery(query);
+    const multiTokenQuery = query.trim().includes(' ');
     const result = (matches: unknown[], truncated: boolean) => ({
       query,
       path: searchPath,
@@ -3899,24 +3882,46 @@ class WorkspaceFileService {
             const stat = await fsp.stat(resolved.target);
             signal?.throwIfAborted();
             if (stat.isFile() || stat.isDirectory()) {
-              return result([{ kind: 'path', entryType: stat.isDirectory() ? 'directory' : 'file', path: resolved.relativePath }], false);
+              return result([{
+                kind: 'path',
+                entryType: stat.isDirectory() ? 'directory' : 'file',
+                path: resolved.relativePath,
+                lineNumber: 1,
+                lines: '',
+                ranges: resolved.relativePath ? [{ start: 0, end: resolved.relativePath.length }] : [],
+              }], false);
             }
           }
         } catch (error) {
           if (signal?.aborted) throw error;
         }
       }
-      const [files, directories] = await Promise.all([
-        this.collectPathMatchCandidates(root, searchPath, entryQuery, limit, remainingMs(), false, signal, false, pathQuery),
-        this.collectDirectoryNameMatchCandidates(root, searchPath, entryQuery, limit, deadline, signal, pathQuery, isSearchIgnoredRelativePath),
-      ]);
+      const allowEntryPathMatch = pathQuery || entryQuery.includes(' ');
+      let files: { matches: PathSearchMatch[]; truncated: boolean };
+      let directories: { matches: PathSearchMatch[]; truncated: boolean };
+      try {
+        [files, directories] = await Promise.all([
+          this.collectPathMatchCandidates(root, searchPath, entryQuery, limit, remainingMs(), false, signal, false, allowEntryPathMatch),
+          this.collectDirectoryNameMatchCandidates(root, searchPath, entryQuery, limit, deadline, signal, allowEntryPathMatch, isSearchIgnoredRelativePath),
+        ]);
+      } catch (caught: unknown) {
+        if (signal?.aborted) throw caught;
+        const error = processError(caught);
+        if (error.code === 'ENOENT') {
+          throw new WorkspaceFileError('Farming managed ripgrep is missing or not executable', 503);
+        }
+        if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+          return result([], true);
+        }
+        throw caught;
+      }
       signal?.throwIfAborted();
-      const rootMatches = !relativePath && !pathQuery
+      const rootMatches = !relativePath && !pathQuery && !entryQuery.includes(' ')
         && directoryNameSearchScore(path.basename(root), entryQuery, false) !== null;
       const directoryMatches = rootMatches
-        ? [{ kind: 'path', entryType: 'directory', path: '' }, ...directories.matches]
-        : directories.matches;
-      return result([...directoryMatches.slice(0, limit), ...files.matches],
+        ? [toPublicPathSearchMatch({ entryType: 'directory', path: '' }), ...directories.matches.map(toPublicPathSearchMatch)]
+        : directories.matches.map(toPublicPathSearchMatch);
+      return result([...directoryMatches.slice(0, limit), ...files.matches.map(toPublicPathSearchMatch)],
         files.truncated || directories.truncated || directoryMatches.length >= limit || files.matches.length >= limit);
     }
     let pathMatchCandidates: PathSearchMatch[] = [];
@@ -3964,20 +3969,28 @@ class WorkspaceFileService {
         query,
         limit,
         remainingMs(),
-        likelyPathQuery && !filePathOnly,
+        false,
         signal,
         !filePathOnly,
-        filePathOnly || likelyPathQuery,
+        filePathOnly || likelyPathQuery || multiTokenQuery,
       );
       const directoryNameSearch = filePathOnly
         ? { matches: [], truncated: false }
         : Date.now() >= deadline
         ? { matches: [], truncated: true }
-        : await this.collectDirectoryNameMatchCandidates(root, searchPath, query, limit, deadline, signal);
+        : await this.collectDirectoryNameMatchCandidates(
+          root,
+          searchPath,
+          query,
+          limit,
+          deadline,
+          signal,
+          likelyPathQuery || multiTokenQuery,
+        );
       pathMatchCandidates = dedupePathMatches([
         ...directoryNameSearch.matches,
         ...pathSearch.matches,
-      ], limit);
+      ], limit).map(toPublicPathSearchMatch);
       searchOutputTruncated = pathSearch.truncated || directoryNameSearch.truncated;
     } catch (caught: unknown) {
       if (signal?.aborted) throw caught;
@@ -5001,6 +5014,7 @@ class WorkspaceFileService {
     this.disposed = true;
     for (const id of this.treeSnapshots.keys()) this.releaseTreeSnapshot(id);
     await this.treeIndex.dispose();
+    this.searchIndex.dispose();
     this.blameSnapshots.clear();
     this.historySnapshots.clear();
     const watchers = Array.from(this.watchers.values());

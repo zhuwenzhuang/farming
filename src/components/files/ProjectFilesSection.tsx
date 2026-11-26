@@ -216,7 +216,7 @@ export function ProjectFilesSection({
   const filesRefreshResetTimerRef = useRef<number | null>(null)
   const [filesRefreshStatus, setFilesRefreshStatus] = useState<FileSectionRefreshStatus>('idle')
   const [filesRefreshError, setFilesRefreshError] = useState<string | null>(null)
-  const fileSearch = useWorkspaceFileSearch(agentId)
+  const fileSearch = useWorkspaceFileSearch(agentId, projectWorkspace)
   const fileSearchListboxId = `code-file-search-results-${safeDomIdPart(projectId)}`
 
   const {

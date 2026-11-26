@@ -316,7 +316,12 @@ import { AttachmentUploadStore, createAttachmentUploadHandler } from './attachme
 import { createDocumentAttachmentHandler } from './document-attachment.cjs';
 import { ATTACHMENT_FILENAME_RE } from './attachment-upload.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
-import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
+import {
+  agentExtensionInventoryCacheFile,
+  agentSessionInventoryCacheFile,
+  agentSessionSearchIndexFile,
+} from './storage-layout.cjs';
+import { AgentSessionSearchIndex } from './agent-session-search-index.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
 import { createUpdateRouter } from './update-router.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
@@ -421,6 +426,10 @@ server.on('close', () => interactionPerformance.dispose());
 const agentSessionInventory = new AgentSessionInventory({
   cacheFile: agentSessionInventoryCacheFile(configManager.farmingDir),
 });
+const agentSessionSearchIndex = new AgentSessionSearchIndex({
+  dbFile: agentSessionSearchIndexFile(configManager.farmingDir),
+});
+server.on('close', () => agentSessionSearchIndex.dispose());
 const agentExtensionInventory = new AgentExtensionInventory({
   cacheFile: agentExtensionInventoryCacheFile(configManager.farmingDir),
 });
@@ -1327,7 +1336,10 @@ app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
   },
   getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),
   getSettings: () => configManager.getSettings(),
-  invalidate: () => agentSessionInventory.invalidate(),
+  invalidate: () => {
+    agentSessionInventory.invalidate();
+    agentSessionSearchIndex.invalidateSourceCache();
+  },
   listDisplayRecords: () => configManager.listAgentSessionRecords(),
   listSessions: () => currentAgentSessions(),
   publishStateMetadata: state => stateBroadcastScheduler.queueMetadata(state),
@@ -1337,6 +1349,7 @@ app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
   removeMainPageSessionKeys: sessionKeys => {
     configManager.removeMainPageSessionKeys([...sessionKeys]);
   },
+  searchSessions: (sessions, query, options) => agentSessionSearchIndex.search(sessions, query, options),
   setProviderSessionDisplayState: (sessionKey, patch) => {
     configManager.setProviderSessionDisplayState(sessionKey, patch);
   },
@@ -3109,6 +3122,7 @@ agentManager.onUpdate(stateBroadcastScheduler.queueChange);
 
 agentManager.on('provider-session-updated', () => {
   agentSessionInventory.invalidate();
+  agentSessionSearchIndex.invalidateSourceCache();
 });
 
 function broadcastAgentActivity(activity: AgentScopedServerEvent) {

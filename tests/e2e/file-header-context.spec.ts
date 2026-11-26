@@ -99,6 +99,34 @@ for (const appearance of ['light', 'dark', 'paper'] as const) {
     await search.fill('module-050')
     const results = page.getByTestId('code-file-search-results')
     await expect(results).toContainText('module-050.ts')
+    const resultsGeometry = await results.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const sidebar = document.querySelector<HTMLElement>('[data-testid="code-sidebar"]')
+      const sidebarRect = sidebar?.getBoundingClientRect()
+      return {
+        inBody: element.parentElement === document.body,
+        width: rect.width,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        sidebarRight: sidebarRect?.right ?? 0,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        background: getComputedStyle(element).backgroundColor,
+        sidebarBackground: sidebar ? getComputedStyle(sidebar).backgroundColor : '',
+      }
+    })
+    expect(resultsGeometry.inBody).toBe(true)
+    expect(resultsGeometry.width).toBeGreaterThanOrEqual(420)
+    expect(resultsGeometry.right).toBeGreaterThan(resultsGeometry.sidebarRight)
+    expect(resultsGeometry.right).toBeLessThanOrEqual(resultsGeometry.viewportWidth)
+    expect(resultsGeometry.bottom).toBeLessThanOrEqual(resultsGeometry.viewportHeight)
+    expect(resultsGeometry.background).not.toBe(resultsGeometry.sidebarBackground)
+    await testInfo.attach(`header-search-results-${appearance}`, {
+      body: await page.screenshot({ path: testInfo.outputPath(`header-search-results-${appearance}.png`) }),
+      contentType: 'image/png',
+    })
     await search.press('Escape')
     await expect(results).toHaveCount(0)
     await expect(search).toHaveValue('module-050')
@@ -251,6 +279,43 @@ test('Files search keeps IME, pending replies and project context independent', 
     await expect(second.getByTestId('code-file-header-path')).toHaveCount(0)
   } finally {
     releaseReply()
+  }
+})
+
+test('Files search shows fast interactive entry results before slow content search completes', async ({ page, workspaceRoot, isMobile }) => {
+  test.skip(isMobile, 'Desktop progressive file search scenario')
+  let releaseFullSearch = () => {}
+  let fullSearchHeld = false
+  const fullSearchReleased = new Promise<void>(resolve => { releaseFullSearch = resolve })
+  await interceptWorkspaceRequests(page, request => {
+    if (request.operation !== 'search' || request.scope === 'entries' || request.query !== 'module-05') return
+    return {
+      onResult: async result => {
+        fullSearchHeld = true
+        await fullSearchReleased
+        return result
+      },
+    }
+  })
+  try {
+    const { files } = await openHeaderWorkspace(page, workspaceRoot, 'paper')
+    const toggle = files.getByTestId('code-files-search-toggle')
+    const search = files.getByRole('combobox')
+    const results = page.getByTestId('code-file-search-results')
+    await toggle.click()
+    await search.fill('module-05')
+    await expect.poll(() => fullSearchHeld).toBe(true)
+    // Interactive entry search publishes matching files immediately while full search is still pending.
+    await expect(results).toContainText('module-050.ts')
+    await expect(results.getByTestId('code-file-search-content-loading')).toBeVisible()
+    await search.press('ArrowDown')
+    const selectedBeforeMerge = await results.locator('.code-file-search-result.active').getAttribute('title')
+    expect(selectedBeforeMerge).toBeTruthy()
+    releaseFullSearch()
+    await expect(results.getByTestId('code-file-search-content-loading')).toHaveCount(0)
+    await expect(results.locator('.code-file-search-result.active')).toHaveAttribute('title', selectedBeforeMerge!)
+  } finally {
+    releaseFullSearch()
   }
 })
 

@@ -693,6 +693,25 @@ async function run() {
       const rankedFiles = await service.search(rankedRoot, 'sql-insight', { scope: 'file-path', limit: 2 });
       assert.strictEqual(rankedFiles.matches[0].path, 'tools/sql-insight/SKILL.md');
       assert.strictEqual(rankedFiles.truncated, true);
+      const rankedDotRoot = path.join(workspace, 'ranked-project-search');
+      fs.mkdirSync(path.join(rankedDotRoot, 'aaa-my-buffer-notes'), { recursive: true });
+      fs.mkdirSync(path.join(rankedDotRoot, 'zzz-exact'), { recursive: true });
+      for (let index = 0; index < 80; index += 1) {
+        fs.writeFileSync(path.join(rankedDotRoot, 'aaa-my-buffer-notes', `other-${String(index).padStart(3, '0')}-buffer.h.bak`), 'export {}\n');
+      }
+      fs.writeFileSync(path.join(rankedDotRoot, 'zzz-exact', 'buffer.h'), '// exact header\n');
+      const rankedProjectDot = await service.search(rankedDotRoot, 'buffer.h', { limit: 5 });
+      assert.strictEqual(rankedProjectDot.matches[0].kind, 'path');
+      assert.strictEqual(rankedProjectDot.matches[0].entryType, 'file');
+      assert.strictEqual(rankedProjectDot.matches[0].path, 'zzz-exact/buffer.h');
+      const rankedProjectName = await service.search(rankedDotRoot, 'buffer.h', { limit: 10 });
+      assert(!('score' in rankedProjectName.matches[0]), 'internal search scores must not leak in results');
+      fs.mkdirSync(path.join(rankedDotRoot, 'contains-exactfile-dir'), { recursive: true });
+      fs.mkdirSync(path.join(rankedDotRoot, 'nested'), { recursive: true });
+      fs.writeFileSync(path.join(rankedDotRoot, 'nested', 'exactfile'), '// exact basename\n');
+      const rankedExactOverDirSubstring = await service.search(rankedDotRoot, 'exactfile', { limit: 10 });
+      assert.strictEqual(rankedExactOverDirSubstring.matches[0].path, 'nested/exactfile');
+      assert.strictEqual(rankedExactOverDirSubstring.matches[0].entryType, 'file');
       const entryRoot = path.join(workspace, 'entry-search');
       fs.mkdirSync(path.join(entryRoot, 'tools', 'sql-insight'), { recursive: true });
       fs.mkdirSync(path.join(entryRoot, 'archive', 'sql-insight'), { recursive: true });

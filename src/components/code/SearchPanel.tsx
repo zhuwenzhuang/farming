@@ -1,10 +1,15 @@
 import { AgentStatusIndicator } from './AgentStatusIndicator'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
-import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { ArrowLeftGlyph, CloseGlyph, FolderGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { iconForFilePath } from '@/lib/file-icons'
 import { agentDisplayName } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
+import {
+  normalizeTextRanges,
+  splitPathTextRanges,
+  type TextRange,
+} from '@/lib/workspace-file-search'
 import type { Agent } from '@/types/agent'
 import {
   agentSessionId,
@@ -290,7 +295,14 @@ export function SearchPanel({
                           ? <FolderGlyph className="code-search-file-icon" aria-hidden="true" />
                           : <img className="code-file-type-icon code-search-file-icon" src={iconForFilePath(match.path)} alt="" aria-hidden="true" />}
                         <span className="code-search-result-copy">
-                          <strong>{fileName(match.path) || match.projectName}</strong>
+                          <strong>
+                            {match.path && match.ranges?.length
+                              ? renderHighlightedSearchText(
+                                fileName(match.path),
+                                splitPathTextRanges(match.path, match.ranges).nameRanges,
+                              )
+                              : (fileName(match.path) || match.projectName)}
+                          </strong>
                           <SearchResultProjectName
                             name={match.projectName}
                             workspace={match.workspace}
@@ -299,7 +311,13 @@ export function SearchPanel({
                               .map(candidate => candidate.workspace)}
                             showWorkspace
                           />
-                          <span className="code-search-file-path">{opening ? (entryType === 'directory' ? copy.openingDirectory : copy.openingFile) : match.path || '.'}</span>
+                          <span className="code-search-file-path">
+                            {opening
+                              ? (entryType === 'directory' ? copy.openingDirectory : copy.openingFile)
+                              : (match.path && match.ranges?.length
+                                ? renderHighlightedSearchText(match.path, match.ranges)
+                                : (match.path || '.'))}
+                          </span>
                         </span>
                       </button>
                     )
@@ -362,6 +380,14 @@ export function SearchPanel({
                         <span className="code-search-result-copy">
                           <strong>{session.title || copy.sessionFallbackTitle(session.providerName)}</strong>
                           <span className="code-search-session-detail">{sessionDetail}</span>
+                          {session.searchSnippet ? (
+                            <span
+                              className="code-search-session-snippet"
+                              data-testid="code-session-search-snippet"
+                            >
+                              {renderHighlightedSearchText(session.searchSnippet, session.searchSnippetRanges)}
+                            </span>
+                          ) : null}
                           {agentSessionWorkingDirectory(session) && agentSessionWorkingDirectory(session) !== project.workspace ? (
                             <span className="code-search-working-directory">
                               {copy.searchWorkingDirectory}: {formatWorkspaceForDisplay(agentSessionWorkingDirectory(session))}
@@ -379,6 +405,24 @@ export function SearchPanel({
       ) : null}
     </div>
   )
+}
+
+function renderHighlightedSearchText(text: string, ranges: readonly TextRange[] = []): ReactNode {
+  const normalizedRanges = normalizeTextRanges(text, ranges)
+  if (normalizedRanges.length === 0) return text
+  const parts: ReactNode[] = []
+  let cursor = 0
+  normalizedRanges.forEach((range, index) => {
+    if (range.start > cursor) parts.push(text.slice(cursor, range.start))
+    parts.push(
+      <span key={`${range.start}:${range.end}:${index}`} className="code-search-highlight">
+        {text.slice(range.start, range.end)}
+      </span>
+    )
+    cursor = range.end
+  })
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return parts
 }
 
 function fileName(filePath: string) {

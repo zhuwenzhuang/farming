@@ -163,7 +163,49 @@ export function normalizeTextRanges(text: string, ranges: readonly TextRange[]):
   return normalizedRanges
 }
 
+export function splitPathTextRanges(
+  pathText: string,
+  ranges: readonly TextRange[] = [],
+): { directoryRanges: TextRange[]; nameRanges: TextRange[] } {
+  const normalized = pathText.replace(/\\/g, '/')
+  const slashIndex = normalized.lastIndexOf('/')
+  const normalizedRanges = normalizeTextRanges(normalized, ranges)
+  if (slashIndex === -1) {
+    return { directoryRanges: [], nameRanges: normalizedRanges }
+  }
+  const nameStart = slashIndex + 1
+  const directoryRanges: TextRange[] = []
+  const nameRanges: TextRange[] = []
+  for (const range of normalizedRanges) {
+    if (range.start < slashIndex) {
+      directoryRanges.push({
+        start: range.start,
+        end: Math.min(slashIndex, range.end),
+      })
+    }
+    if (range.end > nameStart) {
+      nameRanges.push({
+        start: Math.max(0, range.start - nameStart),
+        end: range.end - nameStart,
+      })
+    }
+  }
+  return { directoryRanges, nameRanges }
+}
+
 export function pathSearchTextRanges(pathText: string, query: string): TextRange[] {
-  const range = queryTextRange(pathText, query)
-  return range ? [range] : fuzzyPathTextRanges(pathText, query)
+  const trimmed = query.trim().replace(/^\.\/+/, '')
+  if (!pathText || !trimmed) return []
+  const tokens = trimmed.split(/\s+/).filter(Boolean)
+  if (tokens.length > 1) {
+    const ranges: TextRange[] = []
+    for (const token of tokens) {
+      const range = queryTextRange(pathText, token)
+      if (range) ranges.push(range)
+      else ranges.push(...fuzzyPathTextRanges(pathText, token))
+    }
+    return normalizeTextRanges(pathText, ranges)
+  }
+  const range = queryTextRange(pathText, trimmed)
+  return range ? [range] : fuzzyPathTextRanges(pathText, trimmed)
 }

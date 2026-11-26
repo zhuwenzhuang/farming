@@ -521,6 +521,42 @@ async function run(): Promise<void> {
     assert.strictEqual(malformedMembership.status, 400);
     assert.deepStrictEqual(events, [], 'invalid membership mutations must not reach the store');
 
+    // Verify optional full-text searchSessions port delegates and preserves snippets + display pin states.
+    const ftsApp = express();
+    ftsApp.use('/api', createAgentSessionRouter({
+      ...service,
+      async searchSessions(allSessions, query) {
+        assert.strictEqual(query, 'oom');
+        return {
+          query: 'oom',
+          scope: 'id-title-project-content',
+          total: 1,
+          sessions: [{
+            ...allSessions[0],
+            searchMatchSource: 'content',
+            searchSnippet: 'Investigated OOM inside columnar buffer',
+            searchSnippetRanges: [{ start: 13, end: 16 }],
+          }],
+        };
+      },
+    }));
+    const ftsServer = await new Promise<HttpServer>(resolve => {
+      const listener = ftsApp.listen(0, () => resolve(listener));
+    });
+    try {
+      const ftsResponse = await fetch(`http://127.0.0.1:${serverPort(ftsServer)}/api/agent-sessions/search?q=oom`);
+      assert.strictEqual(ftsResponse.status, 200);
+      const ftsBody = await ftsResponse.json() as SearchResponse;
+      assert.strictEqual(ftsBody.scope, 'id-title-project-content');
+      assert.strictEqual(ftsBody.total, 1);
+      assert.strictEqual(ftsBody.sessions[0].id, 'session-alpha');
+      assert.strictEqual(ftsBody.sessions[0].pinned, true);
+      assert.strictEqual(ftsBody.sessions[0].searchMatchSource, 'content');
+      assert.strictEqual(ftsBody.sessions[0].searchSnippet, 'Investigated OOM inside columnar buffer');
+    } finally {
+      await closeServer(ftsServer);
+    }
+
     console.log('agent session router behavior passed');
   } finally {
     console.error = originalConsoleError;

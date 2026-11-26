@@ -116,6 +116,24 @@
   text-overflow: ellipsis;
 }
 
+.code-history-session-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--code-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.code-history-highlight {
+  color: var(--code-accent);
+  font-weight: 600;
+}
+
 .code-history-open-marker {
   display: inline-block;
   border-radius: 999px;

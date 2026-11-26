@@ -11,7 +11,31 @@ import {
 export const WORKSPACE_FILE_SEARCH_LIMIT = 60
 const DEFAULT_SEARCH_TIMEOUT_MS = 3000
 
-export function useWorkspaceFileSearch(agentId: string | null) {
+function isAbsoluteWorkspaceQuery(value: string) {
+  return value.startsWith('/') || /^[A-Za-z]:\//.test(value)
+}
+
+export function normalizeProjectFileSearchQuery(query: string, projectWorkspace?: string) {
+  const trimmed = query.trim()
+  if (!trimmed || !projectWorkspace) return trimmed
+  const normalizedQuery = trimmed.replace(/\\/g, '/')
+  if (!isAbsoluteWorkspaceQuery(normalizedQuery)) return trimmed
+  const normalizedWorkspace = projectWorkspace.trim().replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+  if (normalizedWorkspace === '/' || !isAbsoluteWorkspaceQuery(normalizedWorkspace)) return trimmed
+  const windowsPath = /^[A-Za-z]:\//.test(normalizedQuery) || /^[A-Za-z]:\//.test(normalizedWorkspace)
+  const comparableQuery = windowsPath ? normalizedQuery.toLowerCase() : normalizedQuery
+  const comparableWorkspace = windowsPath ? normalizedWorkspace.toLowerCase() : normalizedWorkspace
+  if (comparableQuery.startsWith(`${comparableWorkspace}/`)) {
+    return normalizedQuery.slice(normalizedWorkspace.length + 1)
+  }
+  return trimmed
+}
+
+function searchMatchIdentity(match: WorkspaceFileSearchMatch) {
+  return `${match.kind}:${match.entryType}:${match.path}:${match.lineNumber}`
+}
+
+export function useWorkspaceFileSearch(agentId: string | null, projectWorkspace?: string) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
@@ -23,17 +47,26 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   const [scopePath, setScopePath] = useState('')
   const [matches, setMatches] = useState<WorkspaceFileSearchMatch[]>([])
   const [loading, setLoading] = useState(false)
+  const [contentLoading, setContentLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectionIndex, setSelectionIndex] = useState(0)
   const [truncated, setTruncated] = useState(false)
   const [timeoutMs, setTimeoutMs] = useState(DEFAULT_SEARCH_TIMEOUT_MS)
   const [includeIgnored, setIncludeIgnored] = useState(false)
   const requestRef = useRef(0)
+  const matchesRef = useRef<WorkspaceFileSearchMatch[]>([])
+  const selectionIndexRef = useRef(0)
+  matchesRef.current = matches
+  selectionIndexRef.current = selectionIndex
 
-  const active = query.trim().length > 0 && !suggestionsDismissed
+  const normalizedQuery = useMemo(
+    () => normalizeProjectFileSearchQuery(query, projectWorkspace),
+    [projectWorkspace, query],
+  )
+  const active = normalizedQuery.length > 0 && !suggestionsDismissed
   const jumpTarget = useMemo<WorkspaceFileJumpQuery | null>(() => (
-    active ? parseWorkspaceFileJumpQuery(query) : null
-  ), [active, query])
+    active ? parseWorkspaceFileJumpQuery(normalizedQuery) : null
+  ), [active, normalizedQuery])
   const activeMatchIndex = matches.length > 0
     ? Math.min(selectionIndex, matches.length - 1)
     : -1
@@ -52,6 +85,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     setTimeoutMs(DEFAULT_SEARCH_TIMEOUT_MS)
     setIncludeIgnored(false)
     setLoading(false)
+    setContentLoading(false)
   }, [])
 
   const setSearchQuery = useCallback((nextQuery: string) => {
@@ -90,7 +124,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   }, [matches.length])
 
   useEffect(() => {
-    const trimmedQuery = query.trim()
+    const trimmedQuery = normalizedQuery
     const requestId = requestRef.current + 1
     requestRef.current = requestId
     setSelectionIndex(0)
@@ -98,35 +132,106 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     if (!agentId || !trimmedQuery || parseWorkspaceFileJumpQuery(trimmedQuery)) {
       setMatches([])
       setLoading(false)
+      setContentLoading(false)
       setError(null)
       setTruncated(false)
       return undefined
     }
 
     setLoading(true)
+    setContentLoading(false)
     setError(null)
     const abortController = new AbortController()
     const timeoutId = window.setTimeout(() => {
-      searchWorkspaceFiles(agentId, trimmedQuery, {
-        includeIgnored,
+      const commonOptions = {
         ...(scopePath ? { path: scopePath } : {}),
         limit: WORKSPACE_FILE_SEARCH_LIMIT,
         signal: abortController.signal,
+      }
+
+      if (includeIgnored) {
+        searchWorkspaceFiles(agentId, trimmedQuery, {
+          ...commonOptions,
+          includeIgnored: true,
+        })
+          .then(results => {
+            if (requestRef.current !== requestId) return
+            setMatches(results.matches)
+            setTruncated(results.truncated)
+            setTimeoutMs(results.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS)
+            setLoading(false)
+            setContentLoading(false)
+          })
+          .catch(searchError => {
+            if (requestRef.current !== requestId) return
+            if (searchError instanceof DOMException && searchError.name === 'AbortError') return
+            setMatches([])
+            setTruncated(false)
+            setError(searchError instanceof Error ? searchError.message : 'Search failed')
+            setLoading(false)
+            setContentLoading(false)
+          })
+        return
+      }
+
+      let fullSettled = false
+      let entriesPublished = false
+
+      // Run interactive filename/directory search alongside the full content
+      // search so path hits appear immediately without waiting behind
+      // background Git work or a full-repo ripgrep content scan.
+      searchWorkspaceFiles(agentId, trimmedQuery, {
+        ...commonOptions,
+        scope: 'entries',
       })
+        .then(entryResults => {
+          if (requestRef.current !== requestId || fullSettled) return
+          if (entryResults.matches.length === 0) return
+          entriesPublished = true
+          setMatches(entryResults.matches.slice(0, WORKSPACE_FILE_SEARCH_LIMIT))
+          setTruncated(entryResults.truncated || entryResults.matches.length > WORKSPACE_FILE_SEARCH_LIMIT)
+          setTimeoutMs(entryResults.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS)
+          setLoading(false)
+          setContentLoading(true)
+        })
+        .catch(() => {
+          // The authoritative full search owns errors and empty states.
+        })
+
+      searchWorkspaceFiles(agentId, trimmedQuery, commonOptions)
         .then(results => {
           if (requestRef.current !== requestId) return
+          fullSettled = true
+          const previousMatches = matchesRef.current
+          const previousSelected = entriesPublished && previousMatches.length > 0
+            ? previousMatches[Math.min(selectionIndexRef.current, previousMatches.length - 1)] ?? null
+            : null
+          const nextSelectionIndex = previousSelected
+            ? results.matches.findIndex(match => searchMatchIdentity(match) === searchMatchIdentity(previousSelected))
+            : 0
           setMatches(results.matches)
+          setSelectionIndex(nextSelectionIndex >= 0 ? nextSelectionIndex : 0)
           setTruncated(results.truncated)
           setTimeoutMs(results.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS)
           setLoading(false)
+          setContentLoading(false)
+          setError(null)
         })
         .catch(searchError => {
           if (requestRef.current !== requestId) return
           if (searchError instanceof DOMException && searchError.name === 'AbortError') return
+          fullSettled = true
+          if (entriesPublished) {
+            setTruncated(true)
+            setLoading(false)
+            setContentLoading(false)
+            return
+          }
           setMatches([])
           setTruncated(false)
           setError(searchError instanceof Error ? searchError.message : 'Search failed')
           setLoading(false)
+          setContentLoading(false)
         })
     }, 180)
 
@@ -134,7 +239,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
       window.clearTimeout(timeoutId)
       abortController.abort()
     }
-  }, [agentId, includeIgnored, query, scopePath])
+  }, [agentId, includeIgnored, normalizedQuery, scopePath])
 
   useEffect(() => {
     setSelectionIndex(index => Math.min(index, Math.max(matches.length - 1, 0)))
@@ -145,11 +250,13 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     open,
     dismissSuggestions,
     query,
+    normalizedQuery,
     scopePath,
     setQuery: setSearchQuery,
     searchInDirectory,
     matches,
     loading,
+    contentLoading,
     error,
     selectMatchIndex,
     truncated,
@@ -170,10 +277,12 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     active,
     activeMatchIndex,
     clear,
+    contentLoading,
     error,
     jumpTarget,
     loading,
     matches,
+    normalizedQuery,
     includeIgnored,
     searchIgnored,
     query,
