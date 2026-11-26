@@ -166,6 +166,20 @@ async function run(): Promise<void> {
       (error: { statusCode?: number }) => error?.statusCode === 400,
     );
 
+    // 11. Short 3-char queries reject scattered non-acronym matches like "con" in "mcp-oauth-token-management".
+    fs.mkdirSync(path.join(tmpRoot, '.agents', 'skills', 'mcp-oauth-token-management'), { recursive: true });
+    fs.writeFileSync(path.join(tmpRoot, '.agents', 'skills', 'mcp-oauth-token-management', 'SKILL.md'), '# skill\n');
+    fs.writeFileSync(path.join(tmpRoot, 'context.txt'), 'context\n');
+    const shortEntries = await service.search(tmpRoot, 'con', { scope: 'entries', limit: 10 });
+    assert(
+      shortEntries.matches.some((m: { path: string }) => m.path === 'context.txt'),
+      'exact prefix file must be present in entry search results',
+    );
+    assert(
+      !shortEntries.matches.some((m: { path: string }) => m.path.includes('mcp-oauth-token-management')),
+      '3-char non-acronym query must not match unrelated directory with zero consecutive characters',
+    );
+
     console.log('✓ WorkspaceSearchIndex in-memory caching, multi-token, long fuzzy, Smart Case, MRU, content search, and invalidation passed');
   } finally {
     await service.dispose();

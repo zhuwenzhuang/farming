@@ -417,7 +417,7 @@ function fuzzyAlignToken(
     }
     const isRealAcronym = realWordBoundaryHits === tokenLen;
     if (!isRealAcronym) {
-      if (tokenLen >= 5 && consecutivePairs === 0) return null;
+      if (tokenLen >= 3 && consecutivePairs === 0) return null;
       if (tokenLen >= 5 && consecutivePairs < Math.floor(tokenLen / 3) && span > tokenLen * 4) return null;
       if (startOffset === 0 && basenameOffset > 0 && positions[0] < basenameOffset && span > Math.max(24, tokenLen * 4)) {
         return null;
